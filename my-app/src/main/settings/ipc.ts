@@ -16,8 +16,14 @@ import { app, ipcMain } from 'electron';
 import { mainLogger } from '../logger';
 import type { AccountStore } from '../identity/AccountStore';
 import type { KeychainStore } from '../identity/KeychainStore';
-import { getSettingsWindow } from './SettingsWindow';
+import { getSettingsWindow, openSettingsWindow } from './SettingsWindow';
 import { assertString, assertOneOf } from '../ipc-validators';
+import {
+  clearBrowsingData,
+  DATA_TYPES,
+  type DataType,
+  type ClearDataResult,
+} from '../privacy/ClearDataController';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,7 +67,9 @@ const CH_SET_THEME         = 'settings:set-theme';
 const CH_GET_OAUTH_SCOPES  = 'settings:get-oauth-scopes';
 const CH_RE_CONSENT_SCOPE  = 'settings:re-consent-scope';
 const CH_FACTORY_RESET     = 'settings:factory-reset';
-const CH_CLOSE_WINDOW      = 'settings:close-window';
+const CH_CLOSE_WINDOW        = 'settings:close-window';
+const CH_CLEAR_DATA          = 'privacy:clear-data';
+const CH_OPEN_CLEAR_DIALOG   = 'settings:open-clear-data-dialog';
 
 // ---------------------------------------------------------------------------
 // Module-level deps (set by registerSettingsHandlers)
@@ -405,6 +413,56 @@ async function handleFactoryReset(): Promise<void> {
   }
 }
 
+async function handleClearData(
+  _event: Electron.IpcMainInvokeEvent,
+  payload: { types: string[]; timeRangeMs: number },
+): Promise<ClearDataResult> {
+  mainLogger.info(CH_CLEAR_DATA, {
+    typeCount: Array.isArray(payload?.types) ? payload.types.length : 0,
+    timeRangeMs: payload?.timeRangeMs,
+  });
+
+  if (!Array.isArray(payload?.types)) {
+    throw new Error('types must be an array');
+  }
+  const validTypes: DataType[] = [];
+  for (const t of payload.types) {
+    const v = assertString(t, 'types[]', 32);
+    if ((DATA_TYPES as readonly string[]).includes(v)) {
+      validTypes.push(v as DataType);
+    } else {
+      throw new Error(`unknown data type: ${v}`);
+    }
+  }
+  const range = Number(payload?.timeRangeMs);
+  if (!Number.isFinite(range) || range < 0) {
+    throw new Error('timeRangeMs must be a non-negative number');
+  }
+
+  return clearBrowsingData({ types: validTypes, timeRangeMs: range });
+}
+
+/**
+ * Opens the settings window and asks the renderer to show the Clear Data dialog.
+ * Invoked by the menu accelerator (Cmd+Shift+Delete) via the shell menu click.
+ */
+export function openClearDataDialogFromMenu(): void {
+  mainLogger.info('privacy.openClearDataDialogFromMenu');
+  const win = openSettingsWindow();
+  // Renderer may not be ready yet on first open; wait for did-finish-load.
+  const send = (): void => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(CH_OPEN_CLEAR_DIALOG);
+      mainLogger.info('privacy.openClearDataDialogFromMenu.sent');
+    }
+  };
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}
+
 function handleCloseWindow(): void {
   mainLogger.info(CH_CLOSE_WINDOW);
   const win = getSettingsWindow();
@@ -438,9 +496,10 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
   ipcMain.handle(CH_GET_OAUTH_SCOPES, handleGetOAuthScopes);
   ipcMain.handle(CH_RE_CONSENT_SCOPE, handleReConsentScope);
   ipcMain.handle(CH_FACTORY_RESET,    handleFactoryReset);
+  ipcMain.handle(CH_CLEAR_DATA,       handleClearData);
   ipcMain.on(CH_CLOSE_WINDOW,         handleCloseWindow);
 
-  mainLogger.info('settings.ipc.register.ok', { channelCount: 11 });
+  mainLogger.info('settings.ipc.register.ok', { channelCount: 12 });
 }
 
 export function unregisterSettingsHandlers(): void {
@@ -456,6 +515,7 @@ export function unregisterSettingsHandlers(): void {
   ipcMain.removeHandler(CH_GET_OAUTH_SCOPES);
   ipcMain.removeHandler(CH_RE_CONSENT_SCOPE);
   ipcMain.removeHandler(CH_FACTORY_RESET);
+  ipcMain.removeHandler(CH_CLEAR_DATA);
   ipcMain.removeAllListeners(CH_CLOSE_WINDOW);
 
   _accountStore  = null;

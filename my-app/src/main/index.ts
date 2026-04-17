@@ -31,7 +31,7 @@ import { getApiKey } from './agentApiKey';
 import { assertString } from './ipc-validators';
 // Track 5 — Settings
 import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
-import { registerSettingsHandlers, unregisterSettingsHandlers } from './settings/ipc';
+import { registerSettingsHandlers, unregisterSettingsHandlers, openClearDataDialogFromMenu } from './settings/ipc';
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -426,6 +426,19 @@ function registerKeyboardShortcuts(): void {
         },
         { type: 'separator' },
         ...tabSwitchItems,
+      ],
+    },
+    {
+      label: 'History',
+      submenu: [
+        {
+          label: 'Clear Browsing Data…',
+          accelerator: 'CommandOrControl+Shift+Delete',
+          click: () => {
+            mainLogger.debug('shortcuts.clearBrowsingData');
+            openClearDataDialogFromMenu();
+          },
+        },
       ],
     },
     { role: 'editMenu' },

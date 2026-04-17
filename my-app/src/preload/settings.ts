@@ -31,6 +31,22 @@ export interface OAuthScopeStatus {
   granted: boolean;
 }
 
+export type ClearDataType =
+  | 'history'
+  | 'cookies'
+  | 'cache'
+  | 'downloads'
+  | 'passwords'
+  | 'autofill'
+  | 'siteSettings'
+  | 'hostedApp';
+
+export interface ClearDataResult {
+  cleared: ClearDataType[];
+  errors: Partial<Record<ClearDataType, string>>;
+  notes: Partial<Record<ClearDataType, string>>;
+}
+
 export interface SettingsAPI {
   /** Save API key to Keychain (never logged) */
   saveApiKey: (key: string) => Promise<void>;
@@ -61,6 +77,13 @@ export interface SettingsAPI {
 
   /** Perform factory reset — deletes all data, relaunches app */
   factoryReset: () => Promise<void>;
+
+  /** Clear browsing data for the specified types and time range */
+  clearBrowsingData: (req: { types: ClearDataType[]; timeRangeMs: number }) => Promise<ClearDataResult>;
+
+  /** Subscribe to 'open clear data dialog' events sent from the main process.
+   *  Returns an unsubscribe function. */
+  onOpenClearDataDialog: (handler: () => void) => () => void;
 
   /** Close the settings window */
   closeWindow: () => void;
@@ -119,6 +142,26 @@ const api: SettingsAPI = {
   factoryReset: async (): Promise<void> => {
     console.debug('[settings-preload] factoryReset');
     await ipcRenderer.invoke('settings:factory-reset');
+  },
+
+  clearBrowsingData: async (req: { types: ClearDataType[]; timeRangeMs: number }): Promise<ClearDataResult> => {
+    console.debug('[settings-preload] clearBrowsingData', {
+      typeCount: req?.types?.length ?? 0,
+      timeRangeMs: req?.timeRangeMs,
+    });
+    return ipcRenderer.invoke('privacy:clear-data', req) as Promise<ClearDataResult>;
+  },
+
+  onOpenClearDataDialog: (handler: () => void): (() => void) => {
+    console.debug('[settings-preload] onOpenClearDataDialog.subscribe');
+    const listener = (): void => {
+      console.debug('[settings-preload] onOpenClearDataDialog.event');
+      handler();
+    };
+    ipcRenderer.on('settings:open-clear-data-dialog', listener);
+    return () => {
+      ipcRenderer.removeListener('settings:open-clear-data-dialog', listener);
+    };
   },
 
   closeWindow: (): void => {
