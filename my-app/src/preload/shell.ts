@@ -4,12 +4,12 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { TabManagerState, TabState } from '../main/tabs/TabManager';
+import type { TabManagerState, TabState, ClosedTabRecord } from '../main/tabs/TabManager';
 
 // ---------------------------------------------------------------------------
 // Type re-exports for renderer consumption
 // ---------------------------------------------------------------------------
-export type { TabManagerState, TabState };
+export type { TabManagerState, TabState, ClosedTabRecord };
 
 // ---------------------------------------------------------------------------
 // electronAPI surface exposed to renderer
@@ -46,6 +46,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     getState: (): Promise<TabManagerState> =>
       ipcRenderer.invoke('tabs:get-state'),
+
+    reopenLastClosed: (): Promise<void> =>
+      ipcRenderer.invoke('tabs:reopen-last-closed'),
+
+    reopenClosedAt: (index: number): Promise<void> =>
+      ipcRenderer.invoke('tabs:reopen-closed-at', index),
+
+    getClosedTabs: (): Promise<ClosedTabRecord[]> =>
+      ipcRenderer.invoke('tabs:get-closed-tabs'),
   },
 
   // CDP info for agent integration
@@ -95,6 +104,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('tab-favicon-updated', handler);
       return () =>
         ipcRenderer.removeListener('tab-favicon-updated', handler);
+    },
+
+    closedTabsUpdated: (
+      cb: (records: ClosedTabRecord[]) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        records: ClosedTabRecord[],
+      ) => cb(records);
+      ipcRenderer.on('closed-tabs-updated', handler);
+      return () =>
+        ipcRenderer.removeListener('closed-tabs-updated', handler);
     },
 
     windowReady: (cb: () => void): (() => void) => {

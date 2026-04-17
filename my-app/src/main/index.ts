@@ -89,6 +89,13 @@ function openShellAndWire(): BrowserWindow {
   tabManager = new TabManager(shellWindow);
   tabManager.restoreSession();
 
+  // History menu's "Recently Closed" submenu is dynamic — rebuild the whole
+  // app menu whenever the closed-tabs stack mutates so the submenu reflects
+  // the latest 10 entries. The menu template itself is cheap to build.
+  tabManager.setOnClosedTabsChanged(() => {
+    rebuildApplicationMenu();
+  });
+
   setTimeout(async () => {
     if (tabManager) {
       const port = await tabManager.discoverCdpPort();
@@ -103,7 +110,7 @@ function openShellAndWire(): BrowserWindow {
     mainLogger.warn('main.hotkey', { msg: 'Cmd+K hotkey registration failed — another app may own it' });
   }
 
-  registerKeyboardShortcuts();
+  rebuildApplicationMenu();
 
   shellWindow.webContents.once('did-finish-load', () => {
     mainLogger.info('main.shellReady', { windowId: shellWindow?.id });
@@ -262,18 +269,40 @@ app.on('window-all-closed', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Keyboard shortcuts
+// Keyboard shortcuts + application menu
 // ---------------------------------------------------------------------------
-function registerKeyboardShortcuts(): void {
-  // IMPORTANT: tab shortcuts are APP-LOCAL accelerators on the Application Menu,
-  // NOT globalShortcut. globalShortcut captures the key combo system-wide and
-  // steals focus from other apps when the user hits Cmd+T / Cmd+W / etc.
-  // Menu accelerators only fire when THIS app is frontmost. See
-  // /Users/reagan/.claude/projects/-Users-reagan-Documents-GitHub-desktop-app/memory/.
-  // Cmd+K is still a globalShortcut (registered in Track B's hotkeys.ts) because
-  // it's the intended Wispr-style global pill trigger.
-  if (!shellWindow || !tabManager) return;
+// IMPORTANT: tab shortcuts are APP-LOCAL accelerators on the Application Menu,
+// NOT globalShortcut. globalShortcut captures the key combo system-wide and
+// steals focus from other apps when the user hits Cmd+T / Cmd+W / etc.
+// Menu accelerators only fire when THIS app is frontmost. See
+// /Users/reagan/.claude/projects/-Users-reagan-Documents-GitHub-desktop-app/memory/.
+// Cmd+K is still a globalShortcut (registered in Track B's hotkeys.ts) because
+// it's the intended Wispr-style global pill trigger.
+//
+// The application menu is rebuilt whenever the closed-tab stack changes so
+// the "History → Recently Closed" submenu stays fresh.
+const RECENTLY_CLOSED_MENU_LIMIT = 10;
 
+function buildRecentlyClosedSubmenu(): MenuItemConstructorOptions[] {
+  const closed = tabManager?.getClosedTabs() ?? [];
+  if (closed.length === 0) {
+    return [{ label: 'No Recently Closed Tabs', enabled: false }];
+  }
+  return closed.slice(0, RECENTLY_CLOSED_MENU_LIMIT).map((record, index) => ({
+    label: truncateLabel(record.title || record.url || 'Untitled'),
+    click: () => {
+      mainLogger.debug('shortcuts.reopenClosedAt', { index });
+      tabManager?.reopenClosedAt(index);
+    },
+  }));
+}
+
+function truncateLabel(text: string, max = 60): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + '…';
+}
+
+function buildMenuTemplate(): MenuItemConstructorOptions[] {
   const tabSwitchItems: MenuItemConstructorOptions[] = [];
   for (let i = 1; i <= 9; i++) {
     const idx = i - 1;
@@ -288,7 +317,7 @@ function registerKeyboardShortcuts(): void {
     });
   }
 
-  const template: MenuItemConstructorOptions[] = [
+  return [
     {
       role: 'appMenu',
       submenu: [
@@ -412,16 +441,38 @@ function registerKeyboardShortcuts(): void {
         ...tabSwitchItems,
       ],
     },
+    {
+      label: 'History',
+      submenu: [
+        {
+          label: 'Reopen Closed Tab',
+          accelerator: 'CommandOrControl+Shift+T',
+          click: () => {
+            mainLogger.debug('shortcuts.reopenLastClosed');
+            tabManager?.reopenLastClosed();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Recently Closed',
+          submenu: buildRecentlyClosedSubmenu(),
+        },
+      ],
+    },
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-
-  app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
-  });
 }
+
+function rebuildApplicationMenu(): void {
+  if (!shellWindow || !tabManager) return;
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate()));
+}
+
+// One-time: unregister globalShortcut on quit (registerHotkeys owns Cmd+K).
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
 
 function switchTabRelative(delta: number): void {
   if (!tabManager) return;

@@ -71,11 +71,18 @@ export class TabManager {
   private sessionStore: SessionStore;
   private cdpPort: number | null = null;
   private closedStack: ClosedTabRecord[] = [];
+  // Main-process observer (e.g. menu rebuilder) that needs to know when the
+  // closed-tabs stack mutates. Renderer gets a separate IPC broadcast.
+  private onClosedTabsChanged: (() => void) | null = null;
 
   constructor(win: BrowserWindow) {
     this.win = win;
     this.sessionStore = new SessionStore();
     this.registerIpcHandlers();
+  }
+
+  setOnClosedTabsChanged(cb: (() => void) | null): void {
+    this.onClosedTabsChanged = cb;
   }
 
   // ---------------------------------------------------------------------------
@@ -380,14 +387,14 @@ export class TabManager {
     if (this.closedStack.length > MAX_CLOSED) {
       this.closedStack.length = MAX_CLOSED;
     }
-    this.broadcastClosedTabs();
+    this.notifyClosedTabsChanged();
 
     // Best-effort scroll capture — races with view destruction, so catch + null.
     try {
       const scrollY = await wc.executeJavaScript('window.scrollY', true);
       if (typeof scrollY === 'number' && Number.isFinite(scrollY)) {
         record.scrollY = scrollY;
-        this.broadcastClosedTabs();
+        this.notifyClosedTabsChanged();
       }
     } catch {
       // view was destroyed before the JS eval resolved — leave scrollY as null
@@ -438,7 +445,7 @@ export class TabManager {
     }
     const record = this.closedStack.shift()!;
     this.restoreClosedRecord(record);
-    this.broadcastClosedTabs();
+    this.notifyClosedTabsChanged();
   }
 
   reopenClosedAt(index: number): void {
@@ -448,7 +455,7 @@ export class TabManager {
     }
     const [record] = this.closedStack.splice(index, 1);
     this.restoreClosedRecord(record);
-    this.broadcastClosedTabs();
+    this.notifyClosedTabsChanged();
   }
 
   getClosedTabs(): ClosedTabRecord[] {
@@ -457,7 +464,7 @@ export class TabManager {
 
   clearClosedTabs(): void {
     this.closedStack = [];
-    this.broadcastClosedTabs();
+    this.notifyClosedTabsChanged();
   }
 
   // NOTE: whole-window restore is out of scope — multi-window infra is not yet
@@ -480,11 +487,10 @@ export class TabManager {
     if (!view) return;
     const wc = view.webContents;
 
-    // One-shot post-load restore: replay back/forward stack + scroll position.
-    // Electron's public API doesn't let us inject a full history stack into a
-    // new WebContents, so history restore is a best-effort no-op today; the
-    // captured entries live on the record for future use. Scroll restore is
-    // feasible and helpful.
+    // One-shot post-load restore: replay scroll position. Electron's public
+    // API doesn't let us inject a full back/forward history stack into a new
+    // WebContents, so history restore is a best-effort no-op today; the
+    // captured entries live on the record for future use.
     const onFinishLoad = () => {
       wc.removeListener('did-finish-load', onFinishLoad);
       if (record.scrollY != null && record.scrollY > 0) {
@@ -724,8 +730,15 @@ export class TabManager {
     this.safeSend('tabs-state', state);
   }
 
-  private broadcastClosedTabs(): void {
+  private notifyClosedTabsChanged(): void {
     this.safeSend('closed-tabs-updated', this.getClosedTabs());
+    try {
+      this.onClosedTabsChanged?.();
+    } catch (err) {
+      mainLogger.warn('TabManager.onClosedTabsChanged.threw', {
+        error: (err as Error).message,
+      });
+    }
   }
 
   private safeSend(channel: string, payload: unknown): void {
