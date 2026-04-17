@@ -379,6 +379,10 @@ export class TabManager {
     this.navControllers.get(tabId)?.reload();
   }
 
+  reloadIgnoringCache(tabId: string): void {
+    this.navControllers.get(tabId)?.reloadIgnoringCache();
+  }
+
   goBackActive(): void {
     if (this.activeTabId) this.goBack(this.activeTabId);
   }
@@ -389,6 +393,11 @@ export class TabManager {
 
   reloadActive(): void {
     if (this.activeTabId) this.reload(this.activeTabId);
+  }
+
+  // Issue #25 — Hard reload bypasses the HTTP cache on the active tab.
+  reloadActiveIgnoringCache(): void {
+    if (this.activeTabId) this.reloadIgnoringCache(this.activeTabId);
   }
 
   // ---------------------------------------------------------------------------
@@ -617,6 +626,17 @@ export class TabManager {
       this.reload(tabId);
     });
 
+    // Issue #25 — hard reload IPC. Preferred path: pass tabId; fallback to
+    // the active tab when no id supplied (Shift-click on reload button in the
+    // shell toolbar uses the tabId form).
+    ipcMain.handle('tabs:reload-hard', (_e, tabId?: string) => {
+      if (tabId) {
+        this.reloadIgnoringCache(tabId);
+      } else {
+        this.reloadActiveIgnoringCache();
+      }
+    });
+
     ipcMain.handle('tabs:get-state', () => {
       return this.getState();
     });
@@ -640,6 +660,7 @@ export class TabManager {
     ipcMain.removeHandler('tabs:back');
     ipcMain.removeHandler('tabs:forward');
     ipcMain.removeHandler('tabs:reload');
+    ipcMain.removeHandler('tabs:reload-hard');
     ipcMain.removeHandler('tabs:get-state');
     ipcMain.removeHandler('tabs:get-active-cdp-url');
     ipcMain.removeHandler('tabs:get-active-target-id');

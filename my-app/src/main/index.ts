@@ -366,6 +366,15 @@ function registerKeyboardShortcuts(): void {
             tabManager?.reloadActive();
           },
         },
+        // Issue #25 — Hard reload (Cmd+Shift+R) bypasses the HTTP cache.
+        {
+          label: 'Force Reload',
+          accelerator: 'CommandOrControl+Shift+R',
+          click: () => {
+            mainLogger.debug('shortcuts.reloadHard');
+            tabManager?.reloadActiveIgnoringCache();
+          },
+        },
         { type: 'separator' },
         {
           label: 'Zoom In',
