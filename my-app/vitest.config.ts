@@ -15,7 +15,7 @@ import path from 'node:path';
 export default defineConfig({
   test: {
     name: 'unit',
-    include: ['tests/unit/**/*.test.ts', 'tests/pill/**/*.spec.ts'],
+    include: ['tests/unit/**/*.test.ts', 'tests/pill/**/*.spec.ts', 'tests/integration/**/*.test.ts'],
     exclude: ['tests/e2e/**', 'tests/parity/**'],
     environment: 'node',
     globals: false,
