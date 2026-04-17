@@ -455,3 +455,41 @@ export function _getRestartCount(): number {
 export function _getSocketPath(): string | null {
   return currentSocketPath;
 }
+
+/**
+ * @internal For E2E tests only — inject a mock DaemonClient so tests can
+ * synthesize agent events without a live Python daemon process.
+ *
+ * Call BEFORE startDaemon().  Only active when DAEMON_MOCK env var is set
+ * (the E2E launcher sets DAEMON_MOCK=1).
+ *
+ * Usage in tests:
+ *   electronApp.evaluate(() => {
+ *     const { setDaemonClient } = require('./daemonLifecycle');
+ *     const mock = new MockDaemonClient();
+ *     setDaemonClient(mock);
+ *   });
+ */
+export function setDaemonClient(client: DaemonClient): void {
+  if (process.env.DAEMON_MOCK !== '1') {
+    mainLogger.warn('daemonLifecycle.setDaemonClient', {
+      msg: 'setDaemonClient called without DAEMON_MOCK=1 — ignoring (safety guard)',
+    });
+    return;
+  }
+  mainLogger.info('daemonLifecycle.setDaemonClient', {
+    msg: 'Injecting mock DaemonClient for E2E test',
+  });
+  // Wire up event forwarding from the injected client
+  if (eventUnsubscribe) {
+    eventUnsubscribe();
+    eventUnsubscribe = null;
+  }
+  eventUnsubscribe = client.onEvent((event: AgentEvent) => {
+    mainLogger.debug('daemonLifecycle.mockEvent', {
+      event: event.event,
+      task_id: event.task_id,
+    });
+    forwardAgentEvent(event);
+  });
+}

@@ -404,3 +404,16 @@ ipcMain.handle('shell:get-cdp-info', async () => {
   const targetId = await tabManager.getActiveTabTargetId();
   return { cdpUrl, targetId };
 });
+
+// ---------------------------------------------------------------------------
+// DEV/TEST IPC: test:open-pill
+// Directly triggers togglePill() without needing a Menu accelerator click.
+// Only registered when DEV_MODE=1 or NODE_ENV=test so it is never present
+// in production builds.
+// ---------------------------------------------------------------------------
+if (process.env.DEV_MODE === '1' || process.env.NODE_ENV === 'test') {
+  ipcMain.handle('test:open-pill', () => {
+    mainLogger.info('main.test:open-pill', { msg: 'test IPC triggered pill toggle' });
+    togglePill();
+  });
+}

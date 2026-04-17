@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { build as viteBuild } from 'vite';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -297,6 +298,44 @@ async function screenshot(page: Page, stateName: string, notes?: string): Promis
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pre-build: settings renderer
+// ---------------------------------------------------------------------------
+// The settings renderer is NOT built by `npm run build` when running the
+// capture harness standalone (Forge VitePlugin only runs during `npm run start`
+// or `npm run make`).  We pre-build it here so SettingsWindow.ts can loadFile
+// from .vite/renderer/settings/settings.html at test time.
+// Option B from the unskip plan — runs fast (<500ms, cached modules).
+
+test.beforeAll(async () => {
+  const configFile = path.join(MY_APP_ROOT, 'vite.settings.config.ts');
+  if (!fs.existsSync(configFile)) {
+    logWarn('vite.settings.config.ts not found — skipping pre-build');
+    return;
+  }
+  const outDir = path.join(MY_APP_ROOT, '.vite', 'renderer', 'settings');
+  const htmlPath = path.join(outDir, 'settings.html');
+
+  // Skip if already built (common in watch-mode re-runs)
+  if (fs.existsSync(htmlPath)) {
+    log('Settings renderer already built — skipping pre-build', { htmlPath });
+    return;
+  }
+
+  log('Pre-building settings renderer (Option B)…', { configFile, outDir });
+  try {
+    await viteBuild({
+      configFile,
+      logLevel: 'warn',
+    });
+    log('Settings renderer pre-build complete', { htmlPath });
+  } catch (err) {
+    logWarn('Settings renderer pre-build failed — settings captures will fail', {
+      error: (err as Error).message,
+    });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Manifest flush after all tests
