@@ -26,13 +26,14 @@
 - [iter 8 | 03:56Z] agent-task-wiki e2e GREEN — option (a) CDP fix + daemon asyncio fix + _seq echo + renderer paths (1 commit fab3e69)
 - [iter 9 | 04:00Z] daemon crash recovery e2e GREEN (4/4) + _getDaemonPid + test IPCs (2 commits f84a23b, 0f80587)
 - [iter 10 | 04:30Z] performance audit — shell 196KB / pill 205KB / settings 213KB JS (all PASS <400KB); main.js 115KB; app.asar 36KB; 118 vitest GREEN; PERFORMANCE.md written (1 commit)
+- [iter 12 | 06:00Z] full QA sweep: all suites run, 5 ESLint errors fixed, visual baselines refreshed (10 PNGs), CURRENT_STATE.md written (2 commits)
 
 ---
 
 ## Current branch state
 
 - Branch: `feat/agent-wiring`
-- Commits ahead of 29d3edf (prior HEAD): **51**
+- Commits ahead of 29d3edf (prior HEAD): **54** (iter 12: +3 commits)
 - Track 1 (Agent wiring) — **DONE**
 - Track 2 (Design polish) — **DONE** across all 5 families
 - Track 3 (QA harness) — **DONE**
@@ -42,12 +43,13 @@
 
 ## Test state
 
-- Vitest unit+integration: **118 pass / 0 fail** (9 test files)
-- preload-path.spec.ts (Playwright): **5 pass**
-- visual:capture (Playwright): **15/15 spec pass**, 10 PNG baselines committed
-- E2E Playwright pill-flow: **6/6 GREEN** (iter 6: fixed dynamic import() → electron context param)
-- E2E golden-path: **7/7 GREEN** (iter 6: fresh install → onboarding → bypass OAuth → shell → pill → done → returning user)
-- Python pytest: not run this loop
+- Vitest unit+integration: **118 pass / 0 fail** (9 test files, including no-global-shortcuts regression)
+- preload-path.spec.ts (Playwright): **5 pass** (runs as part of e2e suite)
+- visual:capture (Playwright): **15/15 spec pass**, 10 PNG baselines committed (5 settings screens blocked — known)
+- E2E Playwright: **24 passed, 10 skipped** (agent-task-wiki, crash-recovery, daemon-crash-recovery, golden-path, ipc, multi-instance, onboarding-flow, pill-flow, session-restore)
+- Python pytest: **252 pass / 1 skip / 0 fail** (iter 12: first run this loop)
+- ESLint: 29 errors (pre-existing, down from 34 — 5 fixed iter 12), 190 warnings
+- TypeScript: PASS (0 src errors; node_modules errors are TS 4.5 vs @types/node mismatch, skipLibCheck applies)
 
 ---
 
