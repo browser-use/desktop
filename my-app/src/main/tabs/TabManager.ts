@@ -11,6 +11,7 @@ import {
   nativeImage,
   app,
 } from 'electron';
+// eslint-disable-next-line import/no-unresolved
 import { v4 as uuidv4 } from 'uuid';
 import { NavigationController } from './NavigationController';
 import { SessionStore, PersistedSession, PersistedTab } from './SessionStore';

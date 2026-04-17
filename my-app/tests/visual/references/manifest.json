@@ -2,7 +2,7 @@
   {
     "state": "onboarding-welcome",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-welcome.png",
-    "captured_at": "2026-04-17T09:38:01.242Z",
+    "captured_at": "2026-04-17T12:57:09.686Z",
     "width": 920,
     "height": 640,
     "success": true,
@@ -11,7 +11,7 @@
   {
     "state": "onboarding-naming",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-naming.png",
-    "captured_at": "2026-04-17T09:38:02.836Z",
+    "captured_at": "2026-04-17T12:57:11.350Z",
     "width": 920,
     "height": 640,
     "success": true,
@@ -20,7 +20,7 @@
   {
     "state": "onboarding-account",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-account.png",
-    "captured_at": "2026-04-17T09:38:04.437Z",
+    "captured_at": "2026-04-17T12:57:13.065Z",
     "width": 920,
     "height": 640,
     "success": true,
@@ -29,7 +29,7 @@
   {
     "state": "onboarding-account-scopes",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-account-scopes.png",
-    "captured_at": "2026-04-17T09:38:15.199Z",
+    "captured_at": "2026-04-17T12:57:23.912Z",
     "width": 0,
     "height": 0,
     "success": false,
@@ -38,7 +38,7 @@
   {
     "state": "shell-empty",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/shell-empty.png",
-    "captured_at": "2026-04-17T09:38:16.933Z",
+    "captured_at": "2026-04-17T12:57:25.803Z",
     "width": 1280,
     "height": 800,
     "success": true,
@@ -47,7 +47,7 @@
   {
     "state": "shell-3-tabs",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/shell-3-tabs.png",
-    "captured_at": "2026-04-17T09:38:20.280Z",
+    "captured_at": "2026-04-17T12:57:29.145Z",
     "width": 1280,
     "height": 800,
     "success": true,
@@ -56,7 +56,7 @@
   {
     "state": "pill-idle",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-idle.png",
-    "captured_at": "2026-04-17T09:38:22.433Z",
+    "captured_at": "2026-04-17T12:57:31.326Z",
     "width": 560,
     "height": 72,
     "success": true,
@@ -65,7 +65,7 @@
   {
     "state": "pill-streaming",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-streaming.png",
-    "captured_at": "2026-04-17T09:38:24.782Z",
+    "captured_at": "2026-04-17T12:57:33.697Z",
     "width": 1280,
     "height": 800,
     "success": true,
@@ -74,7 +74,7 @@
   {
     "state": "pill-done",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-done.png",
-    "captured_at": "2026-04-17T09:38:27.134Z",
+    "captured_at": "2026-04-17T12:57:36.014Z",
     "width": 1280,
     "height": 800,
     "success": true,
@@ -83,7 +83,7 @@
   {
     "state": "pill-error",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-error.png",
-    "captured_at": "2026-04-17T09:38:29.493Z",
+    "captured_at": "2026-04-17T12:57:38.357Z",
     "width": 1280,
     "height": 800,
     "success": true,
@@ -92,7 +92,7 @@
   {
     "state": "settings-api-key",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-api-key.png",
-    "captured_at": "2026-04-17T09:38:42.450Z",
+    "captured_at": "2026-04-17T12:57:51.306Z",
     "width": 0,
     "height": 0,
     "success": false,
@@ -102,7 +102,7 @@
   {
     "state": "settings-agent",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-agent.png",
-    "captured_at": "2026-04-17T09:38:55.553Z",
+    "captured_at": "2026-04-17T12:58:04.404Z",
     "width": 0,
     "height": 0,
     "success": false,
@@ -112,7 +112,7 @@
   {
     "state": "settings-appearance",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-appearance.png",
-    "captured_at": "2026-04-17T09:39:08.682Z",
+    "captured_at": "2026-04-17T12:58:17.503Z",
     "width": 0,
     "height": 0,
     "success": false,
@@ -122,7 +122,7 @@
   {
     "state": "settings-scopes",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-scopes.png",
-    "captured_at": "2026-04-17T09:39:21.823Z",
+    "captured_at": "2026-04-17T12:58:30.618Z",
     "width": 0,
     "height": 0,
     "success": false,
@@ -132,7 +132,7 @@
   {
     "state": "settings-danger-zone",
     "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-danger-zone.png",
-    "captured_at": "2026-04-17T09:39:34.913Z",
+    "captured_at": "2026-04-17T12:58:43.728Z",
     "width": 0,
     "height": 0,
     "success": false,
