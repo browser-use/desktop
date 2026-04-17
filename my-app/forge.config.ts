@@ -60,6 +60,7 @@ const DAEMON_BINARY_EXISTS = fs.existsSync(DAEMON_BINARY);
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    productName: 'Agentic Browser',
 
     // asarUnpack: pattern relative to the app root that Forge will extract
     // from the asar archive into app.asar.unpacked/. The PyInstaller binary

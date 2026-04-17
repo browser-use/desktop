@@ -13,6 +13,7 @@ import React from 'react';
 import { StepIndicator } from './StepIndicator';
 import { CapabilitiesGrid } from './CapabilitiesGrid';
 import { CharacterMascot } from './CharacterMascot';
+import wordmarkLightUrl from '../../../assets/brand/wordmarks/wordmark-light.svg';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,6 +21,10 @@ import { CharacterMascot } from './CharacterMascot';
 
 const TOTAL_STEPS = 5;
 const CURRENT_STEP = 1;
+
+// Wordmark rendered at this width; height scales proportionally from the
+// SVG viewBox (420×64 → ~220×33.5 at display size).
+const WORDMARK_WIDTH = 220;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -55,8 +60,19 @@ export function Welcome({ onNext, agentName }: WelcomeProps): React.ReactElement
       {/* Left panel */}
       <div className="onboarding-panel-left">
         <div>
-          <h1 className="onboarding-headline">I'm your Companion!</h1>
-          <p className="onboarding-subhead" style={{ marginTop: 8 }}>
+          {/* Wordmark — visually hidden h1 preserved for screen readers */}
+          <h1 className="onboarding-headline sr-only" aria-label="Agentic Browser">
+            Agentic Browser
+          </h1>
+          <img
+            src={wordmarkLightUrl}
+            alt="Agentic Browser"
+            width={WORDMARK_WIDTH}
+            aria-hidden="true"
+            draggable={false}
+            style={{ display: 'block', marginBottom: 16 }}
+          />
+          <p className="onboarding-subhead" style={{ marginTop: 0 }}>
             Your very own personal assistant that can help you with
           </p>
         </div>
