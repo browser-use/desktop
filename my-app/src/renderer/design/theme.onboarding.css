@@ -2,103 +2,66 @@
  * theme.onboarding.css — warm character-forward onboarding palette
  * Activate by setting <html data-theme="onboarding"> on the document element.
  * More rounded, more generous padding, pastel capability pills, mascot-forward.
+ *
+ * This file ONLY overrides semantic color tokens and onboarding-specific tokens.
+ * Primitive tokens (--slate-*, --accent-*, --danger, etc.) come from
+ * theme.global.css :root and are NOT repeated here.
+ *
  * Rule: zero !important, zero Inter references, zero left-outline emphasis.
  */
 
-/* ---------------------------------------------------------------------------
-   Token constants (named references for readability — see tokens.ts mirrors)
---------------------------------------------------------------------------- */
-
-/* BG_BASE           #1a1a1f */
-/* BG_ELEVATED       #22222a */
-/* BG_OVERLAY        #2a2a34 */
-/* BG_CARD           #1e1e26 */
-/* FG_PRIMARY        #f2f0ee */
-/* FG_SECONDARY      #9a96a0 */
-/* ACCENT            #c8f135 */
-/* PILL_PURPLE       #a78bfa  bg rgba(167,139,250,0.18) */
-/* PILL_YELLOW       #fbbf24  bg rgba(251,191,36,0.18) */
-/* PILL_GREEN        #34d399  bg rgba(52,211,153,0.18) */
-/* PILL_BLUE         #60a5fa  bg rgba(96,165,250,0.18) */
-/* PILL_RED          #f87171  bg rgba(248,113,113,0.18) */
-/* PILL_ORANGE       #fb923c  bg rgba(251,146,60,0.18) */
-/* MASCOT_BODY       #7fb3d0 */
-
-/* ---------------------------------------------------------------------------
-   Onboarding CSS custom properties
---------------------------------------------------------------------------- */
-
 [data-theme="onboarding"] {
   /* -- Font families -- */
-  --font-ui:   'Geist', 'Söhne', system-ui, sans-serif;
-  --font-mono: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --font-ui:      'Geist', 'Söhne', system-ui, sans-serif;
+  --font-mono:    'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Geist', 'Söhne', system-ui, sans-serif;
 
-  /* -- Font sizes -- */
-  --font-size-2xs:  10px;
-  --font-size-xs:   11px;
-  --font-size-sm:   12px;
-  --font-size-md:   13px;
-  --font-size-base: 14px;
-  --font-size-lg:   15px;
-  --font-size-xl:   17px;
-  --font-size-2xl:  20px;
-  --font-size-3xl:  24px;
-  --font-size-4xl:  30px;
-  --font-size-5xl:  38px;
-
-  /* -- Line heights -- */
-  --line-height-tight:   1.2;
-  --line-height-snug:    1.35;
-  --line-height-normal:  1.5;
-  --line-height-relaxed: 1.65;
-
-  /* -- Font weights -- */
-  --font-weight-regular:  400;
-  --font-weight-medium:   500;
-  --font-weight-semibold: 600;
-  --font-weight-bold:     700;
-
-  /* -- Backgrounds (warmer dark) -- */
+  /* -- Semantic background overrides (warmer, more purple-shifted) -- */
   --color-bg-base:     #1a1a1f;
   --color-bg-elevated: #22222a;
   --color-bg-overlay:  #2a2a34;
+  --color-bg-sunken:   #111118;
+  /* onboarding-specific card surface */
   --color-bg-card:     #1e1e26;
 
-  /* -- Foregrounds -- */
+  /* -- Semantic foreground overrides -- */
   --color-fg-primary:   #f2f0ee;
   --color-fg-secondary: #9a96a0;
-  --color-fg-tertiary:  #7a7580;  /* was #6a6570 — WCAG 3:1 fix (3.52:1 on bg-elevated) */
+  --color-fg-tertiary:  #7a7580;  /* WCAG 3.52:1 on bg-elevated */
   --color-fg-disabled:  #4a4550;
   --color-fg-inverse:   #1a1a1f;
 
-  /* -- Borders -- */
+  /* -- Semantic border overrides -- */
   --color-border-subtle:  #2a2a34;
   --color-border-default: #34343f;
   --color-border-strong:  #44444f;
 
-  /* -- Primary accent -- */
-  --color-accent-default: #c8f135;
-  --color-accent-hover:   #d4f74e;
-  --color-accent-active:  #b8e020;
-  --color-accent-subtle:  rgba(200, 241, 53, 0.12);
+  /* -- Accent overrides (same base, slightly warmer glow) -- */
+  --color-accent-default: var(--accent-base);   /* #c8f135 */
+  --color-accent-hover:   var(--accent-hover);  /* #d4f74e */
+  --color-accent-dim:     var(--accent-dim);    /* #b8e020 */
+  --color-accent-muted:   rgba(200, 241, 53, 0.12);
   --color-accent-glow:    rgba(200, 241, 53, 0.20);
+  /* backward-compat aliases */
+  --color-accent-subtle:  rgba(200, 241, 53, 0.12);
 
   /* -- Status -- */
-  --color-status-success: #4ade80;
-  --color-status-warning: #f59e0b;
-  --color-status-error:   #f87171;
-  --color-status-info:    #60a5fa;
+  --color-status-success: var(--success); /* #4ade80 */
+  --color-status-warning: var(--warning); /* #f59e0b */
+  --color-status-error:   var(--danger);  /* #f87171 */
+  --color-status-danger:  var(--danger);  /* #f87171 */
+  --color-status-info:    var(--info);    /* #60a5fa */
 
-  /* -- Capability pill colors -- */
+  /* -- Capability pill palette (pastel — matches mascot stage screenshot) -- */
   --color-pill-research:    #a78bfa;
   --color-pill-research-bg: rgba(167, 139, 250, 0.18);
   --color-pill-sourcing:    #fbbf24;
   --color-pill-sourcing-bg: rgba(251, 191, 36, 0.18);
   --color-pill-automation:  #34d399;
   --color-pill-automation-bg: rgba(52, 211, 153, 0.18);
-  --color-pill-emails:      #60a5fa;
+  --color-pill-emails:      var(--info);   /* #60a5fa */
   --color-pill-emails-bg:   rgba(96, 165, 250, 0.18);
-  --color-pill-scraping:    #f87171;
+  --color-pill-scraping:    var(--danger); /* #f87171 */
   --color-pill-scraping-bg: rgba(248, 113, 113, 0.18);
   --color-pill-more:        #fb923c;
   --color-pill-more-bg:     rgba(251, 146, 60, 0.18);
@@ -114,43 +77,47 @@
   --color-modal-border: #34343f;
   --color-modal-scrim:  rgba(10, 10, 13, 0.75);
 
-  /* -- Google service colors -- */
+  /* -- Google service brand colors (third-party — not from our palette) -- */
   --color-google-gmail:    #ea4335;
   --color-google-calendar: #4285f4;
   --color-google-sheets:   #34a853;
   --color-google-drive:    #fbbc05;
   --color-google-docs:     #1967d2;
 
-  /* -- Border radii (more rounded for warmth) -- */
-  --radius-none: 0px;
+  /* -- Border radii (rounder than shell — warmer feel) -- */
   --radius-xs:   4px;
   --radius-sm:   7px;
   --radius-md:   10px;
   --radius-lg:   14px;
   --radius-xl:   18px;
   --radius-2xl:  24px;
-  --radius-3xl:  32px;
   --radius-full: 9999px;
 
-  /* -- Durations (slightly more leisurely) -- */
-  --duration-instant:  0ms;
+  /* -- Motion (slightly more leisurely than shell) -- */
   --duration-fast:     100ms;
   --duration-normal:   180ms;
   --duration-moderate: 260ms;
   --duration-slow:     380ms;
   --duration-crawl:    550ms;
 
-  /* -- Easings -- */
+  --ease-out:        cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out:     cubic-bezier(0.4, 0, 0.6, 1);
   --ease-standard:   cubic-bezier(0.2, 0, 0, 1);
   --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
-  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
 
-  /* -- Shadows (warmer, subtler) -- */
+  /* -- Shadows (warmer, subtler — onboarding uses depth; shell does not) -- */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
   --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55);
-  --glow-accent: 0 0 16px rgba(200, 241, 53, 0.20);
+  --shadow-xl: 0 16px 64px rgba(0, 0, 0, 0.65);
+
+  --glow-accent-sm: 0 0 8px rgba(200, 241, 53, 0.12);
+  --glow-accent-md: 0 0 16px rgba(200, 241, 53, 0.20);
+  --glow-accent-lg: 0 0 32px rgba(200, 241, 53, 0.30);
+  --glow-accent:    var(--glow-accent-md);
 
   /* -- Z-index layers -- */
   --z-base:     0;
@@ -162,6 +129,7 @@
   --z-toast:    500;
   --z-pill:     600;
   --z-tooltip:  700;
+  --z-max:      9999;
 }
 
 /* ---------------------------------------------------------------------------
@@ -181,9 +149,9 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 48px 40px;
+  padding: var(--space-24) 40px;
   width: 56%;
-  gap: 24px;
+  gap: var(--space-12);
 }
 
 /* Right panel — mascot stage */
@@ -198,13 +166,13 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Step indicator (1/5 dots)
+   Step indicator (dots)
 --------------------------------------------------------------------------- */
 
 [data-theme="onboarding"] .step-indicator {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
 }
 
 [data-theme="onboarding"] .step-dot {
@@ -212,16 +180,17 @@
   height: 4px;
   border-radius: var(--radius-full);
   background-color: var(--color-border-strong);
-  transition: background-color var(--duration-normal) var(--ease-standard),
-              width var(--duration-normal) var(--ease-standard),
-              box-shadow var(--duration-normal) var(--ease-standard);
+  transition:
+    background-color var(--duration-normal) var(--ease-out),
+    width var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out);
 }
 
 [data-theme="onboarding"] .step-dot[data-active="true"] {
   background-color: var(--color-fg-primary);
   width: 32px;
-  /* Subtle glow — accent at 13% alpha, not a hard ring */
-  box-shadow: 0 0 0 4px rgba(200, 241, 53, 0.13);
+  /* Subtle glow ring — accent at low alpha, not a hard border */
+  box-shadow: 0 0 0 4px var(--color-accent-muted);
 }
 
 [data-theme="onboarding"] .step-dot[data-completed="true"] {
@@ -268,8 +237,8 @@
 [data-theme="onboarding"] .capability-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-block: 4px;
+  gap: var(--space-4);
+  margin-block: var(--space-2);
 }
 
 [data-theme="onboarding"] .capability-pill {
@@ -281,8 +250,9 @@
   font-weight: var(--font-weight-semibold);
   cursor: default;
   user-select: none;
-  transition: transform var(--duration-fast) var(--ease-spring),
-              box-shadow var(--duration-normal) var(--ease-standard);
+  transition:
+    transform var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-normal) var(--ease-out);
 }
 
 [data-theme="onboarding"] .capability-pill:hover {
@@ -321,7 +291,7 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Name display inline — "I have no name yet"
+   Name display inline
 --------------------------------------------------------------------------- */
 
 [data-theme="onboarding"] .name-placeholder {
@@ -334,14 +304,14 @@
 }
 
 /* ---------------------------------------------------------------------------
-   CTA button — "Get Started"
+   CTA button — "Get Started" / primary action
 --------------------------------------------------------------------------- */
 
 [data-theme="onboarding"] .cta-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 24px;
+  gap: var(--space-4);
+  padding: 10px var(--space-12);
   border-radius: var(--radius-lg);
   background-color: var(--color-fg-primary);
   color: var(--color-fg-inverse);
@@ -350,13 +320,18 @@
   cursor: pointer;
   user-select: none;
   border: none;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-spring),
-              box-shadow var(--duration-normal) var(--ease-standard);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-normal) var(--ease-out);
 }
 
 [data-theme="onboarding"] .cta-button:hover {
-  background-color: #e8e8ea;
+  /* why-not-a-token: this is a slight lightening of --color-fg-primary (#f2f0ee)
+     for hover — the fg-primary token is used as the button fill, and we need
+     a distinct lighter value for hover. A dedicated --color-cta-hover token
+     would be correct but is out of scope for this refactor. */
+  background-color: #eae8e6;
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
@@ -374,42 +349,33 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-8);
 }
 
-/* Base wrapper — no animation by default; animation class applied via JS */
 [data-theme="onboarding"] .mascot-wrapper {
   will-change: transform;
 }
 
-/* ---- Animation classes ---- */
-
-/* idle: gentle 6px float, 3s sinusoidal */
 [data-theme="onboarding"] .mascot-anim-idle {
   animation: mascot-float 3s ease-in-out infinite;
 }
 
-/* thinking: tighter 4px float, 0.8s — conveys urgency */
 [data-theme="onboarding"] .mascot-anim-thinking {
   animation: mascot-float 0.8s ease-in-out infinite;
 }
 
-/* celebrating: scale-pop once (0.4s spring), then settles — JS resets to idle */
 [data-theme="onboarding"] .mascot-anim-celebrating {
-  animation: mascot-celebrate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: mascot-celebrate 0.4s var(--ease-spring) forwards;
 }
 
-/* error: quick horizontal shake (0.3s) then settles — JS resets to idle */
 [data-theme="onboarding"] .mascot-anim-error {
-  animation: mascot-shake 0.3s cubic-bezier(0.2, 0, 0, 1) forwards;
+  animation: mascot-shake 0.3s var(--ease-out) forwards;
 }
 
-/* Legacy data-state support for any direct consumers not using the class API */
 [data-theme="onboarding"] .mascot-wrapper[data-state="loading"] {
   animation: mascot-float 0.8s ease-in-out infinite;
 }
 
-/* ---- Reduced-motion override — collapses all mascot animations ---- */
 @media (prefers-reduced-motion: reduce) {
   [data-theme="onboarding"] .mascot-anim-idle,
   [data-theme="onboarding"] .mascot-anim-thinking,
@@ -421,13 +387,12 @@
   }
 }
 
-/* Mascot variant row (bottom of onboarding — color/style options) */
 [data-theme="onboarding"] .mascot-variant-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--space-6);
+  padding: var(--space-8);
 }
 
 [data-theme="onboarding"] .mascot-variant-thumb {
@@ -436,8 +401,9 @@
   border-radius: var(--radius-full);
   cursor: pointer;
   opacity: 0.6;
-  transition: opacity var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-spring);
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-spring);
 }
 
 [data-theme="onboarding"] .mascot-variant-thumb:hover,
@@ -453,14 +419,14 @@
 [data-theme="onboarding"] .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-6);
   width: 100%;
 }
 
 [data-theme="onboarding"] .auth-input-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2);
 }
 
 [data-theme="onboarding"] .auth-label {
@@ -471,14 +437,15 @@
 
 [data-theme="onboarding"] .auth-input {
   height: 40px;
-  padding-inline: 12px;
+  padding-inline: var(--space-6);
   border-radius: var(--radius-md);
   background-color: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
   color: var(--color-fg-primary);
   font-size: var(--font-size-base);
-  transition: border-color var(--duration-normal) var(--ease-standard),
-              box-shadow var(--duration-normal) var(--ease-standard);
+  transition:
+    border-color var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out);
   width: 100%;
 }
 
@@ -500,12 +467,15 @@
   font-weight: var(--font-weight-semibold);
   cursor: pointer;
   border: none;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-spring);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-spring);
 }
 
 [data-theme="onboarding"] .auth-submit:hover {
-  background-color: #e8e8ea;
+  /* why-not-a-token: slight lightening of --color-fg-primary for hover feedback.
+     See cta-button comment above — same rationale. */
+  background-color: #eae8e6;
   transform: translateY(-1px);
 }
 
@@ -516,7 +486,7 @@
 [data-theme="onboarding"] .auth-divider {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-6);
   color: var(--color-fg-tertiary);
   font-size: var(--font-size-sm);
 }
@@ -533,7 +503,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-4);
   height: 42px;
   border-radius: var(--radius-md);
   background-color: var(--color-bg-elevated);
@@ -542,8 +512,9 @@
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              border-color var(--duration-fast) var(--ease-standard);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
 
 [data-theme="onboarding"] .google-btn:hover {
@@ -570,7 +541,7 @@
   background-color: var(--color-modal-bg);
   border: 1px solid var(--color-modal-border);
   border-radius: var(--radius-xl);
-  padding: 24px;
+  padding: var(--space-12);
   width: 400px;
   max-width: calc(100vw - 48px);
   box-shadow: var(--shadow-lg);
@@ -581,29 +552,29 @@
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-fg-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
 }
 
 [data-theme="onboarding"] .modal-subtitle {
   font-size: var(--font-size-sm);
   color: var(--color-fg-secondary);
   line-height: var(--line-height-relaxed);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-10);
 }
 
 [data-theme="onboarding"] .google-service-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-block: 12px;
+  gap: var(--space-6);
+  padding-block: var(--space-6);
   cursor: pointer;
-  transition: background-color var(--duration-fast) var(--ease-standard);
+  transition: background-color var(--duration-fast) var(--ease-out);
   border-radius: var(--radius-sm);
-  padding-inline: 4px;
+  padding-inline: var(--space-2);
 }
 
 [data-theme="onboarding"] .google-service-row:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--color-surface-interactive);
 }
 
 [data-theme="onboarding"] .google-service-icon {
@@ -643,13 +614,13 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background-color var(--duration-fast) var(--ease-spring),
-              border-color var(--duration-fast) var(--ease-spring),
-              transform var(--duration-fast) var(--ease-spring);
+  transition:
+    background-color var(--duration-fast) var(--ease-spring),
+    border-color var(--duration-fast) var(--ease-spring),
+    transform var(--duration-fast) var(--ease-spring);
 }
 
 [data-theme="onboarding"] .google-service-check[data-checked="true"] {
-  /* Use brand accent (neon green) instead of generic success — brand coherence */
   background-color: var(--color-accent-default);
   border-color: var(--color-accent-default);
   transform: scale(1.08);
@@ -659,15 +630,15 @@
   transform: scale(1);
 }
 
-/* Checkmark path inside the check circle */
 [data-theme="onboarding"] .google-service-check svg path {
   stroke: var(--color-fg-inverse);
 }
 
 @media (prefers-reduced-motion: reduce) {
   [data-theme="onboarding"] .google-service-check {
-    transition: background-color var(--duration-instant) var(--ease-standard),
-                border-color var(--duration-instant) var(--ease-standard);
+    transition:
+      background-color var(--duration-instant) var(--ease-out),
+      border-color var(--duration-instant) var(--ease-out);
     transform: none;
   }
   [data-theme="onboarding"] .google-service-check[data-checked="true"] {
@@ -679,9 +650,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
+  gap: var(--space-4);
+  margin-top: var(--space-10);
+  padding-top: var(--space-8);
   border-top: 1px solid var(--color-border-subtle);
 }
 
