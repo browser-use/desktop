@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agentic Browser — Visual QA</title>
+    <style>
+      /* -----------------------------------------------------------------------
+         Reset & tokens
+         No Inter font, no !important, no left outline, no sparkles.
+      ----------------------------------------------------------------------- */
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --color-bg:        #0e0e12;
+        --color-surface:   #1a1a22;
+        --color-border:    #2a2a38;
+        --color-text:      #e8e8f0;
+        --color-muted:     #7070a0;
+        --color-accent:    #c8f135;
+        --color-approve:   #22c55e;
+        --color-reject:    #ef4444;
+        --color-pending:   #f59e0b;
+        --radius-sm:       4px;
+        --radius-md:       8px;
+        --radius-lg:       12px;
+        --font-sans:       system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --font-mono:       "SF Mono", ui-monospace, "Cascadia Mono", monospace;
+      }
+
+      html, body {
+        height: 100%;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      /* -----------------------------------------------------------------------
+         Layout
+      ----------------------------------------------------------------------- */
+      .page-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border);
+        padding: 12px 24px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+      }
+
+      .page-title {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--color-text);
+        flex: 1;
+      }
+
+      .summary-bar {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .summary-chip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: var(--font-mono);
+      }
+
+      .summary-chip--approved {
+        background: rgba(34, 197, 94, 0.12);
+        color: var(--color-approve);
+      }
+
+      .summary-chip--rejected {
+        background: rgba(239, 68, 68, 0.12);
+        color: var(--color-reject);
+      }
+
+      .summary-chip--pending {
+        background: rgba(245, 158, 11, 0.12);
+        color: var(--color-pending);
+      }
+
+      .summary-chip--total {
+        background: rgba(200, 241, 53, 0.10);
+        color: var(--color-accent);
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn {
+        padding: 6px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--color-border);
+        background: transparent;
+        color: var(--color-text);
+        font-size: 12px;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .btn:hover {
+        background: var(--color-border);
+      }
+
+      .btn--accent {
+        border-color: var(--color-accent);
+        color: var(--color-accent);
+      }
+
+      .btn--accent:hover {
+        background: rgba(200, 241, 53, 0.08);
+      }
+
+      .main {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 32px;
+      }
+
+      /* -----------------------------------------------------------------------
+         Filter tabs
+      ----------------------------------------------------------------------- */
+      .filter-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .filter-btn {
+        padding: 6px 14px;
+        border-radius: 20px;
+        border: 1px solid var(--color-border);
+        background: transparent;
+        color: var(--color-muted);
+        font-size: 12px;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+      }
+
+      .filter-btn:hover {
+        background: var(--color-border);
+        color: var(--color-text);
+      }
+
+      .filter-btn[aria-pressed="true"] {
+        background: var(--color-surface);
+        border-color: var(--color-accent);
+        color: var(--color-accent);
+      }
+
+      /* -----------------------------------------------------------------------
+         Screen cards
+      ----------------------------------------------------------------------- */
+      .screens-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 40px;
+      }
+
+      .screen-card {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        transition: border-color 0.2s;
+      }
+
+      .screen-card[data-verdict="approved"] {
+        border-color: var(--color-approve);
+      }
+
+      .screen-card[data-verdict="rejected"] {
+        border-color: var(--color-reject);
+      }
+
+      .screen-card-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .screen-name {
+        font-size: 13px;
+        font-weight: 600;
+        font-family: var(--font-mono);
+        color: var(--color-text);
+        flex: 1;
+      }
+
+      .verdict-badge {
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .verdict-badge--approved {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--color-approve);
+      }
+
+      .verdict-badge--rejected {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--color-reject);
+      }
+
+      .verdict-badge--pending {
+        background: rgba(245, 158, 11, 0.10);
+        color: var(--color-pending);
+      }
+
+      .verdict-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .verdict-btn {
+        padding: 5px 12px;
+        border-radius: var(--radius-sm);
+        border: 1px solid transparent;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .verdict-btn--approve {
+        background: rgba(34, 197, 94, 0.10);
+        color: var(--color-approve);
+        border-color: rgba(34, 197, 94, 0.30);
+      }
+
+      .verdict-btn--approve:hover {
+        background: rgba(34, 197, 94, 0.20);
+      }
+
+      .verdict-btn--approve[aria-pressed="true"] {
+        background: var(--color-approve);
+        color: #0e0e12;
+        border-color: var(--color-approve);
+      }
+
+      .verdict-btn--reject {
+        background: rgba(239, 68, 68, 0.10);
+        color: var(--color-reject);
+        border-color: rgba(239, 68, 68, 0.30);
+      }
+
+      .verdict-btn--reject:hover {
+        background: rgba(239, 68, 68, 0.20);
+      }
+
+      .verdict-btn--reject[aria-pressed="true"] {
+        background: var(--color-reject);
+        color: #fff;
+        border-color: var(--color-reject);
+      }
+
+      /* -----------------------------------------------------------------------
+         Image comparison area
+      ----------------------------------------------------------------------- */
+      .comparison-area {
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .comparison-mode-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .mode-label {
+        font-size: 11px;
+        color: var(--color-muted);
+        margin-right: 4px;
+      }
+
+      .mode-btn {
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--color-border);
+        background: transparent;
+        color: var(--color-muted);
+        font-size: 11px;
+        font-family: var(--font-sans);
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+
+      .mode-btn:hover {
+        background: var(--color-border);
+        color: var(--color-text);
+      }
+
+      .mode-btn[aria-pressed="true"] {
+        background: var(--color-border);
+        color: var(--color-text);
+        border-color: var(--color-muted);
+      }
+
+      /* Side-by-side mode */
+      .side-by-side {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .image-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .image-panel-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--color-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .image-panel-label--reference {
+        color: var(--color-accent);
+      }
+
+      .image-panel-label--diff {
+        color: var(--color-reject);
+      }
+
+      .image-frame {
+        background: #000;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--color-border);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 200px;
+        position: relative;
+      }
+
+      .image-frame img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        image-rendering: crisp-edges;
+      }
+
+      .image-frame--missing {
+        flex-direction: column;
+        gap: 8px;
+        padding: 32px;
+      }
+
+      .missing-label {
+        font-size: 12px;
+        color: var(--color-muted);
+        text-align: center;
+      }
+
+      .missing-icon {
+        font-size: 32px;
+        opacity: 0.3;
+      }
+
+      /* Slider diff mode */
+      .slider-container {
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--color-border);
+        cursor: col-resize;
+        user-select: none;
+        min-height: 200px;
+      }
+
+      .slider-reference,
+      .slider-diff {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .slider-reference img,
+      .slider-diff img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .slider-diff {
+        clip-path: inset(0 50% 0 0);
+      }
+
+      .slider-divider {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 2px;
+        background: var(--color-accent);
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+
+      .slider-handle {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--color-accent);
+        border: 2px solid #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        color: #000;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .slider-label-left,
+      .slider-label-right {
+        position: absolute;
+        bottom: 8px;
+        padding: 2px 6px;
+        border-radius: var(--radius-sm);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        pointer-events: none;
+      }
+
+      .slider-label-left {
+        left: 8px;
+        background: rgba(200, 241, 53, 0.85);
+        color: #000;
+      }
+
+      .slider-label-right {
+        right: 8px;
+        background: rgba(239, 68, 68, 0.85);
+        color: #fff;
+      }
+
+      /* No-diff notice */
+      .no-diff-notice {
+        padding: 16px;
+        background: rgba(34, 197, 94, 0.06);
+        border: 1px solid rgba(34, 197, 94, 0.20);
+        border-radius: var(--radius-md);
+        font-size: 12px;
+        color: var(--color-approve);
+        text-align: center;
+      }
+
+      .capture-meta {
+        display: flex;
+        gap: 16px;
+        font-size: 11px;
+        color: var(--color-muted);
+        font-family: var(--font-mono);
+      }
+
+      /* -----------------------------------------------------------------------
+         Empty state
+      ----------------------------------------------------------------------- */
+      .empty-state {
+        text-align: center;
+        padding: 80px 24px;
+        color: var(--color-muted);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .empty-state-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--color-text);
+      }
+
+      .empty-state-desc {
+        font-size: 13px;
+        max-width: 400px;
+        line-height: 1.6;
+      }
+
+      .empty-state-cmd {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 8px 16px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-accent);
+      }
+
+      /* -----------------------------------------------------------------------
+         Hidden
+      ----------------------------------------------------------------------- */
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <!-- =====================================================================
+         Header
+    ===================================================================== -->
+    <header class="page-header">
+      <h1 class="page-title">Agentic Browser — Visual QA</h1>
+      <div class="summary-bar" id="summary-bar" aria-live="polite">
+        <span class="summary-chip summary-chip--total" id="chip-total">0 screens</span>
+        <span class="summary-chip summary-chip--approved" id="chip-approved">0 approved</span>
+        <span class="summary-chip summary-chip--rejected" id="chip-rejected">0 rejected</span>
+        <span class="summary-chip summary-chip--pending" id="chip-pending">0 pending</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn--accent" onclick="exportVerdicts()">Export verdicts</button>
+        <button class="btn" onclick="clearAllVerdicts()">Clear all</button>
+      </div>
+    </header>
+
+    <!-- =====================================================================
+         Main
+    ===================================================================== -->
+    <main class="main">
+      <!-- Filter row -->
+      <div class="filter-row" role="group" aria-label="Filter by verdict">
+        <button class="filter-btn" aria-pressed="true" data-filter="all" onclick="setFilter('all', this)">All</button>
+        <button class="filter-btn" aria-pressed="false" data-filter="pending" onclick="setFilter('pending', this)">Pending</button>
+        <button class="filter-btn" aria-pressed="false" data-filter="approved" onclick="setFilter('approved', this)">Approved</button>
+        <button class="filter-btn" aria-pressed="false" data-filter="rejected" onclick="setFilter('rejected', this)">Rejected</button>
+        <button class="filter-btn" aria-pressed="false" data-filter="has-diff" onclick="setFilter('has-diff', this)">Has diff</button>
+      </div>
+
+      <!-- Screen cards (rendered by JS) -->
+      <div class="screens-grid" id="screens-grid"></div>
+    </main>
+
+    <script>
+      // =======================================================================
+      // Configuration
+      // When opened via file://, paths are relative to this HTML file's location.
+      // =======================================================================
+      const REFERENCES_DIR = 'references';
+      const DIFF_DIR       = 'diff';
+      const STORAGE_KEY    = 'visual-qa-verdicts-v1';
+
+      // -----------------------------------------------------------------------
+      // Screen list — loaded from references/manifest.json if available,
+      // otherwise from a hardcoded fallback list.
+      // -----------------------------------------------------------------------
+      const FALLBACK_SCREENS = [
+        'onboarding-welcome',
+        'onboarding-naming',
+        'onboarding-account',
+        'onboarding-account-scopes',
+        'shell-empty',
+        'shell-3-tabs',
+        'pill-idle',
+        'pill-streaming',
+        'pill-done',
+        'pill-error',
+        'settings-api-key',
+        'settings-agent',
+        'settings-appearance',
+        'settings-scopes',
+        'settings-danger-zone',
+      ];
+
+      // -----------------------------------------------------------------------
+      // State
+      // -----------------------------------------------------------------------
+      let screens  = [];
+      let verdicts = {}; // { [screenName]: 'approved' | 'rejected' | 'pending' }
+      let filter   = 'all';
+
+      // -----------------------------------------------------------------------
+      // Persistence
+      // -----------------------------------------------------------------------
+      function loadVerdicts() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          return raw ? JSON.parse(raw) : {};
+        } catch {
+          return {};
+        }
+      }
+
+      function saveVerdicts() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(verdicts));
+        } catch { /* storage unavailable */ }
+      }
+
+      function setVerdict(name, verdict) {
+        const prev = verdicts[name] ?? 'pending';
+        // Toggle: clicking the same verdict again resets to pending
+        verdicts[name] = (prev === verdict) ? 'pending' : verdict;
+        saveVerdicts();
+        renderCard(name);
+        updateSummary();
+        applyFilter();
+      }
+
+      function clearAllVerdicts() {
+        if (!confirm('Clear all verdicts?')) return;
+        verdicts = {};
+        saveVerdicts();
+        renderAll();
+        updateSummary();
+      }
+
+      function exportVerdicts() {
+        const lines = screens.map(s => {
+          const v = verdicts[s] ?? 'pending';
+          return `${v.padEnd(8)} ${s}`;
+        });
+        const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `visual-qa-verdicts-${Date.now()}.txt`;
+        a.click();
+      }
+
+      // -----------------------------------------------------------------------
+      // Summary counter
+      // -----------------------------------------------------------------------
+      function updateSummary() {
+        const total    = screens.length;
+        const approved = screens.filter(s => verdicts[s] === 'approved').length;
+        const rejected = screens.filter(s => verdicts[s] === 'rejected').length;
+        const pending  = total - approved - rejected;
+
+        document.getElementById('chip-total').textContent    = `${total} screen${total !== 1 ? 's' : ''}`;
+        document.getElementById('chip-approved').textContent = `${approved} approved`;
+        document.getElementById('chip-rejected').textContent = `${rejected} rejected`;
+        document.getElementById('chip-pending').textContent  = `${pending} pending`;
+      }
+
+      // -----------------------------------------------------------------------
+      // Filter
+      // -----------------------------------------------------------------------
+      function setFilter(value, btn) {
+        filter = value;
+        document.querySelectorAll('.filter-btn').forEach(b => b.setAttribute('aria-pressed', 'false'));
+        btn.setAttribute('aria-pressed', 'true');
+        applyFilter();
+      }
+
+      function applyFilter() {
+        screens.forEach(name => {
+          const card = document.getElementById('card-' + name);
+          if (!card) return;
+          const verdict = verdicts[name] ?? 'pending';
+          const hasDiff = card.dataset.hasDiff === 'true';
+          let show = false;
+          if (filter === 'all')      show = true;
+          else if (filter === 'pending')  show = verdict === 'pending';
+          else if (filter === 'approved') show = verdict === 'approved';
+          else if (filter === 'rejected') show = verdict === 'rejected';
+          else if (filter === 'has-diff') show = hasDiff;
+          card.hidden = !show;
+        });
+      }
+
+      // -----------------------------------------------------------------------
+      // Slider drag logic
+      // -----------------------------------------------------------------------
+      function initSlider(container) {
+        const diffLayer = container.querySelector('.slider-diff');
+        const divider   = container.querySelector('.slider-divider');
+        const handle    = container.querySelector('.slider-handle');
+        let dragging    = false;
+
+        function setPosition(x) {
+          const rect = container.getBoundingClientRect();
+          const pct  = Math.max(0, Math.min(100, ((x - rect.left) / rect.width) * 100));
+          diffLayer.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+          divider.style.left       = pct + '%';
+          handle.style.left        = pct + '%';
+        }
+
+        container.addEventListener('mousedown', (e) => {
+          dragging = true;
+          setPosition(e.clientX);
+          e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+          if (dragging) setPosition(e.clientX);
+        });
+
+        window.addEventListener('mouseup', () => { dragging = false; });
+
+        container.addEventListener('touchstart', (e) => {
+          dragging = true;
+          setPosition(e.touches[0].clientX);
+        }, { passive: true });
+
+        container.addEventListener('touchmove', (e) => {
+          if (dragging) setPosition(e.touches[0].clientX);
+        }, { passive: true });
+
+        container.addEventListener('touchend', () => { dragging = false; });
+      }
+
+      // -----------------------------------------------------------------------
+      // Mode switching (side-by-side vs slider)
+      // -----------------------------------------------------------------------
+      function setMode(name, mode) {
+        const card  = document.getElementById('card-' + name);
+        const sbs   = card.querySelector('.side-by-side');
+        const sldr  = card.querySelector('.slider-container');
+        const noDiff = card.querySelector('.no-diff-notice');
+        const hasDiff = card.dataset.hasDiff === 'true';
+
+        card.querySelectorAll('.mode-btn').forEach(b => b.setAttribute('aria-pressed', 'false'));
+        card.querySelector('.mode-btn[data-mode="' + mode + '"]').setAttribute('aria-pressed', 'true');
+
+        if (mode === 'side-by-side') {
+          if (sbs)   sbs.hidden   = false;
+          if (sldr)  sldr.hidden  = true;
+          if (noDiff) noDiff.hidden = true;
+        } else {
+          // slider mode
+          if (sbs)  sbs.hidden = true;
+          if (hasDiff && sldr) {
+            sldr.hidden = false;
+            if (noDiff) noDiff.hidden = true;
+          } else {
+            if (sldr) sldr.hidden = true;
+            if (noDiff) noDiff.hidden = false;
+          }
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // Card renderer
+      // -----------------------------------------------------------------------
+      function refPath(name)  { return `${REFERENCES_DIR}/${name}.png`; }
+      function diffPath(name) { return `${DIFF_DIR}/${name}.png`; }
+
+      function renderCard(name) {
+        const card    = document.getElementById('card-' + name);
+        if (!card) return;
+        const verdict = verdicts[name] ?? 'pending';
+        card.dataset.verdict = verdict;
+
+        const badge = card.querySelector('.verdict-badge');
+        badge.className = `verdict-badge verdict-badge--${verdict}`;
+        badge.textContent = verdict;
+
+        const approveBtn = card.querySelector('.verdict-btn--approve');
+        const rejectBtn  = card.querySelector('.verdict-btn--reject');
+        approveBtn.setAttribute('aria-pressed', verdict === 'approved' ? 'true' : 'false');
+        rejectBtn.setAttribute('aria-pressed',  verdict === 'rejected'  ? 'true' : 'false');
+      }
+
+      function buildCard(name, meta) {
+        const verdict = verdicts[name] ?? 'pending';
+        const hasDiff = meta && meta.hasDiff;
+
+        const refImg  = `<img src="${refPath(name)}"
+                              alt="Reference: ${name}"
+                              onerror="this.parentElement.classList.add('image-frame--missing'); this.remove(); this.parentElement.innerHTML='<span class=\\'missing-icon\\'>📷</span><span class=\\'missing-label\\'>No reference<br>${name}.png</span>'" />`;
+
+        const diffImg = hasDiff
+          ? `<img src="${diffPath(name)}"
+                  alt="Diff: ${name}"
+                  onerror="this.parentElement.classList.add('image-frame--missing'); this.remove(); this.parentElement.innerHTML='<span class=\\'missing-icon\\'>⚠️</span><span class=\\'missing-label\\'>Diff image missing<br>${name}.png</span>'" />`
+          : '';
+
+        const metaStr = meta
+          ? `<span>${meta.width}×${meta.height}</span><span>captured ${new Date(meta.captured_at).toLocaleString()}</span>${meta.success ? '' : '<span style="color:var(--color-reject)">capture failed</span>'}`
+          : '';
+
+        const sliderHtml = hasDiff ? `
+          <div class="slider-container" hidden>
+            <div class="slider-reference"><img src="${refPath(name)}" alt="Reference" /></div>
+            <div class="slider-diff"><img src="${diffPath(name)}" alt="Diff" /></div>
+            <div class="slider-divider"></div>
+            <div class="slider-handle">⇔</div>
+            <span class="slider-label-left">REF</span>
+            <span class="slider-label-right">DIFF</span>
+          </div>` : '';
+
+        const noDiffHtml = !hasDiff
+          ? `<div class="no-diff-notice" hidden>No diff image found — reference only.</div>`
+          : '';
+
+        return `
+          <article class="screen-card"
+                   id="card-${name}"
+                   data-verdict="${verdict}"
+                   data-has-diff="${hasDiff ? 'true' : 'false'}">
+            <div class="screen-card-header">
+              <span class="screen-name">${name}</span>
+              <span class="verdict-badge verdict-badge--${verdict}">${verdict}</span>
+              <div class="verdict-actions">
+                <button class="verdict-btn verdict-btn--approve"
+                        aria-pressed="${verdict === 'approved' ? 'true' : 'false'}"
+                        onclick="setVerdict('${name}', 'approved')"
+                        title="Approve this screen">
+                  Approve
+                </button>
+                <button class="verdict-btn verdict-btn--reject"
+                        aria-pressed="${verdict === 'rejected' ? 'true' : 'false'}"
+                        onclick="setVerdict('${name}', 'rejected')"
+                        title="Reject this screen">
+                  Reject
+                </button>
+              </div>
+            </div>
+            <div class="comparison-area">
+              <div class="comparison-mode-row">
+                <span class="mode-label">View:</span>
+                <button class="mode-btn" aria-pressed="true" data-mode="side-by-side"
+                        onclick="setMode('${name}', 'side-by-side')">Side by side</button>
+                <button class="mode-btn" aria-pressed="false" data-mode="slider"
+                        onclick="setMode('${name}', 'slider')">Diff slider</button>
+              </div>
+
+              <div class="side-by-side">
+                <div class="image-panel">
+                  <span class="image-panel-label image-panel-label--reference">Reference</span>
+                  <div class="image-frame">${refImg}</div>
+                </div>
+                <div class="image-panel">
+                  <span class="image-panel-label image-panel-label--diff">Diff</span>
+                  <div class="image-frame ${hasDiff ? '' : 'image-frame--missing'}">
+                    ${hasDiff ? diffImg : '<span class="missing-icon">✓</span><span class="missing-label">No diff — no change detected</span>'}
+                  </div>
+                </div>
+              </div>
+
+              ${sliderHtml}
+              ${noDiffHtml}
+
+              ${metaStr ? `<div class="capture-meta">${metaStr}</div>` : ''}
+            </div>
+          </article>`;
+      }
+
+      // -----------------------------------------------------------------------
+      // Full render
+      // -----------------------------------------------------------------------
+      function renderAll() {
+        const grid = document.getElementById('screens-grid');
+        if (screens.length === 0) {
+          grid.innerHTML = `
+            <div class="empty-state">
+              <p class="empty-state-title">No screenshots found</p>
+              <p class="empty-state-desc">
+                Run the visual capture command to generate reference screenshots.
+                They'll appear here automatically.
+              </p>
+              <code class="empty-state-cmd">npm run visual:capture</code>
+            </div>`;
+          return;
+        }
+
+        grid.innerHTML = screens.map(name => {
+          const meta = window._manifest ? window._manifest.find(m => m.state === name) : null;
+          const hasDiff = checkDiffExists(name);
+          return buildCard(name, meta ? { ...meta, hasDiff } : { hasDiff, width: 0, height: 0, captured_at: new Date().toISOString(), success: false });
+        }).join('');
+
+        // Init sliders
+        document.querySelectorAll('.slider-container').forEach(initSlider);
+
+        applyFilter();
+      }
+
+      // -----------------------------------------------------------------------
+      // Diff existence check — we attempt to load the diff image and cache result
+      // -----------------------------------------------------------------------
+      const _diffCache = {};
+
+      function checkDiffExists(name) {
+        // Optimistic: assume diff exists if we're in a context where we can check
+        // The image onerror handler will handle missing diffs gracefully
+        return _diffCache[name] ?? false;
+      }
+
+      // -----------------------------------------------------------------------
+      // Boot
+      // -----------------------------------------------------------------------
+      async function boot() {
+        verdicts = loadVerdicts();
+
+        // Try to load manifest from references/manifest.json
+        try {
+          const resp = await fetch(`${REFERENCES_DIR}/manifest.json`);
+          if (resp.ok) {
+            const manifest = await resp.json();
+            window._manifest = manifest;
+            screens = manifest.map(m => m.state);
+
+            // Pre-check which diffs exist
+            await Promise.all(screens.map(name =>
+              fetch(`${DIFF_DIR}/${name}.png`, { method: 'HEAD' })
+                .then(r => { _diffCache[name] = r.ok; })
+                .catch(() => { _diffCache[name] = false; })
+            ));
+          } else {
+            screens = FALLBACK_SCREENS;
+          }
+        } catch {
+          // file:// protocol doesn't support fetch — use fallback list
+          screens = FALLBACK_SCREENS;
+        }
+
+        renderAll();
+        updateSummary();
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

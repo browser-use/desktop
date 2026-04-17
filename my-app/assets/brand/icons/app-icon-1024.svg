@@ -1,0 +1,128 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1024 1024"
+  width="1024"
+  height="1024"
+  role="img"
+  aria-label="Agentic Browser app icon"
+>
+  <title>Agentic Browser</title>
+
+  <!-- Background — warm near-black rounded square -->
+  <rect width="1024" height="1024" rx="224" ry="224" fill="#1a1a1f"/>
+
+  <!-- Subtle radial gradient vignette for depth -->
+  <defs>
+    <radialGradient id="bg-vignette" cx="50%" cy="45%" r="55%">
+      <stop offset="0%"   stop-color="#22222a"/>
+      <stop offset="100%" stop-color="#0e0e12"/>
+    </radialGradient>
+    <radialGradient id="body-sheen" cx="35%" cy="30%" r="60%">
+      <stop offset="0%"   stop-color="#b0d4e8" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#7fb3d0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow-accent" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="body-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="24" flood-color="#0a0a0d" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- Background gradient layer -->
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bg-vignette)"/>
+
+  <!-- Neon accent ring — subtle outer glow, brand accent -->
+  <rect
+    x="32" y="32" width="960" height="960"
+    rx="200" ry="200"
+    fill="none"
+    stroke="#c8f135"
+    stroke-width="3"
+    opacity="0.22"
+  />
+
+  <!-- Mascot body — large rounded rectangle, blue-grey, centered -->
+  <rect
+    x="248" y="220"
+    width="528" height="564"
+    rx="200" ry="200"
+    fill="#7fb3d0"
+    filter="url(#body-shadow)"
+  />
+
+  <!-- Body sheen — soft highlight top-left -->
+  <rect
+    x="248" y="220"
+    width="528" height="564"
+    rx="200" ry="200"
+    fill="url(#body-sheen)"
+  />
+
+  <!-- Body shadow tone — bottom-right darkening -->
+  <ellipse
+    cx="620" cy="688"
+    rx="200" ry="130"
+    fill="#5a9abf"
+    opacity="0.32"
+  />
+
+  <!-- Left eye white -->
+  <ellipse cx="388" cy="460" rx="68" ry="76" fill="#f2f0ee"/>
+  <!-- Right eye white -->
+  <ellipse cx="636" cy="460" rx="68" ry="76" fill="#f2f0ee"/>
+
+  <!-- Left pupil -->
+  <circle cx="402" cy="474" r="40" fill="#1a1a2e"/>
+  <!-- Right pupil -->
+  <circle cx="650" cy="474" r="40" fill="#1a1a2e"/>
+
+  <!-- Left eye shine -->
+  <circle cx="418" cy="452" r="14" fill="#ffffff" opacity="0.88"/>
+  <!-- Right eye shine -->
+  <circle cx="666" cy="452" r="14" fill="#ffffff" opacity="0.88"/>
+
+  <!-- Small secondary shine — left -->
+  <circle cx="406" cy="468" r="6" fill="#ffffff" opacity="0.45"/>
+  <!-- Small secondary shine — right -->
+  <circle cx="654" cy="468" r="6" fill="#ffffff" opacity="0.45"/>
+
+  <!-- Smile — gentle upward arc -->
+  <path
+    d="M 380 580 Q 512 650 644 580"
+    stroke="#1a1a2e"
+    stroke-width="14"
+    stroke-linecap="round"
+    fill="none"
+    opacity="0.62"
+  />
+
+  <!-- Left arm — rounded nub -->
+  <ellipse
+    cx="224" cy="600"
+    rx="54" ry="84"
+    fill="#6aa8c8"
+    transform="rotate(14 224 600)"
+  />
+
+  <!-- Right arm -->
+  <ellipse
+    cx="800" cy="600"
+    rx="54" ry="84"
+    fill="#6aa8c8"
+    transform="rotate(-14 800 600)"
+  />
+
+  <!-- Left foot -->
+  <ellipse cx="388" cy="800" rx="80" ry="40" fill="#6aa8c8"/>
+  <!-- Right foot -->
+  <ellipse cx="636" cy="800" rx="80" ry="40" fill="#6aa8c8"/>
+
+  <!-- Ground shadow -->
+  <ellipse cx="512" cy="856" rx="180" ry="30" fill="#0a0a0d" opacity="0.32"/>
+
+  <!-- Neon accent dot — top right, brand signature -->
+  <circle cx="840" cy="184" r="22" fill="#c8f135" opacity="0.72" filter="url(#glow-accent)"/>
+  <circle cx="840" cy="184" r="10" fill="#c8f135"/>
+</svg>

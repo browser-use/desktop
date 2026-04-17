@@ -6,6 +6,7 @@
 import { BrowserWindow, app, screen } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { mainLogger } from './logger';
 
 const BOUNDS_FILE_NAME = 'window-bounds.json';
 const DEFAULT_WIDTH = 1280;
@@ -41,7 +42,7 @@ function loadBounds(): WindowBounds {
       );
     });
     if (!isVisible) {
-      console.log('[window] Saved bounds off-screen, using defaults');
+      mainLogger.warn('window.loadBounds.offScreen', { msg: 'Saved bounds off-screen, using defaults' });
       return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
     }
     return parsed;
@@ -54,15 +55,18 @@ function saveBounds(win: BrowserWindow): void {
   try {
     const bounds = win.getBounds();
     fs.writeFileSync(getBoundsPath(), JSON.stringify(bounds), 'utf-8');
-    console.log('[window] Bounds saved:', bounds);
+    mainLogger.debug('window.saveBounds.ok', { bounds });
   } catch (err) {
-    console.error('[window] Failed to save bounds:', err);
+    mainLogger.error('window.saveBounds.failed', {
+      error: (err as Error).message,
+      stack: (err as Error).stack,
+    });
   }
 }
 
 export function createShellWindow(): BrowserWindow {
   const bounds = loadBounds();
-  console.log('[window] Creating shell window with bounds:', bounds);
+  mainLogger.info('window.createShellWindow', { bounds });
 
   const win = new BrowserWindow({
     x: bounds.x,
@@ -78,7 +82,7 @@ export function createShellWindow(): BrowserWindow {
       preload: path.join(__dirname, 'shell.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -88,24 +92,27 @@ export function createShellWindow(): BrowserWindow {
     SHELL_VITE_DEV_SERVER_URL
   ) {
     const shellDevUrl = `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/shell/shell.html`;
-    console.log('[window] Loading dev server URL:', shellDevUrl);
+    mainLogger.debug('window.loadURL', { url: shellDevUrl });
     win.loadURL(shellDevUrl);
     win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-      console.error('[window] did-fail-load', { code, desc, url });
+      mainLogger.error('window.did-fail-load', { code, desc, url });
     });
     win.webContents.on('did-finish-load', () => {
-      console.log('[window] did-finish-load', { url: win.webContents.getURL() });
+      mainLogger.info('window.did-finish-load', { url: win.webContents.getURL() });
     });
     win.webContents.on('console-message', (_e, level, message, line, source) => {
-      console.log(`[shell-renderer:${level}] ${source}:${line} ${message}`);
+      mainLogger.info('shellRenderer.console', { level, source, line, message });
     });
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
+    // Forge VitePlugin outputs shell.html (matching the input filename).
+    // __dirname = .vite/build; renderer is at .vite/renderer/shell/shell.html
+    // so the path is one level up: ../renderer/shell/shell.html
     const htmlPath = path.join(
       __dirname,
-      `../../renderer/shell/index.html`,
+      `../renderer/shell/shell.html`,
     );
-    console.log('[window] Loading file:', htmlPath);
+    mainLogger.debug('window.loadFile', { filePath: htmlPath });
     win.loadFile(htmlPath);
   }
 
@@ -121,6 +128,13 @@ export function createShellWindow(): BrowserWindow {
   win.on('close', () => {
     if (boundsTimer) clearTimeout(boundsTimer);
     saveBounds(win);
+    mainLogger.info('window.close', { windowId: win.id });
+  });
+  win.on('closed', () => {
+    mainLogger.info('window.closed', { msg: 'Shell window destroyed' });
+  });
+  win.webContents.on('crashed' as any, (_e: Event, killed: boolean) => {
+    mainLogger.error('window.crashed', { windowId: win.id, killed });
   });
 
   return win;

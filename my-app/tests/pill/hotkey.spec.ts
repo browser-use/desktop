@@ -1,6 +1,13 @@
 /**
- * Unit tests for hotkeys.ts — globalShortcut registration/unregistration.
- * D1 (TDD): these tests are written before implementation.
+ * Unit tests for hotkeys.ts — Cmd+K pill toggle registration.
+ *
+ * Contract as of Menu-accelerator refactor (Track B):
+ *   - Cmd+K is registered as an app-local Menu accelerator in index.ts,
+ *     NOT via globalShortcut (which would steal focus system-wide).
+ *   - registerHotkeys() is intentionally a no-op shim retained so existing
+ *     callers in index.ts keep compiling; it always returns true.
+ *   - unregisterHotkeys() is intentionally a no-op shim; nothing to clean up.
+ *   - globalShortcut.register is NOT called at all for Cmd+K.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -40,68 +47,69 @@ describe('HotkeyManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test: registerHotkeys registers Cmd+K
+  // Test: registerHotkeys does NOT call globalShortcut.register
+  // Cmd+K moved to Menu accelerator; globalShortcut is not used.
   // -------------------------------------------------------------------------
-  it('registerHotkeys registers CommandOrControl+K', async () => {
+  it('registerHotkeys does not call globalShortcut.register (Cmd+K is a Menu accelerator)', async () => {
     const toggleCb = vi.fn();
     const { registerHotkeys } = await import('../../src/main/hotkeys');
 
     registerHotkeys(toggleCb);
 
-    expect(globalShortcut.register).toHaveBeenCalledWith(
-      'CommandOrControl+K',
-      expect.any(Function),
-    );
+    // globalShortcut.register must NOT be called — Cmd+K is app-local via Menu
+    expect(globalShortcut.register).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
-  // Test: toggle callback is invoked when hotkey fires
+  // Test: registerHotkeys is callable without throwing even though it is a
+  // no-op shim. The toggleCallback parameter is accepted but not wired here
+  // (the Menu accelerator in index.ts calls togglePill() directly).
   // -------------------------------------------------------------------------
-  it('calls toggleCallback when Cmd+K hotkey fires', async () => {
+  it('registerHotkeys accepts a toggleCallback without throwing', async () => {
     const toggleCb = vi.fn();
     const { registerHotkeys } = await import('../../src/main/hotkeys');
 
-    registerHotkeys(toggleCb);
+    expect(() => registerHotkeys(toggleCb)).not.toThrow();
 
-    // Extract the registered callback and invoke it
-    const calls = vi.mocked(globalShortcut.register).mock.calls;
-    const registeredCallback = calls[0]?.[1] as (() => void) | undefined;
-    expect(registeredCallback).toBeDefined();
-    registeredCallback!();
-
-    expect(toggleCb).toHaveBeenCalledTimes(1);
+    // The callback is not invoked by registerHotkeys itself — it is wired
+    // externally via the Menu accelerator in index.ts
+    expect(toggleCb).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
-  // Test: unregisterHotkeys unregisters Cmd+K
+  // Test: unregisterHotkeys does NOT call globalShortcut.unregister
+  // Nothing was registered with globalShortcut, so nothing to unregister.
   // -------------------------------------------------------------------------
-  it('unregisterHotkeys unregisters CommandOrControl+K', async () => {
+  it('unregisterHotkeys does not call globalShortcut.unregister (nothing registered)', async () => {
     const toggleCb = vi.fn();
     const { registerHotkeys, unregisterHotkeys } = await import('../../src/main/hotkeys');
 
     registerHotkeys(toggleCb);
     unregisterHotkeys();
 
-    expect(globalShortcut.unregister).toHaveBeenCalledWith('CommandOrControl+K');
+    expect(globalShortcut.unregister).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
-  // Test: registerHotkeys returns false if registration fails
+  // Test: registerHotkeys always returns true (no registration can fail when
+  // it is a no-op; the Menu accelerator is registered synchronously by Electron).
   // -------------------------------------------------------------------------
-  it('registerHotkeys returns false when globalShortcut.register returns false', async () => {
+  it('registerHotkeys always returns true regardless of globalShortcut state', async () => {
+    // Even if globalShortcut.register were somehow set to return false,
+    // our shim must return true because it does not call register at all.
     vi.mocked(globalShortcut.register).mockReturnValue(false);
     const toggleCb = vi.fn();
     const { registerHotkeys } = await import('../../src/main/hotkeys');
 
     const result = registerHotkeys(toggleCb);
 
-    expect(result).toBe(false);
+    expect(result).toBe(true);
   });
 
   // -------------------------------------------------------------------------
-  // Test: registerHotkeys returns true on success
+  // Test: registerHotkeys returns true on every call (idempotent no-op)
   // -------------------------------------------------------------------------
-  it('registerHotkeys returns true when registration succeeds', async () => {
+  it('registerHotkeys returns true when called (Menu-accelerator path always succeeds)', async () => {
     vi.mocked(globalShortcut.register).mockReturnValue(true);
     const toggleCb = vi.fn();
     const { registerHotkeys } = await import('../../src/main/hotkeys');
@@ -112,21 +120,16 @@ describe('HotkeyManager', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test: double-register is skipped when already registered
+  // Test: calling registerHotkeys multiple times does not call
+  // globalShortcut.register at all — the Menu accelerator handles dedup.
   // -------------------------------------------------------------------------
-  it('does not register the same hotkey twice when already registered', async () => {
-    // First call: not registered
-    vi.mocked(globalShortcut.isRegistered).mockReturnValue(false);
+  it('calling registerHotkeys twice never calls globalShortcut.register', async () => {
     const toggleCb = vi.fn();
     const { registerHotkeys } = await import('../../src/main/hotkeys');
 
     registerHotkeys(toggleCb);
-
-    // Second call: simulate already registered by a prior call
-    vi.mocked(globalShortcut.isRegistered).mockReturnValue(true);
     registerHotkeys(toggleCb);
 
-    // register should only have been called once (second call bailed out)
-    expect(globalShortcut.register).toHaveBeenCalledTimes(1);
+    expect(globalShortcut.register).toHaveBeenCalledTimes(0);
   });
 });

@@ -23,13 +23,13 @@ const log = {
         console.log(
           JSON.stringify({ ts: Date.now(), level: 'debug', component: comp, ...ctx }),
         )
-    : () => {},
+    : (_comp: string, _ctx: object) => { /* no-op in production */ },
   info: DEV
     ? (comp: string, ctx: object) =>
         console.log(
           JSON.stringify({ ts: Date.now(), level: 'info', component: comp, ...ctx }),
         )
-    : () => {},
+    : (_comp: string, _ctx: object) => { /* no-op in production */ },
   warn: (comp: string, ctx: object) =>
     console.warn(JSON.stringify({ ts: Date.now(), level: 'warn', component: comp, ...ctx })),
   error: (comp: string, ctx: object) =>

@@ -13,6 +13,11 @@ import React from 'react';
 import { StepIndicator } from './StepIndicator';
 import { CapabilitiesGrid } from './CapabilitiesGrid';
 import { CharacterMascot } from './CharacterMascot';
+import { KeyHint } from '../components/base';
+// wordmark-dark.svg is the DARK-MODE variant (white text on transparent).
+// wordmark-light.svg is for LIGHT backgrounds (dark text). Onboarding is dark
+// so we use dark-variant. Previous build had this backwards — text was invisible.
+import wordmarkDarkUrl from '../../../assets/brand/wordmarks/wordmark-dark.svg';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,6 +25,10 @@ import { CharacterMascot } from './CharacterMascot';
 
 const TOTAL_STEPS = 5;
 const CURRENT_STEP = 1;
+
+// Wordmark rendered at this width; height scales proportionally from the
+// SVG viewBox (420×64 → ~220×33.5 at display size).
+const WORDMARK_WIDTH = 220;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -55,37 +64,50 @@ export function Welcome({ onNext, agentName }: WelcomeProps): React.ReactElement
       {/* Left panel */}
       <div className="onboarding-panel-left">
         <div>
-          <h1 className="onboarding-headline">I'm your Companion!</h1>
-          <p className="onboarding-subhead" style={{ marginTop: 8 }}>
-            Your very own personal assistant that can help you with
+          {/* Wordmark — visually hidden h1 preserved for screen readers */}
+          <h1 className="onboarding-headline sr-only" aria-label="Agentic Browser">
+            Agentic Browser
+          </h1>
+          <img
+            src={wordmarkDarkUrl}
+            alt="Agentic Browser"
+            width={WORDMARK_WIDTH}
+            aria-hidden="true"
+            draggable={false}
+            style={{ display: 'block', marginBottom: 16 }}
+          />
+          <p className="onboarding-subhead" style={{ marginTop: 0 }}>
+            A browser agent that acts on your behalf. Here's what it can do:
           </p>
         </div>
 
         <CapabilitiesGrid />
 
         <p className="onboarding-subhead">
-          I have{' '}
+          My name is{' '}
           <span className="name-placeholder">
-            {agentName ?? 'no name yet'}
+            {agentName ?? 'not set yet'}
           </span>
-          .
+          .{' '}
+          {!agentName && "You'll give me one in the next step."}
         </p>
-        {!agentName && (
-          <p className="onboarding-subhead" style={{ marginTop: -12 }}>
-            I'll get one when we've gotten to know each other!
-          </p>
-        )}
 
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
             className="cta-button"
             onClick={onNext}
             type="button"
-            aria-label="Get Started"
+            aria-label="Get started with setup"
           >
-            Get Started
+            Get started
             <span aria-hidden="true">→</span>
           </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <KeyHint keys={['Enter']} size="xs" />
+            <span className="onboarding-eyebrow" style={{ textTransform: 'none', letterSpacing: 0 }}>
+              to continue
+            </span>
+          </div>
         </div>
       </div>
 

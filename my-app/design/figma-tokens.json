@@ -1,0 +1,271 @@
+{
+  "$metadata": {
+    "tokenSetOrder": ["global", "shell", "onboarding", "shared"]
+  },
+  "global": {
+    "$description": "Color primitives — hex literals live ONLY here. All component CSS uses semantic aliases.",
+    "slate": {
+      "0":  { "value": "#030305", "type": "color", "description": "Absolute darkest — rarely used directly" },
+      "1":  { "value": "#070709", "type": "color", "description": "Sunken wells, recessed backgrounds" },
+      "2":  { "value": "#0a0a0d", "type": "color", "description": "Root window background (shell)" },
+      "3":  { "value": "#0f0f12", "type": "color", "description": "Deep surface" },
+      "4":  { "value": "#111114", "type": "color", "description": "Elevated surfaces — tab bar, sidebar" },
+      "5":  { "value": "#14141a", "type": "color", "description": "Hovered tab background" },
+      "6":  { "value": "#16161a", "type": "color", "description": "Overlay — active tab, pill bg" },
+      "7":  { "value": "#1e1e24", "type": "color", "description": "Subtle borders, dividers" },
+      "8":  { "value": "#282830", "type": "color", "description": "Default borders, input outlines" },
+      "9":  { "value": "#3a3a44", "type": "color", "description": "Strong borders, emphasized separators" },
+      "10": { "value": "#6e737d", "type": "color", "description": "Tertiary fg — WCAG 3.79:1 on slate-6" },
+      "11": { "value": "#8a8f98", "type": "color", "description": "Secondary fg — inactive labels" },
+      "12": { "value": "#f0f0f2", "type": "color", "description": "Primary fg — main text" }
+    },
+    "accent": {
+      "base":  { "value": "#c8f135", "type": "color", "description": "Neon yellow-green — THE one accent. Primary CTAs, active indicators, focus glows." },
+      "dim":   { "value": "#b8e020", "type": "color", "description": "Pressed/active — darker accent for depressed state" },
+      "hover": { "value": "#d4f74e", "type": "color", "description": "Hover state of accent elements — slightly lighter" }
+    },
+    "status": {
+      "danger":  { "value": "#f87171", "type": "color", "description": "Error, disconnected, failed, destructive action" },
+      "success": { "value": "#4ade80", "type": "color", "description": "Connected, completed, ok, granted" },
+      "warning": { "value": "#f59e0b", "type": "color", "description": "Degraded, needs attention, offline" },
+      "info":    { "value": "#60a5fa", "type": "color", "description": "Informational, in-progress, emails capability" }
+    }
+  },
+  "shell": {
+    "$description": "Shell theme — Linear + Obsidian dark. Dense, keyboard-first, zero decorative shadows.",
+    "colors": {
+      "bg": {
+        "base":    { "value": "{global.slate.2}", "type": "color", "description": "Root window background" },
+        "elevated":{ "value": "{global.slate.4}", "type": "color", "description": "Raised surfaces — tab bar, sidebar" },
+        "overlay": { "value": "{global.slate.6}", "type": "color", "description": "Overlays, pill, active tab" },
+        "sunken":  { "value": "{global.slate.1}", "type": "color", "description": "Recessed wells, input backgrounds" }
+      },
+      "fg": {
+        "primary":   { "value": "{global.slate.12}", "type": "color", "description": "Primary text, active labels" },
+        "secondary": { "value": "{global.slate.11}", "type": "color", "description": "Secondary text, inactive tabs" },
+        "tertiary":  { "value": "{global.slate.10}", "type": "color", "description": "Section headers, placeholders — WCAG 3.79:1 on bg-overlay" },
+        "disabled":  { "value": "#3a3f48",           "type": "color", "description": "Disabled controls" },
+        "inverse":   { "value": "{global.slate.2}",  "type": "color", "description": "Text on accent backgrounds" }
+      },
+      "border": {
+        "subtle":  { "value": "{global.slate.7}", "type": "color", "description": "Tab strip underlines, dividers" },
+        "default": { "value": "{global.slate.8}", "type": "color", "description": "Input borders, card outlines" },
+        "strong":  { "value": "{global.slate.9}", "type": "color", "description": "Emphasized separators" }
+      },
+      "accent": {
+        "default": { "value": "{global.accent.base}",  "type": "color", "description": "Primary CTA, active state indicator" },
+        "hover":   { "value": "{global.accent.hover}", "type": "color", "description": "Hover state of accent elements" },
+        "dim":     { "value": "{global.accent.dim}",   "type": "color", "description": "Pressed/active state" },
+        "muted":   { "value": "rgba(200, 241, 53, 0.10)", "type": "color", "description": "Selected row backgrounds, subtle tints" },
+        "glow":    { "value": "rgba(200, 241, 53, 0.18)", "type": "color", "description": "Glow ring on focused inputs" }
+      },
+      "status": {
+        "success": { "value": "{global.status.success}", "type": "color" },
+        "warning": { "value": "{global.status.warning}", "type": "color" },
+        "error":   { "value": "{global.status.danger}",  "type": "color" },
+        "danger":  { "value": "{global.status.danger}",  "type": "color" },
+        "info":    { "value": "{global.status.info}",    "type": "color" }
+      },
+      "surface": {
+        "glass":               { "value": "rgba(22, 22, 26, 0.85)", "type": "color", "description": "Frosted glass panels" },
+        "scrim":               { "value": "rgba(0, 0, 0, 0.60)",    "type": "color", "description": "Modal/overlay backdrop" },
+        "interactive":         { "value": "rgba(255, 255, 255, 0.04)", "type": "color", "description": "Subtle hover surface" },
+        "interactiveHover":    { "value": "rgba(255, 255, 255, 0.07)", "type": "color", "description": "Hover interactive surface" },
+        "interactiveActive":   { "value": "rgba(255, 255, 255, 0.10)", "type": "color", "description": "Active/pressed interactive surface" }
+      },
+      "tab": {
+        "bg":       { "value": "{global.slate.4}", "type": "color", "description": "Inactive tab background" },
+        "activeBg": { "value": "{global.slate.6}", "type": "color", "description": "Active tab background" },
+        "hoverBg":  { "value": "{global.slate.5}", "type": "color", "description": "Hovered tab background" }
+      },
+      "pill": {
+        "bg":     { "value": "{global.slate.6}", "type": "color", "description": "Pill overlay background" },
+        "border": { "value": "#2e2e38",          "type": "color", "description": "Pill overlay border (idle)" }
+      }
+    },
+    "depth": {
+      "shadows": {
+        "$description": "Shell uses ZERO decorative shadows — all shadow-* tokens are none.",
+        "xs": { "value": "none", "type": "boxShadow" },
+        "sm": { "value": "none", "type": "boxShadow" },
+        "md": { "value": "none", "type": "boxShadow" },
+        "lg": { "value": "none", "type": "boxShadow" },
+        "xl": { "value": "none", "type": "boxShadow" }
+      },
+      "glows": {
+        "accentSm": { "value": "0 0 8px rgba(200, 241, 53, 0.12)",  "type": "boxShadow", "description": "Default glow — focused inputs, pill border" },
+        "accentMd": { "value": "0 0 16px rgba(200, 241, 53, 0.20)", "type": "boxShadow", "description": "Stronger glow — streaming state" },
+        "accentLg": { "value": "0 0 32px rgba(200, 241, 53, 0.30)", "type": "boxShadow", "description": "Max glow — rarely used" }
+      }
+    }
+  },
+  "onboarding": {
+    "$description": "Onboarding theme — warm character-forward dark. More rounded, generous padding, pastel pills, mascot-forward.",
+    "colors": {
+      "bg": {
+        "base":    { "value": "#1a1a1f", "type": "color", "description": "Onboarding root — warmer dark, slight purple shift" },
+        "elevated":{ "value": "#22222a", "type": "color", "description": "Cards, modals, form fields" },
+        "overlay": { "value": "#2a2a34", "type": "color", "description": "Dropdowns, hover tints" },
+        "sunken":  { "value": "#111118", "type": "color", "description": "Recessed wells" },
+        "card":    { "value": "#1e1e26", "type": "color", "description": "Mascot stage, content card" }
+      },
+      "fg": {
+        "primary":   { "value": "#f2f0ee", "type": "color", "description": "Warm white — slightly off-white for warmth" },
+        "secondary": { "value": "#9a96a0", "type": "color", "description": "Secondary labels, form copy" },
+        "tertiary":  { "value": "#7a7580", "type": "color", "description": "Hints, metadata — WCAG 3.52:1 on bg-elevated" },
+        "disabled":  { "value": "#4a4550", "type": "color", "description": "Disabled controls" },
+        "inverse":   { "value": "#1a1a1f", "type": "color", "description": "Text on light/accent backgrounds" }
+      },
+      "border": {
+        "subtle":  { "value": "#2a2a34", "type": "color" },
+        "default": { "value": "#34343f", "type": "color" },
+        "strong":  { "value": "#44444f", "type": "color" }
+      },
+      "accent": {
+        "default": { "value": "{global.accent.base}",  "type": "color", "description": "Shared with shell — same brand yellow-green" },
+        "hover":   { "value": "{global.accent.hover}", "type": "color" },
+        "dim":     { "value": "{global.accent.dim}",   "type": "color" },
+        "muted":   { "value": "rgba(200, 241, 53, 0.12)", "type": "color", "description": "Slightly warmer alpha than shell (0.12 vs 0.10)" },
+        "glow":    { "value": "rgba(200, 241, 53, 0.20)", "type": "color", "description": "Warmer glow alpha than shell (0.20 vs 0.18)" }
+      },
+      "status": {
+        "success": { "value": "{global.status.success}", "type": "color" },
+        "warning": { "value": "{global.status.warning}", "type": "color" },
+        "error":   { "value": "{global.status.danger}",  "type": "color" },
+        "info":    { "value": "{global.status.info}",    "type": "color" }
+      },
+      "capabilityPills": {
+        "research":    { "value": "#a78bfa",               "type": "color", "description": "Purple" },
+        "researchBg":  { "value": "rgba(167, 139, 250, 0.18)", "type": "color" },
+        "sourcing":    { "value": "#fbbf24",               "type": "color", "description": "Amber/yellow" },
+        "sourcingBg":  { "value": "rgba(251, 191, 36, 0.18)",  "type": "color" },
+        "automation":  { "value": "#34d399",               "type": "color", "description": "Emerald green" },
+        "automationBg":{ "value": "rgba(52, 211, 153, 0.18)",  "type": "color" },
+        "emails":      { "value": "{global.status.info}",  "type": "color", "description": "Blue — aliases status.info" },
+        "emailsBg":    { "value": "rgba(96, 165, 250, 0.18)",  "type": "color" },
+        "scraping":    { "value": "{global.status.danger}", "type": "color", "description": "Red — aliases status.danger" },
+        "scrapingBg":  { "value": "rgba(248, 113, 113, 0.18)", "type": "color" },
+        "more":        { "value": "#fb923c",               "type": "color", "description": "Orange" },
+        "moreBg":      { "value": "rgba(251, 146, 60, 0.18)",  "type": "color" }
+      },
+      "mascot": {
+        "body":      { "value": "#7fb3d0", "type": "color", "description": "Blue-grey character fill" },
+        "shadow":    { "value": "#5a9abf", "type": "color", "description": "Underside shadow — darker body" },
+        "eye":       { "value": "#1a1a2e", "type": "color", "description": "Eye fill — near-black with blue tint" },
+        "highlight": { "value": "#b0d4e8", "type": "color", "description": "Specular highlight — lighter body" }
+      },
+      "modal": {
+        "bg":     { "value": "#22222a",               "type": "color" },
+        "border": { "value": "#34343f",               "type": "color" },
+        "scrim":  { "value": "rgba(10, 10, 13, 0.75)", "type": "color", "description": "Darker than shell scrim for onboarding drama" }
+      },
+      "google": {
+        "$description": "Third-party brand colors — cannot map to our palette primitives.",
+        "gmail":    { "value": "#ea4335", "type": "color" },
+        "calendar": { "value": "#4285f4", "type": "color" },
+        "sheets":   { "value": "#34a853", "type": "color" },
+        "drive":    { "value": "#fbbc05", "type": "color" },
+        "docs":     { "value": "#1967d2", "type": "color" }
+      }
+    },
+    "depth": {
+      "shadows": {
+        "$description": "Onboarding uses real shadows for depth (unlike shell which is flat).",
+        "xs": { "value": "0 1px 2px rgba(0, 0, 0, 0.30)",  "type": "boxShadow" },
+        "sm": { "value": "0 1px 4px rgba(0, 0, 0, 0.35)",  "type": "boxShadow" },
+        "md": { "value": "0 4px 16px rgba(0, 0, 0, 0.45)", "type": "boxShadow" },
+        "lg": { "value": "0 8px 40px rgba(0, 0, 0, 0.55)", "type": "boxShadow" },
+        "xl": { "value": "0 16px 64px rgba(0, 0, 0, 0.65)","type": "boxShadow" }
+      },
+      "glows": {
+        "accentSm": { "value": "0 0 8px rgba(200, 241, 53, 0.12)",  "type": "boxShadow" },
+        "accentMd": { "value": "0 0 16px rgba(200, 241, 53, 0.20)", "type": "boxShadow", "description": "Default glow for onboarding (warmer alpha)" },
+        "accentLg": { "value": "0 0 32px rgba(200, 241, 53, 0.30)", "type": "boxShadow" }
+      }
+    }
+  },
+  "shared": {
+    "$description": "Theme-agnostic tokens — spacing, radii, motion, z-index. Used by both themes.",
+    "spacing": {
+      "0":  { "value": "0",   "type": "spacing", "description": "No spacing" },
+      "1":  { "value": "2",   "type": "spacing", "description": "Icon gap minimum" },
+      "2":  { "value": "4",   "type": "spacing", "description": "Tight inline gap" },
+      "3":  { "value": "6",   "type": "spacing", "description": "Icon-to-label gap" },
+      "4":  { "value": "8",   "type": "spacing", "description": "Compact padding" },
+      "5":  { "value": "10",  "type": "spacing", "description": "Small nudge" },
+      "6":  { "value": "12",  "type": "spacing", "description": "Standard gap" },
+      "8":  { "value": "16",  "type": "spacing", "description": "Section internal padding" },
+      "10": { "value": "20",  "type": "spacing", "description": "Card padding" },
+      "12": { "value": "24",  "type": "spacing", "description": "Section gap" },
+      "16": { "value": "32",  "type": "spacing", "description": "Large section gap" },
+      "20": { "value": "40",  "type": "spacing", "description": "Layout breathing room" },
+      "24": { "value": "48",  "type": "spacing", "description": "Section heading spacing" },
+      "32": { "value": "64",  "type": "spacing", "description": "Page section gap" }
+    },
+    "radii": {
+      "xs":   { "value": "2",    "type": "borderRadius", "description": "Badges, tight chips (shell)" },
+      "sm":   { "value": "4",    "type": "borderRadius", "description": "Tabs, nav buttons (shell) / 7px (onboarding overrides)" },
+      "md":   { "value": "6",    "type": "borderRadius", "description": "Inputs, buttons, URL bar" },
+      "lg":   { "value": "8",    "type": "borderRadius", "description": "Cards" },
+      "xl":   { "value": "12",   "type": "borderRadius", "description": "Modals, pill overlay" },
+      "2xl":  { "value": "16",   "type": "borderRadius", "description": "Pill container, large cards" },
+      "full": { "value": "9999", "type": "borderRadius", "description": "Circular avatars, toggle thumbs, pills" }
+    },
+    "motion": {
+      "duration": {
+        "fast":   { "value": "80",  "type": "other", "description": "Hover color changes, tab switches — shell default" },
+        "normal": { "value": "180", "type": "other", "description": "Button states, input focus, most transitions" },
+        "slow":   { "value": "320", "type": "other", "description": "Page transitions, modal enter/exit" }
+      },
+      "easing": {
+        "out":    { "value": "cubic-bezier(0.2, 0, 0, 1)",       "type": "other", "description": "Default — fast start, authoritative finish" },
+        "spring": { "value": "cubic-bezier(0.34, 1.56, 0.64, 1)", "type": "other", "description": "Playful overshoot — mascot entrance, success pops" },
+        "inOut":  { "value": "cubic-bezier(0.4, 0, 0.6, 1)",     "type": "other", "description": "Symmetric — loading bars, progress indicators" }
+      }
+    },
+    "zIndex": {
+      "base":     { "value": "0",    "type": "other", "description": "Default document flow" },
+      "raised":   { "value": "10",   "type": "other", "description": "Sticky headers, floating labels" },
+      "dropdown": { "value": "100",  "type": "other", "description": "Dropdowns, autocomplete panels" },
+      "sticky":   { "value": "200",  "type": "other", "description": "Sticky nav, tab strip" },
+      "overlay":  { "value": "300",  "type": "other", "description": "Drawers, side panels" },
+      "modal":    { "value": "400",  "type": "other", "description": "Dialog/modal windows" },
+      "toast":    { "value": "500",  "type": "other", "description": "Toast notifications" },
+      "pill":     { "value": "600",  "type": "other", "description": "Cmd+K pill overlay" },
+      "tooltip":  { "value": "700",  "type": "other", "description": "Tooltip — always on top of everything" },
+      "max":      { "value": "9999", "type": "other", "description": "Emergency top-layer override" }
+    },
+    "typography": {
+      "fontFamily": {
+        "ui":      { "value": "'Geist', 'Söhne', system-ui, sans-serif",                          "type": "fontFamilies", "description": "UI, display, body — all surfaces. Never Inter." },
+        "mono":    { "value": "'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace",       "type": "fontFamilies", "description": "URLs, code, CDP identifiers, key hint chips" },
+        "display": { "value": "'Geist', 'Söhne', system-ui, sans-serif",                          "type": "fontFamilies", "description": "Display/hero — same as ui. Alias for clarity." }
+      },
+      "fontSize": {
+        "2xs":  { "value": "10", "type": "fontSizes", "description": "Status labels, badge counts" },
+        "xs":   { "value": "11", "type": "fontSizes", "description": "Key hint chips, metadata, timestamps" },
+        "sm":   { "value": "12", "type": "fontSizes", "description": "Tab labels, secondary copy, URL bar" },
+        "md":   { "value": "13", "type": "fontSizes", "description": "List rows, compact UI" },
+        "base": { "value": "14", "type": "fontSizes", "description": "Body text, form fields" },
+        "lg":   { "value": "15", "type": "fontSizes", "description": "Subheadings, emphasized body" },
+        "xl":   { "value": "17", "type": "fontSizes", "description": "Section headings" },
+        "2xl":  { "value": "20", "type": "fontSizes", "description": "Page subheadings" },
+        "3xl":  { "value": "24", "type": "fontSizes", "description": "Page headings" },
+        "4xl":  { "value": "30", "type": "fontSizes", "description": "Hero subheadings" },
+        "5xl":  { "value": "38", "type": "fontSizes", "description": "Hero / display headings" }
+      },
+      "fontWeight": {
+        "regular":  { "value": "400", "type": "fontWeights" },
+        "medium":   { "value": "500", "type": "fontWeights" },
+        "semibold": { "value": "600", "type": "fontWeights" },
+        "bold":     { "value": "700", "type": "fontWeights" }
+      },
+      "lineHeight": {
+        "tight":   { "value": "1.2",  "type": "lineHeights", "description": "Display headings" },
+        "snug":    { "value": "1.35", "type": "lineHeights", "description": "Subheadings, modal titles" },
+        "normal":  { "value": "1.45", "type": "lineHeights", "description": "Body text (shell: 1.45, onboarding: 1.5)" },
+        "relaxed": { "value": "1.6",  "type": "lineHeights", "description": "Long-form prose (shell: 1.6, onboarding: 1.65)" }
+      }
+    }
+  }
+}

@@ -85,11 +85,19 @@ function TabItem({
 
       {/* Close button */}
       <button
+        type="button"
         className="tab-item__close"
         aria-label={`Close ${tab.title || 'tab'}`}
         onClick={onClose}
       >
-        ×
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path
+            d="M3 3l6 6M9 3l-6 6"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
       </button>
     </div>
   );
@@ -144,8 +152,8 @@ export function TabStrip({
   }, []);
 
   return (
-    <div className="tab-strip" role="tablist" onDragEnd={handleDragEnd}>
-      <div className="tab-strip__tabs">
+    <div className="tab-strip" role="presentation" onDragEnd={handleDragEnd}>
+      <div className="tab-strip__tabs" role="tablist" aria-label="Browser tabs">
         {tabs.map((tab, index) => (
           <TabItem
             key={tab.id}
@@ -163,16 +171,24 @@ export function TabStrip({
             isDragOver={dragOverIndex === index}
           />
         ))}
+        {/* + button sits right after the last tab (Chrome-style), not pinned right */}
+        <button
+          type="button"
+          className="tab-strip__new-tab"
+          aria-label="New tab"
+          onClick={onNewTab}
+          title="New Tab (Cmd+T)"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path
+              d="M7 3v8M3 7h8"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
       </div>
-
-      <button
-        className="tab-strip__new-tab"
-        aria-label="New tab"
-        onClick={onNewTab}
-        title="New Tab (Cmd+T)"
-      >
-        +
-      </button>
     </div>
   );
 }

@@ -14,6 +14,8 @@ my-app/python/__pycache__/
 my-app/python/**/__pycache__/
 my-app/python/.pytest_cache/
 my-app/python/**/*.pyc
+my-app/python/.venv/
+my-app/python/venv/
 
 # Logs
 *.log
@@ -22,6 +24,17 @@ my-app/logs/
 # Test results / debug captures (ephemeral)
 my-app/tests/results/
 my-app/tests/debug/
+
+# Harness runtime artifacts (session signals, ephemeral)
+.harness/
+
+# Claude Code local project settings (ephemeral)
+.claude/
+!.claude/settings.json
+
+# Visual capture outputs (ephemeral, manifest-driven)
+my-app/tests/visual/captures/
+my-app/tests/visual/diff/
 
 # Env / secrets
 .env

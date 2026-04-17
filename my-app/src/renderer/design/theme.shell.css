@@ -2,134 +2,102 @@
  * theme.shell.css — Linear + Obsidian dark shell theme
  * Activate by setting <html data-theme="shell"> on the document element.
  * Dense, keyboard-first, no decorative shadows — glow accents only.
+ *
+ * This file ONLY overrides semantic color tokens and shell-specific tokens.
+ * All primitive tokens (--slate-*, --accent-*, --danger, etc.) are defined
+ * in theme.global.css :root and are NOT repeated here.
+ *
  * Rule: zero !important, zero Inter references, zero left-outline emphasis.
  */
 
-/* ---------------------------------------------------------------------------
-   Token constants (named references for readability — see tokens.ts mirrors)
---------------------------------------------------------------------------- */
-
-/* BG_BASE           #0a0a0d */
-/* BG_ELEVATED       #111114 */
-/* BG_OVERLAY        #16161a */
-/* BG_SUNKEN         #070709 */
-/* FG_PRIMARY        #f0f0f2 */
-/* FG_SECONDARY      #8a8f98 */
-/* FG_TERTIARY       #5a5f68 */
-/* FG_DISABLED       #3a3f48 */
-/* ACCENT            #c8f135 */
-/* ACCENT_HOVER      #d4f74e */
-/* ACCENT_GLOW       rgba(200,241,53,0.18) */
-/* BORDER_SUBTLE     #1e1e24 */
-/* BORDER_DEFAULT    #282830 */
-/* BORDER_STRONG     #3a3a44 */
-
-/* ---------------------------------------------------------------------------
-   Shell CSS custom properties
---------------------------------------------------------------------------- */
-
 [data-theme="shell"] {
   /* -- Font families -- */
-  --font-ui:   'Geist', 'Söhne', system-ui, sans-serif;
-  --font-mono: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --font-ui:      'Geist', 'Söhne', system-ui, sans-serif;
+  --font-mono:    'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Geist', 'Söhne', system-ui, sans-serif;
 
-  /* -- Font sizes -- */
-  --font-size-2xs:  10px;
-  --font-size-xs:   11px;
-  --font-size-sm:   12px;
-  --font-size-md:   13px;
-  --font-size-base: 14px;
-  --font-size-lg:   15px;
-  --font-size-xl:   17px;
-  --font-size-2xl:  20px;
-  --font-size-3xl:  24px;
-  --font-size-4xl:  30px;
-  --font-size-5xl:  38px;
+  /* -- Semantic background overrides -- */
+  --color-bg-base:     var(--slate-2);   /* #0a0a0d */
+  --color-bg-elevated: var(--slate-4);   /* #111114 */
+  --color-bg-overlay:  var(--slate-6);   /* #16161a */
+  --color-bg-sunken:   var(--slate-1);   /* #070709 */
 
-  /* -- Line heights -- */
-  --line-height-tight:   1.2;
-  --line-height-snug:    1.35;
-  --line-height-normal:  1.45;
-  --line-height-relaxed: 1.6;
-
-  /* -- Font weights -- */
-  --font-weight-regular:  400;
-  --font-weight-medium:   500;
-  --font-weight-semibold: 600;
-  --font-weight-bold:     700;
-
-  /* -- Backgrounds -- */
-  --color-bg-base:    #0a0a0d;
-  --color-bg-elevated: #111114;
-  --color-bg-overlay: #16161a;
-  --color-bg-sunken:  #070709;
-
-  /* -- Foregrounds -- */
-  --color-fg-primary:   #f0f0f2;
-  --color-fg-secondary: #8a8f98;
-  --color-fg-tertiary:  #5a5f68;
+  /* -- Semantic foreground overrides -- */
+  --color-fg-primary:   var(--slate-12); /* #f0f0f2 */
+  --color-fg-secondary: var(--slate-11); /* #8a8f98 */
+  --color-fg-tertiary:  var(--slate-10); /* #6e737d — WCAG 3.79:1 on bg-overlay */
   --color-fg-disabled:  #3a3f48;
-  --color-fg-inverse:   #0a0a0d;
+  --color-fg-inverse:   var(--slate-2);  /* #0a0a0d — text on accent backgrounds */
 
-  /* -- Borders -- */
-  --color-border-subtle:  #1e1e24;
-  --color-border-default: #282830;
-  --color-border-strong:  #3a3a44;
+  /* -- Semantic border overrides -- */
+  --color-border-subtle:  var(--slate-7); /* #1e1e24 */
+  --color-border-default: var(--slate-8); /* #282830 */
+  --color-border-strong:  var(--slate-9); /* #3a3a44 */
 
-  /* -- Accent (neon yellow-green) -- */
-  --color-accent-default: #c8f135;
-  --color-accent-hover:   #d4f74e;
-  --color-accent-active:  #b8e020;
-  --color-accent-subtle:  rgba(200, 241, 53, 0.10);
+  /* -- Accent overrides -- */
+  --color-accent-default: var(--accent-base);   /* #c8f135 */
+  --color-accent-hover:   var(--accent-hover);  /* #d4f74e */
+  --color-accent-dim:     var(--accent-dim);    /* #b8e020 */
+  --color-accent-muted:   rgba(200, 241, 53, 0.10);
   --color-accent-glow:    rgba(200, 241, 53, 0.18);
+  /* backward-compat alias for older component code */
+  --color-accent-subtle:  rgba(200, 241, 53, 0.10);
 
-  /* -- Status -- */
-  --color-status-success: #4ade80;
-  --color-status-warning: #f59e0b;
-  --color-status-error:   #f87171;
-  --color-status-info:    #60a5fa;
+  /* -- Status overrides -- */
+  --color-status-success: var(--success); /* #4ade80 */
+  --color-status-warning: var(--warning); /* #f59e0b */
+  --color-status-error:   var(--danger);  /* #f87171 */
+  --color-status-danger:  var(--danger);  /* #f87171 */
+  --color-status-info:    var(--info);    /* #60a5fa */
 
-  /* -- Surfaces -- */
+  /* -- Surface overrides -- */
   --color-surface-glass: rgba(22, 22, 26, 0.85);
   --color-surface-scrim: rgba(0, 0, 0, 0.60);
 
-  /* -- Shell-specific tokens -- */
-  --color-tab-bg:        #111114;
-  --color-tab-active-bg: #16161a;
-  --color-tab-hover-bg:  #14141a;
-  --color-pill-bg:       #16161a;
+  /* -- Shell-specific tokens (no parallel in onboarding theme) -- */
+  --color-tab-bg:        var(--slate-4);  /* #111114 */
+  --color-tab-active-bg: var(--slate-6);  /* #16161a */
+  --color-tab-hover-bg:  var(--slate-5);  /* #14141a */
+  --color-pill-bg:       var(--slate-6);  /* #16161a */
   --color-pill-border:   #2e2e38;
 
-  /* -- Border radii -- */
-  --radius-none: 0px;
-  --radius-xs:   3px;
-  --radius-sm:   5px;
-  --radius-md:   7px;
-  --radius-lg:   10px;
-  --radius-xl:   14px;
-  --radius-2xl:  18px;
-  --radius-3xl:  24px;
+  /* -- Modal scrim -- */
+  --color-modal-scrim: rgba(0, 0, 0, 0.60);
+
+  /* -- Border radii (crisp — tighter than onboarding) -- */
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-2xl:  16px;
   --radius-full: 9999px;
 
-  /* -- Durations -- */
-  --duration-instant:  0ms;
+  /* -- Motion (snappy — shell is keyboard-first, fast feedback) -- */
   --duration-fast:     80ms;
   --duration-normal:   150ms;
   --duration-moderate: 220ms;
-  --duration-slow:     350ms;
+  --duration-slow:     320ms;
   --duration-crawl:    500ms;
 
-  /* -- Easings -- */
-  --ease-standard:    cubic-bezier(0.2, 0, 0, 1);
-  --ease-decelerate:  cubic-bezier(0, 0, 0.2, 1);
-  --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1);
-  --ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:        cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out:     cubic-bezier(0.4, 0, 0.6, 1);
+  --ease-standard:   cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
 
-  /* -- Shadows (no shadows in shell — glow only) -- */
+  /* -- Shadows: shell uses ZERO decorative shadows — glow only -- */
+  --shadow-xs: none;
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
-  --glow-accent: 0 0 12px rgba(200, 241, 53, 0.18);
+  --shadow-xl: none;
+
+  --glow-accent-sm: 0 0 8px rgba(200, 241, 53, 0.12);
+  --glow-accent-md: 0 0 16px rgba(200, 241, 53, 0.20);
+  --glow-accent-lg: 0 0 32px rgba(200, 241, 53, 0.30);
+  --glow-accent:    var(--glow-accent-sm);
 
   /* -- Z-index layers -- */
   --z-base:     0;
@@ -141,11 +109,12 @@
   --z-toast:    500;
   --z-pill:     600;
   --z-tooltip:  700;
+  --z-max:      9999;
 }
 
 /* ---------------------------------------------------------------------------
-   Shell-specific component styles
-   These extend the base components defined in theme.global.css
+   Shell-specific component classes
+   Extend the base component primitives from theme.global.css.
 --------------------------------------------------------------------------- */
 
 /* Window chrome drag region */
@@ -162,7 +131,7 @@
   display: flex;
   align-items: flex-end;
   height: 38px;
-  padding-inline: 4px;
+  padding-inline: var(--space-2);
   gap: 1px;
   background-color: var(--color-bg-base);
   border-bottom: 1px solid var(--color-border-subtle);
@@ -171,7 +140,7 @@
 [data-theme="shell"] .tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   height: 30px;
   padding-inline: 10px;
   max-width: 220px;
@@ -184,8 +153,8 @@
   cursor: pointer;
   user-select: none;
   transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 [data-theme="shell"] .tab:hover {
@@ -211,8 +180,8 @@
   font-size: var(--font-size-sm);
   color: var(--color-fg-primary);
   transition:
-    border-color var(--duration-normal) var(--ease-standard),
-    box-shadow var(--duration-normal) var(--ease-standard);
+    border-color var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out);
 }
 
 [data-theme="shell"] .url-bar:focus-within {
@@ -229,8 +198,9 @@
   height: 28px;
   border-radius: var(--radius-sm);
   color: var(--color-fg-secondary);
-  transition: color var(--duration-fast) var(--ease-standard),
-              background-color var(--duration-fast) var(--ease-standard);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
 }
 
 [data-theme="shell"] .nav-btn:hover:not(:disabled) {
@@ -253,7 +223,7 @@
 
 /* Agent progress indicator — glow pulse on accent */
 [data-theme="shell"] .agent-active {
-  animation: pulse-glow var(--duration-crawl) var(--ease-standard) infinite alternate;
+  animation: pulse-glow var(--duration-crawl) var(--ease-out) infinite alternate;
 }
 
 /* Keyboard shortcut chips */
@@ -261,7 +231,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 5px;
+  padding: 1px var(--space-3);
   border-radius: var(--radius-xs);
   background-color: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
@@ -278,15 +248,16 @@
 [data-theme="shell"] .list-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   height: 32px;
-  padding-inline: 8px;
+  padding-inline: var(--space-4);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   color: var(--color-fg-secondary);
   cursor: pointer;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              color var(--duration-fast) var(--ease-standard);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 [data-theme="shell"] .list-row:hover {
@@ -295,7 +266,7 @@
 }
 
 [data-theme="shell"] .list-row[data-selected="true"] {
-  background-color: var(--color-accent-subtle);
+  background-color: var(--color-accent-muted);
   color: var(--color-fg-primary);
 }
 
@@ -306,14 +277,14 @@
   color: var(--color-fg-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 8px 8px 4px;
+  padding: var(--space-4) var(--space-4) var(--space-2);
 }
 
 /* Dividers */
 [data-theme="shell"] .divider {
   height: 1px;
   background-color: var(--color-border-subtle);
-  margin-block: 4px;
+  margin-block: var(--space-2);
 }
 
 /* Accent text highlight */
@@ -332,12 +303,14 @@
 
 [data-theme="shell"] .status-dot[data-status="active"] {
   background-color: var(--color-status-success);
+  /* why-not-a-token: success glow is a one-off derived value (success color at 50% alpha),
+     not a reusable token concept — would need a separate --glow-success token family */
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
 }
 
 [data-theme="shell"] .status-dot[data-status="busy"] {
   background-color: var(--color-accent-default);
-  animation: pulse-glow var(--duration-crawl) var(--ease-standard) infinite alternate;
+  animation: pulse-glow var(--duration-crawl) var(--ease-out) infinite alternate;
 }
 
 [data-theme="shell"] .status-dot[data-status="error"] {

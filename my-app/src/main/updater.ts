@@ -43,6 +43,7 @@ export async function initUpdater(): Promise<void> {
   // TODO: remove the dynamic import once electron-updater is added to package.json.
   let autoUpdater: any;
   try {
+    // eslint-disable-next-line import/no-unresolved
     const module = await import('electron-updater');
     autoUpdater = module.autoUpdater;
   } catch (err) {

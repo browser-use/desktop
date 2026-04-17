@@ -6,11 +6,21 @@
  *   idle       → user types → submitting → running → done|failed|target_lost
  *
  * States:
- * - idle:       input only, autofocus
- * - submitting: input disabled, no toast yet
- * - running:    input disabled, ProgressToast visible
- * - done:       ResultDisplay (done), auto-dismiss 5s
- * - error:      ResultDisplay (failed/target_lost/cancelled), manual dismiss
+ * - idle:       input only, autofocus, static accent dot
+ * - submitting: input disabled, dot pulses (streaming state), progress bar
+ * - running:    input disabled, ProgressToast, dot pulses
+ * - done:       ✓ icon, ResultDisplay (done), auto-dismiss 4s, ⌘C chip
+ * - error:      ✕ icon, ResultDisplay (failed/target_lost/cancelled), manual dismiss
+ *
+ * Visual state → data-state mapping (CSS drives appearance):
+ *   idle        → data-state="idle"
+ *   submitting  → data-state="streaming"
+ *   running     → data-state="streaming"
+ *   done        → data-state="done"
+ *   error       → data-state="error"
+ *
+ * The "focused" data-state is applied reactively via onFocus/onBlur on the
+ * input row — only in idle phase.
  *
  * IPC flow:
  * - Enter in PillInput → pillAPI.submit({ prompt }) → main process handles
@@ -36,7 +46,7 @@ import type { AgentEvent } from '../../shared/types';
 const DEV =
   typeof process !== 'undefined'
     ? process.env.NODE_ENV !== 'production' || process.env.AGENTIC_DEV === '1'
-    : true; // dev by default in renderer
+    : true;
 
 const log = {
   debug: DEV
@@ -54,6 +64,13 @@ const log = {
 };
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Auto-dismiss delay for task_done results (4s per spec) */
+const AUTO_DISMISS_MS = 4000 as const;
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -64,6 +81,9 @@ type PillPhase =
   | 'done'
   | 'error';
 
+/** CSS data-state values — drives all visual state via pill.css */
+type PillDataState = 'idle' | 'focused' | 'streaming' | 'done' | 'error';
+
 interface PillState {
   phase: PillPhase;
   inputValue: string;
@@ -71,7 +91,7 @@ interface PillState {
   steps: ProgressStep[];
   isStarting: boolean;
   result: ResultState | null;
-  queuedTask: string | null; // prompt waiting for current task to finish
+  queuedTask: string | null;
 }
 
 const INITIAL_STATE: PillState = {
@@ -103,13 +123,76 @@ declare global {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function computeDataState(phase: PillPhase, isFocused: boolean): PillDataState {
+  switch (phase) {
+    case 'idle':
+      return isFocused ? 'focused' : 'idle';
+    case 'submitting':
+    case 'running':
+      return 'streaming';
+    case 'done':
+      return 'done';
+    case 'error':
+      return 'error';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Leading slot — dot (idle/focused/streaming) or result icon (done/error)
+// ---------------------------------------------------------------------------
+
+function LeadingDot({ state }: { state: PillDataState }): React.ReactElement {
+  if (state === 'done') {
+    return (
+      <span className="pill-result-lead-icon pill-result-lead-icon--done" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M4.5 7.5L6.5 9.5L9.5 5.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+
+  if (state === 'error') {
+    return (
+      <span className="pill-result-lead-icon pill-result-lead-icon--error" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M7 4.5V7.5M7 9V9.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+
+  // idle / focused / streaming — accent dot
+  return <span className="pill-dot" aria-hidden="true" />;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function Pill(): React.ReactElement {
   const [state, setState] = useState<PillState>(INITIAL_STATE);
+  const [isFocused, setIsFocused] = useState(false);
   const stateRef = useRef<PillState>(state);
   stateRef.current = state;
+
+  const dataState = computeDataState(state.phase, isFocused);
 
   // -------------------------------------------------------------------------
   // IPC event subscription
@@ -127,7 +210,6 @@ export function Pill(): React.ReactElement {
       });
 
       setState((prev) => {
-        // Only process events for the active task
         if (prev.activeTaskId && event.task_id !== prev.activeTaskId) {
           log.warn('Pill.onEvent.mismatch', {
             message: 'Event task_id does not match active task — ignoring',
@@ -212,6 +294,7 @@ export function Pill(): React.ReactElement {
     const unsubHide = window.pillAPI.onHideRequest(() => {
       log.info('Pill.onHideRequest', { message: 'Main requested hide — resetting pill' });
       setState(INITIAL_STATE);
+      setIsFocused(false);
     });
 
     const unsubQueued = window.pillAPI.onQueuedTask((data) => {
@@ -245,11 +328,12 @@ export function Pill(): React.ReactElement {
       ...prev,
       phase: 'submitting',
       isStarting: true,
-      inputValue: '',
+      inputValue: prompt, // keep prompt visible while streaming
       steps: [],
       result: null,
       queuedTask: null,
     }));
+    setIsFocused(false);
 
     try {
       const { task_id } = await window.pillAPI.submit(prompt);
@@ -260,7 +344,7 @@ export function Pill(): React.ReactElement {
       setState((prev) => ({
         ...prev,
         activeTaskId: task_id,
-        phase: 'submitting', // will transition to 'running' on task_started event
+        phase: 'submitting',
       }));
     } catch (err) {
       log.error('Pill.handleSubmit.error', {
@@ -282,6 +366,7 @@ export function Pill(): React.ReactElement {
       phase: stateRef.current.phase,
     });
     setState(INITIAL_STATE);
+    setIsFocused(false);
     window.pillAPI.hide();
   }, []);
 
@@ -290,6 +375,7 @@ export function Pill(): React.ReactElement {
       message: 'Auto-dismiss triggered — hiding pill',
     });
     setState(INITIAL_STATE);
+    setIsFocused(false);
     window.pillAPI.hide();
   }, []);
 
@@ -304,18 +390,37 @@ export function Pill(): React.ReactElement {
   const showResult =
     (state.phase === 'done' || state.phase === 'error') && state.result !== null;
 
+  // ↵ chip: show when idle/focused + has text
+  const showSubmitChip =
+    (state.phase === 'idle') && state.inputValue.trim().length > 0;
+
+  // ⌘C chip: show when done
+  const showCopyChip = state.phase === 'done';
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   return (
-    <div className="pill-container" data-phase={state.phase} data-testid="pill-container">
+    <div
+      className="pill-container"
+      data-state={dataState}
+      data-phase={state.phase}
+      data-testid="pill-container"
+      onFocus={() => {
+        if (state.phase === 'idle') setIsFocused(true);
+      }}
+      onBlur={() => setIsFocused(false)}
+    >
       <PillInput
         value={state.inputValue}
         onChange={(v) => setState((prev) => ({ ...prev, inputValue: v }))}
         onSubmit={handleSubmit}
         onEscape={handleEscape}
         disabled={isInputDisabled}
+        leadingSlot={<LeadingDot state={dataState} />}
+        showSubmitChip={showSubmitChip}
+        showCopyChip={showCopyChip}
       />
 
       {(showToast || showResult) && (
@@ -334,6 +439,7 @@ export function Pill(): React.ReactElement {
         <ResultDisplay
           state={state.result}
           onDismiss={handleDismiss}
+          autoDismissMs={AUTO_DISMISS_MS}
         />
       )}
 

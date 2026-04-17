@@ -1,4 +1,17 @@
-/* Shell component styles */
+/*
+ * Shell component styles — polished Linear+Obsidian chrome
+ * All colors via CSS custom properties from theme.global.css + theme.shell.css.
+ * Zero hex literals — every color is a token.
+ *
+ * Constants (structural, not color tokens):
+ *   TAB_HOVER_TRANSITION   150ms ease-out
+ *   URL_FOCUS_TRANSITION   250ms ease-out
+ *   SCROLLBAR_WIDTH        8px
+ *   CLOSE_BTN_HITBOX       28px (visual 16px)
+ *   TAB_ACCENT_UNDERLINE   2px solid var(--color-fg-primary) at bottom
+ *   BOOKMARKS_BAR_HEIGHT   32px
+ *   BOOKMARK_CHIP_HEIGHT   28px
+ */
 
 /* ---------------------------------------------------------------------------
    WindowChrome
@@ -6,45 +19,58 @@
 .window-chrome {
   display: flex;
   flex-direction: column;
-  height: var(--chrome-height);
-  background: var(--color-bg);
-  border-bottom: 1px solid var(--color-border);
+  /* Grows when the bookmarks bar is visible; TabManager reads the final
+     total height via shell:set-chrome-height and repositions the
+     WebContentsView below it. */
+  min-height: var(--chrome-height);
+  background: var(--color-bg-base);
+  border-bottom: 1px solid var(--color-border-default);
   -webkit-app-region: no-drag;
 }
 
 .window-chrome__tab-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   height: var(--tab-height);
+  padding-top: 4px;
+  background: var(--color-tab-row-bg);
   -webkit-app-region: drag;
 }
 
 .window-chrome__traffic-light-spacer {
-  width: 72px;
+  /* macOS traffic lights in hiddenInset are positioned ~8px from left edge,
+     occupy ~54px, with ~18px right padding. 80px clears them cleanly. */
+  width: 80px;
   height: 100%;
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
 
+/* Toolbar sits directly below the tab row. Background matches the active tab
+   so the selected tab visually merges into the toolbar (classic Chrome). */
 .window-chrome__toolbar {
   display: flex;
   align-items: center;
   height: var(--toolbar-height);
   padding: 0 8px;
   gap: 4px;
+  background: var(--color-bg-elevated);
   -webkit-app-region: no-drag;
 }
 
 /* ---------------------------------------------------------------------------
    TabStrip
    --------------------------------------------------------------------------- */
+/* The tab strip is itself a drag region — the user grabs the empty space to
+   the right of the last tab / + button to move the window (Chrome parity).
+   Individual tabs and the new-tab button opt back out via no-drag below. */
 .tab-strip {
   display: flex;
   align-items: center;
   flex: 1;
   height: 100%;
   overflow: hidden;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 .tab-strip__tabs {
@@ -54,49 +80,88 @@
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-default) transparent;
+  -webkit-app-region: drag;
 }
 
 .tab-strip__tabs::-webkit-scrollbar {
-  display: none;
+  height: 8px;
+}
+
+.tab-strip__tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tab-strip__tabs::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: 4px;
 }
 
 .tab-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: var(--tab-min-width);
+  gap: 8px;
+  min-width: 60px;
   max-width: var(--tab-max-width);
-  height: 28px;
-  padding: 0 10px;
-  margin: 4px 2px 0;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  flex: 0 1 var(--tab-max-width);
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px 8px 0 0;
   background: var(--color-tab-inactive);
-  color: var(--color-text-secondary);
+  color: var(--color-fg-secondary);
   cursor: pointer;
-  transition: background 0.1s ease, color 0.1s ease;
-  flex-shrink: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
   position: relative;
+  -webkit-app-region: no-drag;
+}
+
+/* Hairline separator between adjacent inactive tabs (Chrome-style).
+   Hidden when this tab or its left neighbor is active/hovered. */
+.tab-item + .tab-item::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--color-border-default);
+  opacity: 0.6;
+}
+
+.tab-item:hover::before,
+.tab-item--active::before,
+.tab-item:hover + .tab-item::before,
+.tab-item--active + .tab-item::before {
+  opacity: 0;
 }
 
 .tab-item:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
+  background: var(--color-tab-hover);
+  color: var(--color-fg-primary);
 }
 
-.tab-item--active {
+/* Active tab bg matches the toolbar bg — the tab visually merges down into
+   the toolbar (classic Chrome). Tab row is --bg-base (darker) so the active
+   tab also reads as visibly "lifted" relative to its siblings. No accent
+   underline: Chrome doesn't have one, and the bg contrast already signals
+   active state. */
+.tab-item--active,
+.tab-item--active:hover {
   background: var(--color-tab-active);
-  color: var(--color-text-primary);
+  color: var(--color-fg-primary);
 }
 
 .tab-item--drag-over {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-accent-default);
   outline-offset: -2px;
 }
 
 .tab-item__favicon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -104,23 +169,23 @@
 }
 
 .tab-item__favicon img {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
 }
 
+/* Invisible placeholder: holds the 16×16 slot so layout doesn't shift
+   when a favicon arrives. No visible chrome — a gray square reads as broken. */
 .tab-item__favicon-placeholder {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--color-border);
+  width: 16px;
+  height: 16px;
 }
 
 .tab-item__spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--color-border);
-  border-top-color: var(--color-loading);
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--color-border-default);
+  border-top-color: var(--color-accent-default);
   border-radius: 50%;
   animation: tab-spin 0.6s linear infinite;
   display: block;
@@ -138,23 +203,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.01em;
 }
 
+/* Close button — 20×20 hitbox, visually 16×16. Chrome shows it on hover/active only. */
 .tab-item__close {
   display: none;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border: none;
   background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1;
+  color: var(--color-fg-secondary);
+  line-height: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   padding: 0;
+  margin-right: -4px;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
 }
 
 .tab-item:hover .tab-item__close,
@@ -163,8 +234,8 @@
 }
 
 .tab-item__close:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-danger);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-fg-primary);
 }
 
 .tab-strip__new-tab {
@@ -172,22 +243,24 @@
   height: 28px;
   border: none;
   background: transparent;
-  color: var(--color-text-tertiary);
-  font-size: 18px;
-  line-height: 1;
-  border-radius: var(--radius-md);
+  color: var(--color-fg-tertiary);
+  line-height: 0;
+  border-radius: var(--radius-full);
   cursor: pointer;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
-  transition: background 0.1s ease, color 0.1s ease;
+  margin: 0 4px 2px 6px;
+  -webkit-app-region: no-drag;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
 }
 
 .tab-strip__new-tab:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-fg-primary);
 }
 
 /* ---------------------------------------------------------------------------
@@ -205,18 +278,20 @@
   height: 28px;
   border: none;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-fg-secondary);
   border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s ease, color 0.1s ease;
+  transition:
+    background var(--duration-normal) var(--ease-out),
+    color      var(--duration-normal) var(--ease-out);
 }
 
 .nav-buttons__btn:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
+  background: var(--color-surface-interactive-hover);
+  color: var(--color-fg-primary);
 }
 
 .nav-buttons__btn:disabled {
@@ -225,32 +300,43 @@
 }
 
 /* ---------------------------------------------------------------------------
-   URLBar
+   URLBar — Chrome-style omnibox capsule
    --------------------------------------------------------------------------- */
 .url-bar {
   display: flex;
   align-items: center;
   flex: 1;
-  height: 28px;
-  padding: 0 10px;
-  gap: 6px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  position: relative;
+  height: 30px;
+  padding: 0 12px;
+  gap: 8px;
+  background: var(--color-bg-overlay);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  transition:
+    background   var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow   var(--duration-fast) var(--ease-out);
+  overflow: hidden;
+}
+
+.url-bar:hover {
+  background: var(--color-bg-overlay);
+  border-color: var(--color-border-subtle);
 }
 
 .url-bar:focus-within {
-  border-color: var(--color-accent);
-  background: var(--color-surface-hover);
+  background: var(--color-bg-overlay);
+  border-color: var(--color-accent-default);
+  box-shadow: var(--glow-accent-sm);
 }
 
 .url-bar--insecure .url-bar__security {
-  color: var(--color-danger);
+  color: var(--color-status-danger);
 }
 
 .url-bar--secure .url-bar__security {
-  color: var(--color-text-tertiary);
+  color: var(--color-fg-tertiary);
 }
 
 .url-bar__security {
@@ -263,23 +349,652 @@
   flex: 1;
   border: none;
   background: transparent;
-  color: var(--color-text-primary);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  color: var(--color-fg-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
   outline: none;
   min-width: 0;
 }
 
-.url-bar__input::placeholder {
-  color: var(--color-text-tertiary);
+.url-bar__input:focus-visible {
+  outline: none;
 }
 
-.url-bar__loading {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--color-border);
-  border-top-color: var(--color-loading);
-  border-radius: 50%;
-  animation: tab-spin 0.6s linear infinite;
+.url-bar__input::placeholder {
+  color: var(--color-fg-tertiary);
+}
+
+/* Bookmark star — sits at the right edge of the URL pill, above the loading bar */
+.url-bar__star {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
   flex-shrink: 0;
+  padding: 0;
+  line-height: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
+}
+
+.url-bar__star:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-fg-primary);
+}
+
+.url-bar__star--on,
+.url-bar__star--on:hover {
+  color: var(--color-accent-default);
+}
+
+/* Loading bar — thin 2px accent strip at top of URL bar */
+.url-bar__loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent-default) 30%,
+    var(--color-accent-default) 70%,
+    transparent 100%
+  );
+  animation: url-bar-loading 1.4s var(--ease-in-out) infinite;
+  border-radius: 0 0 1px 1px;
+}
+
+@keyframes url-bar-loading {
+  0%   { transform: translateX(-100%); opacity: 0.9; }
+  50%  { transform: translateX(0%);    opacity: 1; }
+  100% { transform: translateX(100%);  opacity: 0.9; }
+}
+
+/* ---------------------------------------------------------------------------
+   BookmarksBar — horizontal strip below the toolbar
+   --------------------------------------------------------------------------- */
+.bookmarks-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 6px;
+  gap: 4px;
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border-subtle);
+  -webkit-app-region: no-drag;
+}
+
+.bookmarks-bar__items {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bookmarks-bar__chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.bookmarks-bar__chip-wrap--drag-over::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--color-accent-default);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Phantom wrappers are rendered so we can measure chip widths, but they must
+   not affect layout or be clickable. */
+.bookmarks-bar__chip-wrap--phantom {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.bookmarks-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 180px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+.bookmarks-bar__chip:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.bookmarks-bar__chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--color-fg-tertiary);
+  flex-shrink: 0;
+}
+
+.bookmarks-bar__chip-icon img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
+.bookmarks-bar__chip-placeholder {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bookmarks-bar__chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmarks-bar__overflow {
+  position: relative;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.bookmarks-bar__overflow-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.bookmarks-bar__overflow-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-fg-primary);
+}
+
+.bookmarks-bar__overflow-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 200px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bookmarks-bar__overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.bookmarks-bar__overflow-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.bookmarks-bar__context-menu {
+  position: fixed;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bookmarks-bar__menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.bookmarks-bar__menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.bookmarks-bar__menu-item--danger {
+  color: var(--color-status-danger);
+}
+
+/* ---------------------------------------------------------------------------
+   BookmarkDialog — save/edit modal
+   --------------------------------------------------------------------------- */
+.bookmark-dialog__scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--color-modal-scrim);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in var(--duration-fast) var(--ease-out);
+}
+
+.bookmark-dialog {
+  width: 340px;
+  padding: 16px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: scale-in var(--duration-normal) var(--ease-spring);
+}
+
+.bookmark-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bookmark-dialog__title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-fg-primary);
+}
+
+.bookmark-dialog__close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.bookmark-dialog__close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-fg-primary);
+}
+
+.bookmark-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bookmark-dialog__label {
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bookmark-dialog__input,
+.bookmark-dialog__select {
+  height: 30px;
+  padding: 0 10px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.bookmark-dialog__input:focus,
+.bookmark-dialog__select:focus {
+  border-color: var(--color-accent-default);
+}
+
+.bookmark-dialog__select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-fg-tertiary) 50%),
+                    linear-gradient(135deg, var(--color-fg-tertiary) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 12px, calc(100% - 9px) 12px;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
+.bookmark-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.bookmark-dialog__spacer {
+  flex: 1;
+}
+
+.bookmark-dialog__btn {
+  height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--color-fg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.bookmark-dialog__btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--color-border-strong);
+}
+
+.bookmark-dialog__btn--primary {
+  background: var(--color-accent-default);
+  color: var(--color-fg-inverse);
+  border-color: var(--color-accent-default);
+}
+
+.bookmark-dialog__btn--primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-fg-inverse);
+}
+
+.bookmark-dialog__btn--danger {
+  color: var(--color-status-danger);
+  border-color: transparent;
+}
+
+.bookmark-dialog__btn--danger:hover {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .url-bar__loading {
+    animation: none;
+    width: 40%;
+    left: 30%;
+    opacity: 0.7;
+  }
+  .tab-item,
+  .tab-item__close,
+  .tab-strip__new-tab,
+  .nav-buttons__btn,
+  .bookmarks-bar__chip,
+  .bookmarks-bar__overflow-btn,
+  .bookmark-dialog__btn {
+    transition: none;
+  }
+  .url-bar {
+    transition: none;
+  }
+  .bookmark-dialog,
+  .bookmark-dialog__scrim {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   History button + RecentlyClosedDropdown
+   --------------------------------------------------------------------------- */
+.window-chrome__history-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.recently-closed {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  max-width: 360px;
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  padding: 4px;
+  overflow: hidden;
+}
+
+.recently-closed__header {
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-fg-tertiary);
+  padding: 6px 10px 4px;
+}
+
+.recently-closed__empty {
+  font-size: 12px;
+  color: var(--color-fg-tertiary);
+  padding: 10px;
+  text-align: center;
+}
+
+.recently-closed__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.recently-closed__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.recently-closed__item:hover,
+.recently-closed__item:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.recently-closed__favicon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recently-closed__favicon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.recently-closed__favicon-placeholder {
+  width: 16px;
+  height: 16px;
+}
+
+.recently-closed__title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recently-closed__time {
+  font-size: 11px;
+  color: var(--color-fg-tertiary);
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   FindBar — Chrome-parity find-in-page overlay
+   Positioned absolutely over the content area, anchored to the bottom of the
+   chrome. The chrome is made position:relative so this overlay anchors to it.
+   Right-aligned to match Chrome's placement.
+   --------------------------------------------------------------------------- */
+.window-chrome {
+  position: relative;
+}
+
+.find-bar {
+  position: absolute;
+  top: var(--chrome-height);
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+  min-width: 280px;
+}
+
+.find-bar__input {
+  flex: 1;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+
+.find-bar__input::placeholder {
+  color: var(--color-fg-tertiary);
+}
+
+.find-bar__counter {
+  flex-shrink: 0;
+  padding: 0 8px 0 4px;
+  color: var(--color-fg-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+  text-align: right;
+  user-select: none;
+}
+
+.find-bar__btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
+}
+
+.find-bar__btn:hover:not(:disabled) {
+  background: var(--color-surface-interactive-hover);
+  color: var(--color-fg-primary);
+}
+
+.find-bar__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.find-bar__btn--close {
+  margin-left: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .find-bar__btn {
+    transition: none;
+  }
 }

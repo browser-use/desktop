@@ -1,13 +1,213 @@
 /*
- * theme.global.css — reset + shared utilities
- * Imported once at renderer entry. Both themes layer on top of this.
- * Theme switching: set data-theme="shell" or data-theme="onboarding" on <html>.
+ * theme.global.css — color primitives, semantic aliases, typography, spacing,
+ *                    radii, depth, motion, z-index. Reset + shared utilities.
+ *
+ * ARCHITECTURE:
+ *   :root defines ALL token categories as CSS custom properties.
+ *   theme.shell.css and theme.onboarding.css override ONLY semantic tokens.
+ *   Component CSS files use CSS vars exclusively — zero hex literals.
+ *
  * Rule: zero !important, zero Inter references, zero left-outline emphasis.
  */
 
-/* ---------------------------------------------------------------------------
-   Reset
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   COLOR PRIMITIVES
+   Hex literals are ONLY defined in this :root block and in the theme overrides.
+   Components never use hex directly.
+=========================================================================== */
+
+:root {
+  /* Slate scale — 0 = darkest, 12 = lightest */
+  --slate-0:  #030305;
+  --slate-1:  #070709;
+  --slate-2:  #0a0a0d;
+  --slate-3:  #0f0f12;
+  --slate-4:  #111114;
+  --slate-5:  #14141a;
+  --slate-6:  #16161a;
+  --slate-7:  #1e1e24;
+  --slate-8:  #282830;
+  --slate-9:  #3a3a44;
+  --slate-10: #6e737d;
+  --slate-11: #8a8f98;
+  --slate-12: #f0f0f2;
+
+  /* Accent primitives — neon yellow-green, ONE accent colour */
+  --accent-base:  #c8f135;
+  --accent-dim:   #b8e020;
+  --accent-hover: #d4f74e;
+
+  /* Status primitives */
+  --danger:  #f87171;
+  --success: #4ade80;
+  --warning: #f59e0b;
+  --info:    #60a5fa;
+
+  /* ===========================================================================
+     SEMANTIC COLORS (shell defaults; overridden per-theme below)
+  =========================================================================== */
+
+  /* Backgrounds */
+  --color-bg-base:     var(--slate-2);
+  --color-bg-elevated: var(--slate-4);
+  --color-bg-overlay:  var(--slate-6);
+  --color-bg-sunken:   var(--slate-1);
+
+  /* Foregrounds */
+  --color-fg-primary:   var(--slate-12);
+  --color-fg-secondary: var(--slate-11);
+  --color-fg-tertiary:  var(--slate-10);
+  --color-fg-disabled:  #3a3f48;
+  --color-fg-inverse:   var(--slate-2);
+
+  /* Borders */
+  --color-border-subtle:  var(--slate-7);
+  --color-border-default: var(--slate-8);
+  --color-border-strong:  var(--slate-9);
+
+  /* Accent */
+  --color-accent-default: var(--accent-base);
+  --color-accent-hover:   var(--accent-hover);
+  --color-accent-dim:     var(--accent-dim);
+  --color-accent-muted:   rgba(200, 241, 53, 0.10);
+  --color-accent-glow:    rgba(200, 241, 53, 0.18);
+
+  /* Status */
+  --color-status-danger:  var(--danger);
+  --color-status-success: var(--success);
+  --color-status-warning: var(--warning);
+  --color-status-info:    var(--info);
+  /* backward-compat alias */
+  --color-status-error:   var(--danger);
+
+  /* Surface interactive states */
+  --color-surface-interactive:        rgba(255, 255, 255, 0.04);
+  --color-surface-interactive-hover:  rgba(255, 255, 255, 0.07);
+  --color-surface-interactive-active: rgba(255, 255, 255, 0.10);
+
+  /* Modal scrim */
+  --color-modal-scrim: rgba(0, 0, 0, 0.60);
+
+  /* ===========================================================================
+     TYPOGRAPHY
+     Never Inter. UI font: Geist. Mono: Berkeley Mono. Display: same as UI.
+  =========================================================================== */
+
+  --font-ui:      'Geist', 'Söhne', system-ui, sans-serif;
+  --font-mono:    'Berkeley Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Geist', 'Söhne', system-ui, sans-serif;
+
+  --font-size-xs:   11px;
+  --font-size-sm:   12px;
+  --font-size-md:   13px;
+  --font-size-lg:   15px;
+  --font-size-xl:   17px;
+  --font-size-2xl:  20px;
+  --font-size-3xl:  24px;
+  /* Shell/component convenience aliases */
+  --font-size-2xs:  10px;
+  --font-size-base: 14px;
+  --font-size-4xl:  30px;
+  --font-size-5xl:  38px;
+
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --line-height-tight:   1.2;
+  --line-height-normal:  1.45;
+  --line-height-relaxed: 1.6;
+  /* Aliases */
+  --line-height-snug: 1.35;
+
+  /* ===========================================================================
+     SPACING SCALE — 8pt-ish, exact px values
+  =========================================================================== */
+
+  --space-0:  0px;
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  10px;
+  --space-6:  12px;
+  --space-8:  16px;
+  --space-10: 20px;
+  --space-12: 24px;
+  --space-16: 32px;
+  --space-20: 40px;
+  --space-24: 48px;
+  --space-32: 64px;
+
+  /* ===========================================================================
+     BORDER RADII
+  =========================================================================== */
+
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-2xl:  16px;
+  --radius-full: 9999px;
+
+  /* ===========================================================================
+     DEPTH — shadows + glows
+  =========================================================================== */
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 16px 64px rgba(0, 0, 0, 0.65);
+
+  --glow-accent-sm: 0 0 8px rgba(200, 241, 53, 0.12);
+  --glow-accent-md: 0 0 16px rgba(200, 241, 53, 0.20);
+  --glow-accent-lg: 0 0 32px rgba(200, 241, 53, 0.30);
+  /* convenience alias — default glow used by most components */
+  --glow-accent:    var(--glow-accent-sm);
+
+  /* ===========================================================================
+     MOTION
+  =========================================================================== */
+
+  --duration-fast:   80ms;
+  --duration-normal: 180ms;
+  --duration-slow:   320ms;
+
+  --ease-out:     cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out:  cubic-bezier(0.4, 0, 0.6, 1);
+  /* Aliases for existing component code */
+  --ease-standard:   cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  /* Legacy duration aliases (components.css uses these) */
+  --duration-instant:  0ms;
+  --duration-moderate: 220ms;
+  --duration-slow-legacy: 350ms;
+  --duration-crawl: 500ms;
+
+  /* ===========================================================================
+     Z-INDEX SCALE
+  =========================================================================== */
+
+  --z-base:     0;
+  --z-raised:   10;
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-overlay:  300;
+  --z-modal:    400;
+  --z-toast:    500;
+  --z-pill:     600;
+  --z-tooltip:  700;
+  --z-max:      9999;
+}
+
+/* ===========================================================================
+   RESET
+=========================================================================== */
 
 *,
 *::before,
@@ -59,6 +259,13 @@ textarea {
   outline: none;
 }
 
+/* Inputs show focus via their wrapper's border-color change.
+   A bright neon outline on every input is visually aggressive — skip it. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
 input::placeholder,
 textarea::placeholder {
   color: var(--color-fg-tertiary);
@@ -74,13 +281,13 @@ ol {
   list-style: none;
 }
 
-/* ---------------------------------------------------------------------------
-   Focus management — keyboard-only focus ring, no mouse ring
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   FOCUS MANAGEMENT — keyboard-only focus ring, no mouse ring
+=========================================================================== */
 
 :focus-visible {
   outline: 2px solid var(--color-accent-default);
-  outline-offset: 2px;
+  outline-offset: 4px;
   border-radius: var(--radius-sm);
 }
 
@@ -88,9 +295,9 @@ ol {
   outline: none;
 }
 
-/* ---------------------------------------------------------------------------
-   Scrollbar — minimal, theme-aware
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   SCROLLBAR — minimal, theme-aware
+=========================================================================== */
 
 ::-webkit-scrollbar {
   width: 5px;
@@ -110,9 +317,9 @@ ol {
   background: var(--color-fg-tertiary);
 }
 
-/* ---------------------------------------------------------------------------
-   Typography utilities (reusable across both themes)
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   TYPOGRAPHY UTILITIES
+=========================================================================== */
 
 .text-2xs  { font-size: var(--font-size-2xs); }
 .text-xs   { font-size: var(--font-size-xs); }
@@ -136,9 +343,9 @@ ol {
 .text-accent    { color: var(--color-accent-default); }
 .text-mono      { font-family: var(--font-mono); }
 
-/* ---------------------------------------------------------------------------
-   Layout utilities
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   LAYOUT UTILITIES
+=========================================================================== */
 
 .flex         { display: flex; }
 .flex-col     { display: flex; flex-direction: column; }
@@ -160,44 +367,40 @@ ol {
 .h-full       { height: 100%; }
 .min-w-0      { min-width: 0; }
 
-/* ---------------------------------------------------------------------------
-   Spacing utilities — gap, padding, margin
-   Follows the token scale: 1=2px, 2=4px, 3=6px, 4=8px, 5=12px, 6=16px, etc.
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   SPACING UTILITIES
+=========================================================================== */
 
-.gap-1 { gap: 2px; }
-.gap-2 { gap: 4px; }
-.gap-3 { gap: 6px; }
-.gap-4 { gap: 8px; }
-.gap-5 { gap: 12px; }
-.gap-6 { gap: 16px; }
-.gap-7 { gap: 20px; }
-.gap-8 { gap: 24px; }
-.gap-9 { gap: 32px; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.gap-6 { gap: var(--space-6); }
+.gap-8 { gap: var(--space-8); }
+.gap-12 { gap: var(--space-12); }
 
-.p-2 { padding: 4px; }
-.p-3 { padding: 6px; }
-.p-4 { padding: 8px; }
-.p-5 { padding: 12px; }
-.p-6 { padding: 16px; }
-.p-7 { padding: 20px; }
-.p-8 { padding: 24px; }
+.p-2 { padding: var(--space-2); }
+.p-3 { padding: var(--space-3); }
+.p-4 { padding: var(--space-4); }
+.p-6 { padding: var(--space-6); }
+.p-8 { padding: var(--space-8); }
+.p-12 { padding: var(--space-12); }
 
-.px-2 { padding-inline: 4px; }
-.px-3 { padding-inline: 6px; }
-.px-4 { padding-inline: 8px; }
-.px-5 { padding-inline: 12px; }
-.px-6 { padding-inline: 16px; }
+.px-2 { padding-inline: var(--space-2); }
+.px-3 { padding-inline: var(--space-3); }
+.px-4 { padding-inline: var(--space-4); }
+.px-6 { padding-inline: var(--space-6); }
+.px-8 { padding-inline: var(--space-8); }
 
-.py-1 { padding-block: 2px; }
-.py-2 { padding-block: 4px; }
-.py-3 { padding-block: 6px; }
-.py-4 { padding-block: 8px; }
-.py-5 { padding-block: 12px; }
+.py-1 { padding-block: var(--space-1); }
+.py-2 { padding-block: var(--space-2); }
+.py-3 { padding-block: var(--space-3); }
+.py-4 { padding-block: var(--space-4); }
+.py-6 { padding-block: var(--space-6); }
 
-/* ---------------------------------------------------------------------------
-   Surface utilities
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   SURFACE UTILITIES
+=========================================================================== */
 
 .rounded-xs   { border-radius: var(--radius-xs); }
 .rounded-sm   { border-radius: var(--radius-sm); }
@@ -219,15 +422,15 @@ ol {
 .shadow-md { box-shadow: var(--shadow-md); }
 .shadow-lg { box-shadow: var(--shadow-lg); }
 
-/* ---------------------------------------------------------------------------
-   Interactive state helpers
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   INTERACTIVE STATE HELPERS
+=========================================================================== */
 
 .interactive {
   transition:
-    background-color var(--duration-normal) var(--ease-standard),
-    border-color var(--duration-normal) var(--ease-standard),
-    color var(--duration-normal) var(--ease-standard);
+    background-color var(--duration-normal) var(--ease-out),
+    border-color var(--duration-normal) var(--ease-out),
+    color var(--duration-normal) var(--ease-out);
 }
 
 .interactive:hover {
@@ -240,7 +443,6 @@ ol {
   white-space: nowrap;
 }
 
-/* Screen-reader-only visually hidden text */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -253,9 +455,9 @@ ol {
   border: 0;
 }
 
-/* ---------------------------------------------------------------------------
-   Animation keyframes — shared across both themes
---------------------------------------------------------------------------- */
+/* ===========================================================================
+   ANIMATION KEYFRAMES — shared across both themes
+=========================================================================== */
 
 @keyframes fade-in {
   from { opacity: 0; }
@@ -288,8 +490,8 @@ ol {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 6px var(--color-accent-glow); }
-  50%       { box-shadow: 0 0 16px var(--color-accent-glow); }
+  0%, 100% { box-shadow: var(--glow-accent-sm); }
+  50%       { box-shadow: var(--glow-accent-md); }
 }
 
 @keyframes mascot-float {
@@ -302,16 +504,49 @@ ol {
   95%            { transform: scaleY(0.1); }
 }
 
+@keyframes mascot-celebrate {
+  0%   { transform: scale(1)    translateY(0); }
+  30%  { transform: scale(1.12) translateY(-8px); }
+  60%  { transform: scale(0.96) translateY(2px); }
+  80%  { transform: scale(1.04) translateY(-3px); }
+  100% { transform: scale(1)    translateY(0); }
+}
+
+@keyframes mascot-shake {
+  0%   { transform: translateX(0); }
+  15%  { transform: translateX(-7px); }
+  35%  { transform: translateX(7px); }
+  55%  { transform: translateX(-5px); }
+  75%  { transform: translateX(4px); }
+  90%  { transform: translateX(-2px); }
+  100% { transform: translateX(0); }
+}
+
 /* Animation utility classes */
 .animate-fade-in   { animation: fade-in var(--duration-normal) var(--ease-decelerate) forwards; }
-.animate-slide-up  { animation: slide-up var(--duration-moderate) var(--ease-decelerate) forwards; }
-.animate-scale-in  { animation: scale-in var(--duration-moderate) var(--ease-spring) forwards; }
+.animate-slide-up  { animation: slide-up var(--duration-normal) var(--ease-decelerate) forwards; }
+.animate-scale-in  { animation: scale-in var(--duration-normal) var(--ease-spring) forwards; }
 .animate-spin      { animation: spin 1s linear infinite; }
 
-/* Stagger helper for lists */
+/* Stagger helpers */
 .stagger-1 { animation-delay: 40ms; }
 .stagger-2 { animation-delay: 80ms; }
 .stagger-3 { animation-delay: 120ms; }
 .stagger-4 { animation-delay: 160ms; }
 .stagger-5 { animation-delay: 200ms; }
 .stagger-6 { animation-delay: 240ms; }
+
+/* ===========================================================================
+   REDUCED MOTION — global catch-all (last rule wins)
+=========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
+  }
+}

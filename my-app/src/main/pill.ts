@@ -17,42 +17,27 @@
 import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
 import type { AgentEvent } from '../shared/types';
+import { mainLogger } from './logger';
 
 // ---------------------------------------------------------------------------
-// D2 — Dev-only structured logger
+// Scoped logger shim — delegates to mainLogger with component prefix
 // ---------------------------------------------------------------------------
-
-const DEV =
-  process.env.NODE_ENV !== 'production' || process.env.AGENTIC_DEV === '1';
 
 const log = {
-  debug: DEV
-    ? (comp: string, ctx: object) =>
-        console.log(
-          JSON.stringify({ ts: Date.now(), level: 'debug', component: comp, ...ctx }),
-        )
-    : () => {},
-  info: DEV
-    ? (comp: string, ctx: object) =>
-        console.log(
-          JSON.stringify({ ts: Date.now(), level: 'info', component: comp, ...ctx }),
-        )
-    : () => {},
-  warn: (comp: string, ctx: object) =>
-    console.warn(JSON.stringify({ ts: Date.now(), level: 'warn', component: comp, ...ctx })),
-  error: (comp: string, ctx: object) =>
-    console.error(
-      JSON.stringify({ ts: Date.now(), level: 'error', component: comp, ...ctx }),
-    ),
+  debug: (comp: string, ctx: object) => mainLogger.debug(comp, ctx as Record<string, unknown>),
+  info:  (comp: string, ctx: object) => mainLogger.info(comp, ctx as Record<string, unknown>),
+  warn:  (comp: string, ctx: object) => mainLogger.warn(comp, ctx as Record<string, unknown>),
+  error: (comp: string, ctx: object) => mainLogger.error(comp, ctx as Record<string, unknown>),
 };
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const PILL_WIDTH = 560;
-const PILL_HEIGHT_COLLAPSED = 72;
-const PILL_TOP_OFFSET = 80; // px from top of display work area
+const PILL_WIDTH = 480;             // Dia-like proportions — narrower and tighter than the old 560
+const PILL_HEIGHT_COLLAPSED = 56;   // Tighter idle height (was 72 — matches 56px input row)
+const PILL_HEIGHT_EXPANDED = 88;    // Streaming/result state (input row 56 + expanded section ~32)
+const PILL_TOP_OFFSET = 80;         // px from top of display work area
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -133,7 +118,7 @@ export function createPillWindow(): BrowserWindow {
       preload: path.join(__dirname, 'pill.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -152,7 +137,9 @@ export function createPillWindow(): BrowserWindow {
     });
     pillWindow.loadURL(pillDevUrl);
   } else {
-    const htmlPath = path.join(__dirname, '../../renderer/pill/index.html');
+    // Forge VitePlugin outputs pill.html (matching the input filename).
+    // __dirname = .vite/build; renderer is at .vite/renderer/pill/pill.html
+    const htmlPath = path.join(__dirname, '../renderer/pill/pill.html');
     log.debug('pill.createPillWindow', {
       message: 'Loading pill from file',
       htmlPath,
@@ -318,6 +305,13 @@ export function forwardAgentEvent(event: AgentEvent): void {
 export function getPillWindow(): BrowserWindow | null {
   return pillWindow;
 }
+
+/**
+ * Exported dimension constants — use these in IPC handlers to grow/shrink the pill.
+ * COLLAPSED = idle/focused (56px input row only)
+ * EXPANDED  = streaming or result state (input row + expanded section)
+ */
+export { PILL_WIDTH, PILL_HEIGHT_COLLAPSED, PILL_HEIGHT_EXPANDED };
 
 /**
  * Resize pill window height (grows downward as toast/result appear).

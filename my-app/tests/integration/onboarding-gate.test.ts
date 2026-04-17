@@ -83,6 +83,8 @@ const {
     quit: vi.fn(),
     setAsDefaultProtocolClient: vi.fn(() => true),
     isPackaged: false,
+    getPath: vi.fn((name: string) => (name === 'userData' ? '/tmp/agentic-test' : '/tmp')),
+    getAppPath: vi.fn(() => '/test/app'),
   };
 
   const mockIpcMain = {
@@ -190,6 +192,12 @@ vi.mock('../../src/main/logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  daemonLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
   loggerFactory: { getLogger: vi.fn() },
   getTaskLogger: vi.fn(),
 }));
@@ -208,6 +216,10 @@ vi.mock('electron', () => ({
   },
   globalShortcut: mockGlobalShortcut,
   ipcMain: mockIpcMain,
+  Menu: {
+    setApplicationMenu: vi.fn(),
+    buildFromTemplate: vi.fn(() => ({})),
+  },
 }));
 
 // ---------------------------------------------------------------------------

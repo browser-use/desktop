@@ -114,25 +114,25 @@ export function GoogleScopesModal({ onConfirm, onCancel }: GoogleScopesModalProp
           This will help me create value for you instantly. I won't do anything without your permission.
         </p>
 
-        {/* Service rows */}
+        {/* Service rows — each row is a <label> wrapping a native checkbox for correct a11y */}
         <div role="list" aria-label="Google services">
           {GOOGLE_SERVICES.map((service, index) => (
             <React.Fragment key={service.id}>
               {index > 0 && <div className="modal-service-divider" />}
-              <div
+              <label
                 className="google-service-row"
                 data-service={service.id}
                 role="listitem"
-                onClick={() => toggle(service.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    toggle(service.id);
-                  }
-                }}
-                tabIndex={0}
-                aria-label={`${service.name} — ${service.description}`}
               >
+                {/* Visually hidden native checkbox — drives all a11y semantics */}
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={checked.has(service.id)}
+                  onChange={() => toggle(service.id)}
+                  aria-label={`${service.name} — ${service.description}`}
+                />
+
                 {/* Icon */}
                 <div
                   className="google-service-icon"
@@ -157,13 +157,11 @@ export function GoogleScopesModal({ onConfirm, onCancel }: GoogleScopesModalProp
                   <div className="google-service-desc">{service.description}</div>
                 </div>
 
-                {/* Checkbox */}
+                {/* Custom checkbox indicator — purely visual */}
                 <div
                   className="google-service-check"
                   data-checked={checked.has(service.id) ? 'true' : 'false'}
-                  role="checkbox"
-                  aria-checked={checked.has(service.id)}
-                  aria-label={`${service.name} permission`}
+                  aria-hidden="true"
                 >
                   {checked.has(service.id) && (
                     <svg
@@ -183,10 +181,15 @@ export function GoogleScopesModal({ onConfirm, onCancel }: GoogleScopesModalProp
                     </svg>
                   )}
                 </div>
-              </div>
+              </label>
             </React.Fragment>
           ))}
         </div>
+
+        {/* Scope count summary */}
+        <p className="modal-scope-count" aria-live="polite">
+          {checked.size} of {GOOGLE_SERVICES.length} scopes granted
+        </p>
 
         {/* Actions */}
         <div className="modal-actions">

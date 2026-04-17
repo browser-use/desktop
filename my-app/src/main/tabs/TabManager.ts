@@ -11,13 +11,29 @@ import {
   nativeImage,
   app,
 } from 'electron';
+// eslint-disable-next-line import/no-unresolved
 import { v4 as uuidv4 } from 'uuid';
 import { NavigationController } from './NavigationController';
 import { SessionStore, PersistedSession, PersistedTab } from './SessionStore';
 import { parseNavigationInput } from '../navigation';
+import { mainLogger } from '../logger';
 
-const NEW_TAB_URL = 'https://www.google.com';
-const CHROME_HEIGHT = 72; // shell toolbar height in pixels
+// Chrome's chrome://newtab is a local page — zero network, instant paint.
+// We mirror that with a dark-themed data: URL so a new tab opens instantly
+// instead of waiting on google.com. The body is intentionally empty; the
+// URL bar is auto-focused (see createTab) so the user can type right away.
+const NEW_TAB_URL =
+  'data:text/html;charset=utf-8,' +
+  encodeURIComponent(
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>New Tab</title>' +
+      '<style>html,body{margin:0;height:100vh;background:#0a0a0d}</style>' +
+      '</head><body></body></html>',
+  );
+// Must stay in sync with --chrome-height in shell.css (tab row 40 + toolbar 36).
+// The renderer can add extra height (e.g. a 32 px bookmarks bar) by calling
+// TabManager.setChromeOffset(offset); positionView() uses BASE + offset.
+const CHROME_HEIGHT = 76;
+const BLOCKED_SCHEMES = /^(javascript|file|data|vbscript):/i;
 
 export interface TabState {
   id: string;
@@ -35,6 +51,27 @@ export interface TabManagerState {
   cdpPort: number | null;
 }
 
+export interface ClosedTabRecord {
+  id: string;
+  url: string;
+  title: string;
+  favicon: string | null;
+  history: { url: string }[];
+  historyIndex: number;
+  scrollY: number | null;
+  closedAt: number;
+}
+
+const MAX_CLOSED = 25;
+
+export interface FindResultPayload {
+  tabId: string;
+  requestId: number;
+  activeMatchOrdinal: number;
+  matches: number;
+  finalUpdate: boolean;
+}
+
 export class TabManager {
   private win: BrowserWindow;
   private tabs: Map<string, WebContentsView> = new Map();
@@ -43,6 +80,17 @@ export class TabManager {
   private navControllers: Map<string, NavigationController> = new Map();
   private sessionStore: SessionStore;
   private cdpPort: number | null = null;
+  private closedStack: ClosedTabRecord[] = [];
+  // Main-process observer (e.g. menu rebuilder) that needs to know when the
+  // closed-tabs stack mutates. Renderer gets a separate IPC broadcast.
+  private onClosedTabsChanged: (() => void) | null = null;
+  // Extra pixels the renderer added on top of the base chrome (e.g. 32 px
+  // for a visible bookmarks bar). The page-hosting WebContentsView is then
+  // positioned at CHROME_HEIGHT + chromeOffset.
+  private chromeOffset = 0;
+  // Per-tab last find query — lets Cmd+F re-open with the previous query
+  // pre-filled (Chrome parity). Session-only; cleared on tab close.
+  private lastFindQuery: Map<string, string> = new Map();
 
   constructor(win: BrowserWindow) {
     this.win = win;
@@ -50,45 +98,99 @@ export class TabManager {
     this.registerIpcHandlers();
   }
 
+  setOnClosedTabsChanged(cb: (() => void) | null): void {
+    this.onClosedTabsChanged = cb;
+  }
+
+  setChromeOffset(offset: number): void {
+    const next = Math.max(0, Math.min(512, Math.round(offset)));
+    if (next === this.chromeOffset) return;
+    this.chromeOffset = next;
+    mainLogger.debug('TabManager.setChromeOffset', { offset: next });
+    this.relayout();
+  }
+
   // ---------------------------------------------------------------------------
   // CDP port discovery
   // ---------------------------------------------------------------------------
 
   async discoverCdpPort(): Promise<number | null> {
-    // Try ports sequentially from Chromium's dynamic range
-    // The actual port is passed via --remote-debugging-port=0; we discover it
-    // by reading the devtools URL from the first WebContents after it's ready.
+    // Strategy 1: read --remote-debugging-port from process.argv (handles ports
+    // passed by test launchers as CLI args) AND from app.commandLine (handles
+    // ports set via appendSwitch in the main process).
+    // process.argv wins over appendSwitch because test launchers pass it last.
+    let cmdPort = 0;
+    for (const arg of process.argv) {
+      const m = arg.match(/^--remote-debugging-port=(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > 0) { cmdPort = n; break; }
+      }
+    }
+    if (!cmdPort) {
+      const switchVal = app.commandLine.getSwitchValue('remote-debugging-port');
+      if (switchVal) {
+        const n = parseInt(switchVal, 10);
+        if (n > 0) cmdPort = n;
+      }
+    }
+    mainLogger.debug('TabManager.discoverCdpPort.start', { cmdPort, argv: process.argv.join(' ') });
+
+    if (cmdPort > 0) {
+      // Specific port requested — check it first before the broad poll.
+      try {
+        const res = await fetch(`http://localhost:${cmdPort}/json/version`);
+        if (res.ok) {
+          this.cdpPort = cmdPort;
+          mainLogger.info('TabManager.discoverCdpPort.ok', {
+            cdpPort: cmdPort,
+            source: 'cmdline-switch',
+          });
+          return cmdPort;
+        }
+      } catch {
+        // Not ready yet — fall through to debugger-url and broad poll
+      }
+    }
+
+    // Strategy 2: read the debugger WS URL directly from the WebContents
+    // (available if the debugger has been attached).
     for (const [, view] of this.tabs) {
       const wc = view.webContents;
-      const debuggerUrl: string = (wc as any).getURL
-        ? wc.getURL()
-        : '';
-      // Use the debugger port from the webContents devtools URL
       const wsUrl: string | undefined = (wc as any).debugger?.url;
       if (wsUrl) {
         const match = wsUrl.match(/:(\d+)\//);
         if (match) {
           this.cdpPort = parseInt(match[1], 10);
-          console.log(`[TabManager] Discovered CDP port: ${this.cdpPort}`);
+          mainLogger.info('TabManager.discoverCdpPort.ok', { cdpPort: this.cdpPort, source: 'debugger-url' });
           return this.cdpPort;
         }
       }
     }
 
-    // Fallback: poll /json/version on common dynamic ports
-    for (let port = 49152; port <= 49200; port++) {
+    // Strategy 3: fallback poll — include the cmdline port (if any) plus the
+    // common ephemeral range so we can find dynamically-assigned ports.
+    const portsToTry = new Set<number>();
+    if (cmdPort > 0) portsToTry.add(cmdPort);
+    for (let p = 49152; p <= 49200; p++) portsToTry.add(p);
+
+    for (const port of portsToTry) {
       try {
         const res = await fetch(`http://localhost:${port}/json/version`);
         if (res.ok) {
           this.cdpPort = port;
-          console.log(`[TabManager] Discovered CDP port via poll: ${port}`);
+          mainLogger.info('TabManager.discoverCdpPort.ok', { cdpPort: port, source: 'poll' });
           return port;
         }
       } catch {
         // continue
       }
     }
-    console.warn('[TabManager] Could not discover CDP port');
+    mainLogger.warn('TabManager.discoverCdpPort.notFound', {
+      msg: 'Could not discover CDP port',
+      cmdPort,
+      switchVal,
+    });
     return null;
   }
 
@@ -109,7 +211,7 @@ export class TabManager {
       );
       return target?.id ?? null;
     } catch (err) {
-      console.error('[TabManager] Failed to get active tab target ID:', err);
+      mainLogger.error('TabManager.getActiveTabTargetId.failed', { error: (err as Error).message, stack: (err as Error).stack });
       return null;
     }
   }
@@ -127,12 +229,13 @@ export class TabManager {
   restoreSession(): void {
     const session = this.sessionStore.load();
     if (session.tabs.length === 0) {
-      console.log('[TabManager] No saved tabs, opening new tab');
-      this.createTab(NEW_TAB_URL);
+      mainLogger.info('TabManager.restoreSession.empty', { msg: 'No saved tabs, opening new tab' });
+      // No args → user-initiated path: URL bar is auto-focused on cold start.
+      this.createTab();
       return;
     }
 
-    console.log(`[TabManager] Restoring ${session.tabs.length} tabs`);
+    mainLogger.info('TabManager.restoreSession', { tabCount: session.tabs.length });
     for (const persisted of session.tabs) {
       this.createTab(persisted.url, persisted.id);
     }
@@ -169,10 +272,19 @@ export class TabManager {
   // ---------------------------------------------------------------------------
 
   createTab(url?: string, id?: string): string {
+    // A user-initiated new tab passes no URL (Cmd+T, + button, IPC with no
+    // argument). Session restore + new-window handoffs pass a concrete URL.
+    // Only the former should steal keyboard focus into the URL bar.
+    const isUserInitiated = url === undefined;
     const tabId = id ?? uuidv4();
-    const targetUrl = url ?? NEW_TAB_URL;
+    let targetUrl = url ?? NEW_TAB_URL;
 
-    console.log(`[TabManager] Creating tab ${tabId} → ${targetUrl}`);
+    if (url && BLOCKED_SCHEMES.test(url)) {
+      mainLogger.warn('TabManager.createTab.blockedScheme', { url });
+      targetUrl = NEW_TAB_URL;
+    }
+
+    mainLogger.info('TabManager.createTab', { tabId, url: targetUrl });
 
     const view = new WebContentsView({
       webPreferences: {
@@ -187,6 +299,15 @@ export class TabManager {
     this.tabOrder.push(tabId);
     this.navControllers.set(tabId, new NavigationController(view));
 
+    // Enable trackpad pinch-zoom on page content. Electron's default limits are
+    // (1, 1), which disables the gesture. (1, 3) matches Chrome's pinch range.
+    view.webContents.setVisualZoomLevelLimits(1, 3).catch((err) => {
+      mainLogger.warn('TabManager.setVisualZoomLevelLimits.failed', {
+        tabId,
+        error: (err as Error).message,
+      });
+    });
+
     this.attachViewEvents(tabId, view);
     this.positionView(view);
 
@@ -196,23 +317,42 @@ export class TabManager {
     this.saveSession();
     this.broadcastState();
 
+    // Focus the URL bar so the user can type immediately. activateTab just
+    // called view.webContents.focus(), so we pull OS focus back to the shell
+    // window and then fire the same IPC Cmd+L uses.
+    if (isUserInitiated && !this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
+      this.win.webContents.focus();
+      this.win.webContents.send('focus-url-bar');
+    }
+
     return tabId;
   }
 
   closeTab(tabId: string): void {
     const view = this.tabs.get(tabId);
     if (!view) {
-      console.warn(`[TabManager] closeTab: unknown tab ${tabId}`);
+      mainLogger.warn('TabManager.closeTab.unknown', { tabId });
       return;
     }
 
-    console.log(`[TabManager] Closing tab ${tabId}`);
+    mainLogger.info('TabManager.closeTab', { tabId });
+
+    // Capture closed-tab record BEFORE destroying the view. Scroll capture is
+    // best-effort (races with page destruction); history capture uses
+    // Electron 30+ navigationHistory API with fallback to current URL only.
+    void this.captureClosedRecord(tabId, view).catch((err) => {
+      mainLogger.warn('TabManager.captureClosedRecord.failed', {
+        tabId,
+        error: (err as Error).message,
+      });
+    });
 
     this.win.contentView.removeChildView(view);
     (view.webContents as any).destroy?.();
 
     this.tabs.delete(tabId);
     this.navControllers.delete(tabId);
+    this.lastFindQuery.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
 
     if (this.activeTabId === tabId) {
@@ -221,8 +361,10 @@ export class TabManager {
       if (newActive) {
         this.activateTab(newActive);
       } else {
-        // No tabs left — open a new one
-        this.createTab(NEW_TAB_URL);
+        // No tabs left — close the window (Chrome parity: Cmd+W on last tab quits).
+        mainLogger.info('TabManager.closeTab.lastTab', { msg: 'Closing window' });
+        this.saveSession();
+        if (!this.win.isDestroyed()) this.win.close();
         return;
       }
     }
@@ -231,10 +373,64 @@ export class TabManager {
     this.broadcastState();
   }
 
+  // Capture closed-tab metadata for restore. Fires synchronously in its sync
+  // portion (url/title/favicon/history) so the record is on the stack before
+  // the view is destroyed. The scrollY read is async JS eval — we fire-and-forget
+  // but still unshift before awaiting, so the record exists even if scroll fails.
+  private async captureClosedRecord(tabId: string, view: WebContentsView): Promise<void> {
+    const wc = view.webContents;
+
+    let history: { url: string }[] = [];
+    let historyIndex = 0;
+    try {
+      // Electron 30+: wc.navigationHistory.getAllEntries() / getActiveIndex()
+      const navHistory = (wc as any).navigationHistory;
+      if (navHistory?.getAllEntries) {
+        const entries = navHistory.getAllEntries() as Array<{ url: string; title?: string }>;
+        history = entries.map((e) => ({ url: e.url }));
+        historyIndex = navHistory.getActiveIndex?.() ?? 0;
+      } else {
+        history = [{ url: wc.getURL() }];
+        historyIndex = 0;
+      }
+    } catch {
+      history = [{ url: wc.getURL() }];
+      historyIndex = 0;
+    }
+
+    const record: ClosedTabRecord = {
+      id: tabId,
+      url: wc.getURL(),
+      title: wc.getTitle() || 'New Tab',
+      favicon: (view as any)._favicon ?? null,
+      history,
+      historyIndex,
+      scrollY: null,
+      closedAt: Date.now(),
+    };
+
+    this.closedStack.unshift(record);
+    if (this.closedStack.length > MAX_CLOSED) {
+      this.closedStack.length = MAX_CLOSED;
+    }
+    this.notifyClosedTabsChanged();
+
+    // Best-effort scroll capture — races with view destruction, so catch + null.
+    try {
+      const scrollY = await wc.executeJavaScript('window.scrollY', true);
+      if (typeof scrollY === 'number' && Number.isFinite(scrollY)) {
+        record.scrollY = scrollY;
+        this.notifyClosedTabsChanged();
+      }
+    } catch {
+      // view was destroyed before the JS eval resolved — leave scrollY as null
+    }
+  }
+
   activateTab(tabId: string): void {
     const view = this.tabs.get(tabId);
     if (!view) {
-      console.warn(`[TabManager] activateTab: unknown tab ${tabId}`);
+      mainLogger.warn('TabManager.activateTab.unknown', { tabId });
       return;
     }
 
@@ -249,7 +445,7 @@ export class TabManager {
     this.positionView(view);
     view.webContents.focus();
 
-    console.log(`[TabManager] Activated tab ${tabId}`);
+    mainLogger.info('TabManager.activateTab.ok', { tabId });
     this.win.webContents.send('tab-activated', tabId);
     this.broadcastState();
   }
@@ -259,9 +455,83 @@ export class TabManager {
     if (fromIndex === -1) return;
     this.tabOrder.splice(fromIndex, 1);
     this.tabOrder.splice(Math.max(0, Math.min(toIndex, this.tabOrder.length)), 0, tabId);
-    console.log(`[TabManager] Moved tab ${tabId} to index ${toIndex}`);
+    mainLogger.info('TabManager.moveTab.ok', { tabId, toIndex });
     this.saveSession();
     this.broadcastState();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Closed-tab restore (Cmd+Shift+T + History menu / dropdown)
+  // ---------------------------------------------------------------------------
+
+  reopenLastClosed(): void {
+    if (this.closedStack.length === 0) {
+      mainLogger.debug('TabManager.reopenLastClosed.empty');
+      return;
+    }
+    const record = this.closedStack.shift()!;
+    this.restoreClosedRecord(record);
+    this.notifyClosedTabsChanged();
+  }
+
+  reopenClosedAt(index: number): void {
+    if (index < 0 || index >= this.closedStack.length) {
+      mainLogger.warn('TabManager.reopenClosedAt.outOfRange', { index, size: this.closedStack.length });
+      return;
+    }
+    const [record] = this.closedStack.splice(index, 1);
+    this.restoreClosedRecord(record);
+    this.notifyClosedTabsChanged();
+  }
+
+  getClosedTabs(): ClosedTabRecord[] {
+    return this.closedStack.slice();
+  }
+
+  clearClosedTabs(): void {
+    this.closedStack = [];
+    this.notifyClosedTabsChanged();
+  }
+
+  // NOTE: whole-window restore is out of scope — multi-window infra is not yet
+  // in place, so this only handles individual tab records. When BrowserWindow
+  // lifecycle gains closed-window capture, this method will dispatch on the
+  // record shape (tab vs. window) via a tagged union.
+  private restoreClosedRecord(record: ClosedTabRecord): void {
+    const activeEntryUrl =
+      record.history[record.historyIndex]?.url ?? record.url ?? NEW_TAB_URL;
+
+    mainLogger.info('TabManager.restoreClosedRecord', {
+      id: record.id,
+      url: activeEntryUrl,
+      historyLen: record.history.length,
+      historyIndex: record.historyIndex,
+    });
+
+    const newTabId = this.createTab(activeEntryUrl);
+    const view = this.tabs.get(newTabId);
+    if (!view) return;
+    const wc = view.webContents;
+
+    // One-shot post-load restore: replay scroll position. Electron's public
+    // API doesn't let us inject a full back/forward history stack into a new
+    // WebContents, so history restore is a best-effort no-op today; the
+    // captured entries live on the record for future use.
+    const onFinishLoad = () => {
+      wc.removeListener('did-finish-load', onFinishLoad);
+      if (record.scrollY != null && record.scrollY > 0) {
+        wc.executeJavaScript(
+          `window.scrollTo(0, ${Number(record.scrollY)})`,
+          true,
+        ).catch((err) => {
+          mainLogger.debug('TabManager.restoreClosedRecord.scrollFailed', {
+            tabId: newTabId,
+            error: (err as Error).message,
+          });
+        });
+      }
+    };
+    wc.on('did-finish-load', onFinishLoad);
   }
 
   // ---------------------------------------------------------------------------
@@ -274,7 +544,7 @@ export class TabManager {
     if (nav) {
       nav.navigate(url);
     } else {
-      console.warn(`[TabManager] navigate: no controller for tab ${tabId}`);
+      mainLogger.warn('TabManager.navigate.noController', { tabId });
     }
   }
 
@@ -294,6 +564,10 @@ export class TabManager {
     this.navControllers.get(tabId)?.reload();
   }
 
+  reloadIgnoringCache(tabId: string): void {
+    this.navControllers.get(tabId)?.reloadIgnoringCache();
+  }
+
   goBackActive(): void {
     if (this.activeTabId) this.goBack(this.activeTabId);
   }
@@ -306,6 +580,112 @@ export class TabManager {
     if (this.activeTabId) this.reload(this.activeTabId);
   }
 
+  // Issue #25 — Hard reload bypasses the HTTP cache on the active tab.
+  reloadActiveIgnoringCache(): void {
+    if (this.activeTabId) this.reloadIgnoringCache(this.activeTabId);
+  }
+
+  // Issue #76 — Open a new tab whose URL is `view-source:<active-url>`.
+  // Electron's WebContentsView renders `view-source:` natively.
+  openViewSourceForActive(): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    const currentUrl = view.webContents.getURL();
+    if (!currentUrl) return;
+    const viewSourceUrl = `view-source:${currentUrl}`;
+    mainLogger.info('TabManager.openViewSourceForActive', { sourceUrl: currentUrl });
+    this.createTab(viewSourceUrl);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Zoom (Chrome-parity Cmd+=, Cmd+-, Cmd+0 on active tab)
+  // ---------------------------------------------------------------------------
+  // Electron zoom-level steps of 0.5 correspond roughly to Chrome's 10% stops
+  // (factor = 1.2^level). Clamp to [-3, 5] to match Chrome's 25%–500% range.
+  private adjustActiveZoom(delta: number): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    const current = view.webContents.getZoomLevel();
+    const next = Math.max(-3, Math.min(5, current + delta));
+    view.webContents.setZoomLevel(next);
+    mainLogger.debug('TabManager.zoom', { tabId: this.activeTabId, level: next });
+  }
+
+  zoomInActive():   void { this.adjustActiveZoom(0.5); }
+  zoomOutActive():  void { this.adjustActiveZoom(-0.5); }
+  zoomResetActive(): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    view.webContents.setZoomLevel(0);
+    mainLogger.debug('TabManager.zoom.reset', { tabId: this.activeTabId });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Find-in-page (Cmd+F)
+  // ---------------------------------------------------------------------------
+  //
+  // Electron's webContents.findInPage delivers results asynchronously via the
+  // 'found-in-page' event (attached in attachViewEvents). Each tab keeps its
+  // own last-query in lastFindQuery so re-opening Cmd+F pre-fills the input.
+
+  /**
+   * Start or continue a find-in-page operation on the active tab.
+   * @param text     search query (empty string is a no-op)
+   * @param findNext true = move to next match of an existing search; false = fresh search
+   * @param forward  direction; only meaningful when findNext is true
+   */
+  findInActiveTab(text: string, findNext = false, forward = true): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    if (!text) {
+      // Empty query → stop and clear selection; counter resets to 0/0.
+      view.webContents.stopFindInPage('clearSelection');
+      this.lastFindQuery.delete(this.activeTabId);
+      return;
+    }
+    this.lastFindQuery.set(this.activeTabId, text);
+    mainLogger.debug('TabManager.findInActiveTab', {
+      tabId: this.activeTabId,
+      textLen: text.length,
+      findNext,
+      forward,
+    });
+    view.webContents.findInPage(text, { findNext, forward, matchCase: false });
+  }
+
+  findNextInActiveTab(): void {
+    if (!this.activeTabId) return;
+    const q = this.lastFindQuery.get(this.activeTabId);
+    if (!q) return;
+    this.findInActiveTab(q, true, true);
+  }
+
+  findPreviousInActiveTab(): void {
+    if (!this.activeTabId) return;
+    const q = this.lastFindQuery.get(this.activeTabId);
+    if (!q) return;
+    this.findInActiveTab(q, true, false);
+  }
+
+  /** Stop find on the active tab. Default 'clearSelection' matches Esc behaviour. */
+  stopFindInActiveTab(action: 'clearSelection' | 'keepSelection' | 'activateSelection' = 'clearSelection'): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    mainLogger.debug('TabManager.stopFindInActiveTab', { tabId: this.activeTabId, action });
+    view.webContents.stopFindInPage(action);
+  }
+
+  /** Last remembered query for the active tab (empty string when none). */
+  getActiveTabLastFindQuery(): string {
+    if (!this.activeTabId) return '';
+    return this.lastFindQuery.get(this.activeTabId) ?? '';
+  }
+
   // ---------------------------------------------------------------------------
   // State accessors
   // ---------------------------------------------------------------------------
@@ -314,12 +694,28 @@ export class TabManager {
     return this.activeTabId;
   }
 
+  getActiveTabUrl(): string | null {
+    if (!this.activeTabId) return null;
+    const view = this.tabs.get(this.activeTabId);
+    return view ? view.webContents.getURL() : null;
+  }
+
   getTabCount(): number {
     return this.tabs.size;
   }
 
   getTabAtIndex(index: number): string | undefined {
     return this.tabOrder[index];
+  }
+
+  getAllTabSummaries(): Array<{ name: string; url: string }> {
+    return this.tabOrder.map((id) => {
+      const view = this.tabs.get(id)!;
+      return {
+        name: view.webContents.getTitle() || 'New Tab',
+        url: view.webContents.getURL() || '',
+      };
+    });
   }
 
   getState(): TabManagerState {
@@ -353,11 +749,12 @@ export class TabManager {
 
   private positionView(view: WebContentsView): void {
     const [winWidth, winHeight] = this.win.getContentSize();
+    const top = CHROME_HEIGHT + this.chromeOffset;
     view.setBounds({
       x: 0,
-      y: CHROME_HEIGHT,
+      y: top,
       width: winWidth,
-      height: Math.max(0, winHeight - CHROME_HEIGHT),
+      height: Math.max(0, winHeight - top),
     });
   }
 
@@ -368,14 +765,27 @@ export class TabManager {
   private attachViewEvents(tabId: string, view: WebContentsView): void {
     const wc = view.webContents;
 
+    // Ctrl+wheel (and macOS trackpad pinch, which Chromium translates to
+    // Ctrl+wheel) fires 'zoom-changed'. Electron ships no default handler for
+    // this event — the app must adjust the zoom level itself, otherwise pinch
+    // does nothing. Half-level steps match Chrome's ~10% stops; range is the
+    // same clamp used by Cmd+=/Cmd+- (roughly 25%–500%).
+    wc.on('zoom-changed', (_e, zoomDirection) => {
+      const current = wc.getZoomLevel();
+      const delta = zoomDirection === 'in' ? 0.5 : -0.5;
+      const next = Math.max(-3, Math.min(5, current + delta));
+      wc.setZoomLevel(next);
+      mainLogger.debug('TabManager.tab.zoomChanged', { tabId, direction: zoomDirection, level: next });
+    });
+
     wc.on('page-title-updated', (_e, title) => {
-      console.log(`[TabManager] tab ${tabId} title: ${title}`);
+      mainLogger.debug('TabManager.tab.titleUpdated', { tabId, title });
       this.sendTabUpdate(tabId);
     });
 
     wc.on('page-favicon-updated', (_e, favicons) => {
       const favicon = favicons[0] ?? null;
-      console.log(`[TabManager] tab ${tabId} favicon: ${favicon}`);
+      mainLogger.debug('TabManager.tab.faviconUpdated', { tabId, hasFavicon: !!favicon });
       // Store favicon on the view for state retrieval
       (view as any)._favicon = favicon;
       this.sendTabFaviconUpdate(tabId, favicon);
@@ -383,29 +793,29 @@ export class TabManager {
     });
 
     wc.on('did-start-loading', () => {
-      console.log(`[TabManager] tab ${tabId} loading started`);
+      mainLogger.debug('TabManager.tab.loadStart', { tabId });
       this.sendTabUpdate(tabId);
     });
 
     wc.on('did-stop-loading', () => {
-      console.log(`[TabManager] tab ${tabId} loading stopped`);
+      mainLogger.debug('TabManager.tab.loadStop', { tabId });
       this.sendTabUpdate(tabId);
     });
 
     wc.on('did-navigate', (_e, url) => {
-      console.log(`[TabManager] tab ${tabId} navigated: ${url}`);
+      mainLogger.info('TabManager.tab.navigate', { tabId, url });
       this.sendTabUpdate(tabId);
       this.saveSession();
     });
 
     wc.on('did-navigate-in-page', (_e, url) => {
-      console.log(`[TabManager] tab ${tabId} in-page navigate: ${url}`);
+      mainLogger.debug('TabManager.tab.navigateInPage', { tabId, url });
       this.sendTabUpdate(tabId);
       this.saveSession();
     });
 
     wc.on('did-finish-load', () => {
-      console.log(`[TabManager] tab ${tabId} finished loading`);
+      mainLogger.debug('TabManager.tab.didFinishLoad', { tabId });
       this.sendTabUpdate(tabId);
     });
 
@@ -414,9 +824,30 @@ export class TabManager {
       this.createTab(url);
     });
 
+    // Find-in-page results stream back here. We only broadcast the final
+    // update (result.finalUpdate === true) so the renderer doesn't flicker
+    // through intermediate match counts as Chromium scans the document.
+    wc.on('found-in-page', (_e, result) => {
+      mainLogger.debug('TabManager.tab.foundInPage', {
+        tabId,
+        requestId: result.requestId,
+        matches: result.matches,
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        finalUpdate: result.finalUpdate,
+      });
+      const payload: FindResultPayload = {
+        tabId,
+        requestId: result.requestId,
+        activeMatchOrdinal: result.activeMatchOrdinal ?? 0,
+        matches: result.matches ?? 0,
+        finalUpdate: !!result.finalUpdate,
+      };
+      this.safeSend('find-result', payload);
+    });
+
     // Handle target_lost for active tab agent enforcement
     wc.on('destroyed', () => {
-      console.log(`[TabManager] tab ${tabId} WebContents destroyed`);
+      mainLogger.info('TabManager.tab.destroyed', { tabId });
       if (!this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
         this.win.webContents.send('target-lost', { tabId });
       }
@@ -446,6 +877,17 @@ export class TabManager {
   private broadcastState(): void {
     const state = this.getState();
     this.safeSend('tabs-state', state);
+  }
+
+  private notifyClosedTabsChanged(): void {
+    this.safeSend('closed-tabs-updated', this.getClosedTabs());
+    try {
+      this.onClosedTabsChanged?.();
+    } catch (err) {
+      mainLogger.warn('TabManager.onClosedTabsChanged.threw', {
+        error: (err as Error).message,
+      });
+    }
   }
 
   private safeSend(channel: string, payload: unknown): void {
@@ -494,6 +936,17 @@ export class TabManager {
       this.reload(tabId);
     });
 
+    // Issue #25 — hard reload IPC. Preferred path: pass tabId; fallback to
+    // the active tab when no id supplied (Shift-click on reload button in the
+    // shell toolbar uses the tabId form).
+    ipcMain.handle('tabs:reload-hard', (_e, tabId?: string) => {
+      if (tabId) {
+        this.reloadIgnoringCache(tabId);
+      } else {
+        this.reloadActiveIgnoringCache();
+      }
+    });
+
     ipcMain.handle('tabs:get-state', () => {
       return this.getState();
     });
@@ -504,6 +957,41 @@ export class TabManager {
 
     ipcMain.handle('tabs:get-active-target-id', async () => {
       return this.getActiveTabTargetId();
+    });
+
+    ipcMain.handle('tabs:reopen-last-closed', () => {
+      this.reopenLastClosed();
+    });
+
+    ipcMain.handle('tabs:reopen-closed-at', (_e, index: number) => {
+      this.reopenClosedAt(index);
+    });
+
+    ipcMain.handle('tabs:get-closed-tabs', () => {
+      return this.getClosedTabs();
+    });
+
+    // Find-in-page IPC. The renderer is the source of truth for the query and
+    // direction; main just proxies to webContents and forwards 'found-in-page'
+    // events back via the 'find-result' channel (see attachViewEvents).
+    ipcMain.handle('find:start', (_e, text: string) => {
+      this.findInActiveTab(text ?? '', false, true);
+    });
+
+    ipcMain.handle('find:next', () => {
+      this.findNextInActiveTab();
+    });
+
+    ipcMain.handle('find:prev', () => {
+      this.findPreviousInActiveTab();
+    });
+
+    ipcMain.handle('find:stop', () => {
+      this.stopFindInActiveTab('clearSelection');
+    });
+
+    ipcMain.handle('find:get-last-query', () => {
+      return this.getActiveTabLastFindQuery();
     });
   }
 
@@ -517,8 +1005,17 @@ export class TabManager {
     ipcMain.removeHandler('tabs:back');
     ipcMain.removeHandler('tabs:forward');
     ipcMain.removeHandler('tabs:reload');
+    ipcMain.removeHandler('tabs:reload-hard');
     ipcMain.removeHandler('tabs:get-state');
     ipcMain.removeHandler('tabs:get-active-cdp-url');
     ipcMain.removeHandler('tabs:get-active-target-id');
+    ipcMain.removeHandler('tabs:reopen-last-closed');
+    ipcMain.removeHandler('tabs:reopen-closed-at');
+    ipcMain.removeHandler('tabs:get-closed-tabs');
+    ipcMain.removeHandler('find:start');
+    ipcMain.removeHandler('find:next');
+    ipcMain.removeHandler('find:prev');
+    ipcMain.removeHandler('find:stop');
+    ipcMain.removeHandler('find:get-last-query');
   }
 }

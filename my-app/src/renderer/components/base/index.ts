@@ -23,3 +23,6 @@ export type { CardProps, CardVariant, CardPadding } from './Card';
 
 export { KeyHint } from './KeyHint';
 export type { KeyHintProps, KeyHintSize } from './KeyHint';
+
+export { Skeleton } from './Skeleton';
+export type { SkeletonProps, SkeletonVariant } from './Skeleton';

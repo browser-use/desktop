@@ -1,0 +1,137 @@
+[
+  {
+    "state": "onboarding-welcome",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-welcome.png",
+    "captured_at": "2026-04-17T18:58:25.449Z",
+    "width": 920,
+    "height": 640,
+    "success": true,
+    "notes": "Screen 1 — Welcome with mascot and capability pills"
+  },
+  {
+    "state": "onboarding-naming",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-naming.png",
+    "captured_at": "2026-04-17T18:58:27.055Z",
+    "width": 920,
+    "height": 640,
+    "success": true,
+    "notes": "Screen 2 — Agent naming input"
+  },
+  {
+    "state": "onboarding-account",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-account.png",
+    "captured_at": "2026-04-17T18:58:28.749Z",
+    "width": 920,
+    "height": 640,
+    "success": true,
+    "notes": "Screen 3 — Account creation with Google button"
+  },
+  {
+    "state": "onboarding-account-scopes",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/onboarding-account-scopes.png",
+    "captured_at": "2026-04-17T18:58:39.534Z",
+    "width": 0,
+    "height": 0,
+    "success": false,
+    "error": "page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"scope-checkbox\"], .scope-modal, .google-scopes-modal') to be visible\u001b[22m\n"
+  },
+  {
+    "state": "shell-empty",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/shell-empty.png",
+    "captured_at": "2026-04-17T18:58:41.382Z",
+    "width": 1280,
+    "height": 800,
+    "success": true,
+    "notes": "Shell — no tabs open, empty state"
+  },
+  {
+    "state": "shell-3-tabs",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/shell-3-tabs.png",
+    "captured_at": "2026-04-17T18:58:44.622Z",
+    "width": 1280,
+    "height": 800,
+    "success": true,
+    "notes": "Shell with 3 tabs — one active"
+  },
+  {
+    "state": "pill-idle",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-idle.png",
+    "captured_at": "2026-04-17T18:58:46.704Z",
+    "width": 480,
+    "height": 56,
+    "success": true,
+    "notes": "Pill — idle, empty input after toggle"
+  },
+  {
+    "state": "pill-streaming",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-streaming.png",
+    "captured_at": "2026-04-17T18:58:48.940Z",
+    "width": 1280,
+    "height": 800,
+    "success": true,
+    "notes": "Pill — streaming/running state with progress step"
+  },
+  {
+    "state": "pill-done",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-done.png",
+    "captured_at": "2026-04-17T18:58:51.226Z",
+    "width": 1280,
+    "height": 800,
+    "success": true,
+    "notes": "Pill — completed result state"
+  },
+  {
+    "state": "pill-error",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/pill-error.png",
+    "captured_at": "2026-04-17T18:58:53.446Z",
+    "width": 1280,
+    "height": 800,
+    "success": true,
+    "notes": "Pill — error/failed state"
+  },
+  {
+    "state": "settings-api-key",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-api-key.png",
+    "captured_at": "2026-04-17T18:58:57.096Z",
+    "width": 720,
+    "height": 560,
+    "success": true,
+    "notes": "Settings — API Key tab"
+  },
+  {
+    "state": "settings-agent",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-agent.png",
+    "captured_at": "2026-04-17T18:59:00.958Z",
+    "width": 720,
+    "height": 560,
+    "success": true,
+    "notes": "Settings — Agent tab"
+  },
+  {
+    "state": "settings-appearance",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-appearance.png",
+    "captured_at": "2026-04-17T18:59:04.824Z",
+    "width": 720,
+    "height": 560,
+    "success": true,
+    "notes": "Settings — Appearance tab"
+  },
+  {
+    "state": "settings-scopes",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-scopes.png",
+    "captured_at": "2026-04-17T18:59:08.628Z",
+    "width": 720,
+    "height": 560,
+    "success": true,
+    "notes": "Settings — Google Scopes tab"
+  },
+  {
+    "state": "settings-danger-zone",
+    "capture_path": "/Users/reagan/Documents/GitHub/desktop-app/my-app/tests/visual/references/settings-danger-zone.png",
+    "captured_at": "2026-04-17T18:59:12.489Z",
+    "width": 720,
+    "height": 560,
+    "success": true,
+    "notes": "Settings — Danger Zone tab"
+  }
+]

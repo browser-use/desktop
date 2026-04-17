@@ -36,6 +36,10 @@ interface ResultDisplayProps {
 
 const DEFAULT_AUTO_DISMISS_MS = 5000;
 
+// Label constants for result action buttons
+const LABEL_SHOW_PAGE   = 'Show page'    as const;
+const LABEL_COPY_RESULT = 'Copy result'  as const;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -117,14 +121,59 @@ export function ResultDisplay({
   const isDone = state.kind === 'done';
 
   if (isDone) {
+    const resultText = String((state as { kind: 'done'; result: unknown }).result ?? '');
+
+    function handleCopy(): void {
+      if (resultText) {
+        void navigator.clipboard.writeText(resultText);
+      }
+    }
+
     return (
       <div className="pill-result" data-testid="result-display" data-result-kind="done">
         <div className="pill-result-done">
           {icon}
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div className="pill-result-text">{text}</div>
             <div className="pill-result-dismiss">
               Dismissing in {Math.round(autoDismissMs / 1000)}s · Esc to dismiss now
+            </div>
+            {/* Action buttons */}
+            <div className="pill-result-actions">
+              <button
+                type="button"
+                className="pill-result-action-btn"
+                aria-label={LABEL_SHOW_PAGE}
+                title={LABEL_SHOW_PAGE}
+              >
+                {LABEL_SHOW_PAGE}
+              </button>
+              <button
+                type="button"
+                className="pill-result-action-btn"
+                onClick={handleCopy}
+                aria-label={LABEL_COPY_RESULT}
+                title={LABEL_COPY_RESULT}
+              >
+                {LABEL_COPY_RESULT}
+              </button>
+              {/* Dismiss X */}
+              <button
+                type="button"
+                className="pill-result-dismiss-btn"
+                onClick={onDismiss}
+                aria-label="Dismiss"
+                title="Dismiss"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                  <path
+                    d="M1 1l8 8M9 1L1 9"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
             </div>
           </div>
         </div>

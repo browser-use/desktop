@@ -1,5 +1,6 @@
 /**
- * URLBar: address bar with URL/search parsing, security indicator, Cmd+L focus.
+ * URLBar: address bar with URL/search parsing, security indicator, Cmd+L focus,
+ * and a star button that toggles a bookmark save/edit dialog.
  */
 
 import React, {
@@ -14,6 +15,9 @@ import React, {
 // ---------------------------------------------------------------------------
 const SECURE_RE = /^https:\/\//i;
 const INSECURE_RE = /^http:\/\//i;
+// New-tab data: URLs and about:blank are internal placeholders; the omnibox
+// renders them as empty so the "Search or enter address" placeholder shows.
+const BLANK_RE = /^(data:|about:blank$)/i;
 
 interface URLBarProps {
   url: string;
@@ -21,6 +25,8 @@ interface URLBarProps {
   onNavigate: (input: string) => void;
   focused: boolean;
   onFocusClear: () => void;
+  isBookmarked: boolean;
+  onToggleBookmark: () => void;
 }
 
 function getSecurityStatus(url: string): 'secure' | 'insecure' | 'none' {
@@ -30,6 +36,8 @@ function getSecurityStatus(url: string): 'secure' | 'insecure' | 'none' {
 }
 
 function displayUrl(url: string): string {
+  // New-tab / about:blank: omnibox reads empty so placeholder shows.
+  if (!url || BLANK_RE.test(url)) return '';
   // Show clean URL without protocol for https
   if (SECURE_RE.test(url)) {
     try {
@@ -48,6 +56,8 @@ export function URLBar({
   onNavigate,
   focused,
   onFocusClear,
+  isBookmarked,
+  onToggleBookmark,
 }: URLBarProps): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState(() => displayUrl(url));
@@ -71,8 +81,9 @@ export function URLBar({
 
   const handleFocus = useCallback(() => {
     setIsEditing(true);
-    // Show full URL when editing
-    setInputValue(url);
+    // On focus, show the full URL so the user can edit it — except for blank
+    // new-tab placeholders, where the input stays empty so typing is fresh.
+    setInputValue(BLANK_RE.test(url) ? '' : url);
     inputRef.current?.select();
   }, [url]);
 
@@ -101,6 +112,8 @@ export function URLBar({
   );
 
   const security = getSecurityStatus(url);
+  // Hide the star on blank/new-tab URLs — nothing meaningful to bookmark.
+  const starVisible = !!url && !BLANK_RE.test(url);
 
   return (
     <div className={`url-bar url-bar--${security}`}>
@@ -148,6 +161,32 @@ export function URLBar({
         onKeyDown={handleKeyDown}
         aria-label="Address bar"
       />
+
+      {/* Bookmark star */}
+      {starVisible && (
+        <button
+          type="button"
+          className={[
+            'url-bar__star',
+            isBookmarked ? 'url-bar__star--on' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          onClick={onToggleBookmark}
+          aria-label={isBookmarked ? 'Edit bookmark' : 'Add bookmark'}
+          title={isBookmarked ? 'Edit bookmark (Cmd+D)' : 'Bookmark this page (Cmd+D)'}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+            <path
+              d="M7 1.5l1.77 3.59 3.96.58-2.87 2.8.68 3.95L7 10.56l-3.54 1.86.68-3.95L1.27 5.67l3.96-.58L7 1.5z"
+              fill={isBookmarked ? 'currentColor' : 'none'}
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
 
       {/* Loading indicator */}
       {isLoading && <span className="url-bar__loading" aria-hidden="true" />}

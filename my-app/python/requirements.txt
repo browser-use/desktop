@@ -1,12 +1,11 @@
 # Python agent daemon dependencies
-# Install with: uv pip install -r requirements.txt
+# Install with: uv pip install -r requirements.txt or: pip install -r requirements.txt
 
 # Anthropic SDK (LLM client with prompt caching + streaming)
 anthropic>=0.49.0
 
-# CDP browser control (harnessless dependency)
-cdp-use>=1.4.5
-websockets>=16.0
+# Async HTTP & WebSocket support
+websockets>=15.0
 
 # Testing
 pytest>=8.0.0

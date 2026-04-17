@@ -1,14 +1,34 @@
 /**
  * WindowChrome: root shell component.
- * Composes TabStrip + NavButtons + URLBar into a 72px chrome toolbar.
+ * Composes TabStrip + NavButtons + URLBar + BookmarksBar into a browser chrome.
  * Subscribes to IPC events and keeps local state in sync.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TabStrip } from './TabStrip';
 import { NavButtons } from './NavButtons';
 import { URLBar } from './URLBar';
-import type { TabManagerState, TabState } from '../../main/tabs/TabManager';
+import { RecentlyClosedDropdown } from './RecentlyClosedDropdown';
+import { BookmarksBar } from './BookmarksBar';
+import { BookmarkDialog } from './BookmarkDialog';
+import { FindBar } from './FindBar';
+import type {
+  TabManagerState,
+  TabState,
+  ClosedTabRecord,
+} from '../../main/tabs/TabManager';
+import type {
+  BookmarkNode,
+  PersistedBookmarks,
+  Visibility,
+} from '../../main/bookmarks/BookmarkStore';
+
+// Layout constants — keep in sync with shell.css.
+const BASE_CHROME_HEIGHT = 76;
+const BOOKMARKS_BAR_HEIGHT = 32;
+// Any tab URL starting with this scheme is a new-tab placeholder; the
+// bookmarks bar treats those as "NTP" for the 'ntp-only' visibility mode.
+const NTP_URL_RE = /^(data:|about:blank$)/i;
 
 // Typed reference to the contextBridge API
 declare const electronAPI: {
@@ -22,11 +42,25 @@ declare const electronAPI: {
     back: (tabId: string) => Promise<void>;
     forward: (tabId: string) => Promise<void>;
     reload: (tabId: string) => Promise<void>;
+    reloadHard: (tabId: string) => Promise<void>;
     getState: () => Promise<TabManagerState>;
+    reopenLastClosed: () => Promise<void>;
+    reopenClosedAt: (index: number) => Promise<void>;
+    getClosedTabs: () => Promise<ClosedTabRecord[]>;
   };
   cdp: {
     getActiveTabCdpUrl: () => Promise<string | null>;
     getActiveTabTargetId: () => Promise<string | null>;
+  };
+  bookmarks: {
+    list: () => Promise<PersistedBookmarks>;
+    isBookmarked: (url: string) => Promise<boolean>;
+    findByUrl: (url: string) => Promise<BookmarkNode | null>;
+    setVisibility: (state: Visibility) => Promise<Visibility>;
+    getVisibility: () => Promise<Visibility>;
+  };
+  shell: {
+    setChromeHeight: (height: number) => Promise<void>;
   };
   on: {
     tabsState: (cb: (state: TabManagerState) => void) => () => void;
@@ -35,11 +69,62 @@ declare const electronAPI: {
     tabFaviconUpdated: (
       cb: (payload: { tabId: string; favicon: string | null }) => void,
     ) => () => void;
+    closedTabsUpdated: (cb: (records: ClosedTabRecord[]) => void) => () => void;
     windowReady: (cb: () => void) => () => void;
     focusUrlBar: (cb: () => void) => () => void;
     targetLost: (cb: (payload: { tabId: string }) => void) => () => void;
+    bookmarksUpdated: (cb: (tree: PersistedBookmarks) => void) => () => void;
+    openBookmarkDialog: (cb: () => void) => () => void;
+    toggleBookmarksBar: (cb: () => void) => () => void;
+    focusBookmarksBar: (cb: () => void) => () => void;
   };
 };
+
+// ---------------------------------------------------------------------------
+// HistoryButton — toolbar button that anchors the RecentlyClosedDropdown.
+// Clock-face glyph, sized to match NavButtons (28x28).
+// ---------------------------------------------------------------------------
+interface HistoryButtonProps {
+  open: boolean;
+  onToggle: () => void;
+}
+
+function HistoryButton({ open, onToggle }: HistoryButtonProps): React.ReactElement {
+  return (
+    <button
+      className="nav-buttons__btn history-button"
+      aria-label="Recently closed tabs"
+      aria-expanded={open}
+      onClick={onToggle}
+      title="Recently closed tabs"
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
+      >
+        <circle
+          cx="8"
+          cy="8"
+          r="6"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          fill="none"
+        />
+        <path
+          d="M8 4.5V8l2.5 1.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </svg>
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // WindowChrome
@@ -48,12 +133,34 @@ export function WindowChrome(): React.ReactElement {
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [urlBarFocused, setUrlBarFocused] = useState(false);
+  const [closedTabs, setClosedTabs] = useState<ClosedTabRecord[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyAnchorRef = useRef<HTMLDivElement>(null);
+
+  // Bookmarks state
+  const [bookmarksTree, setBookmarksTree] = useState<PersistedBookmarks | null>(null);
+  const [bookmarkDialogOpen, setBookmarkDialogOpen] = useState(false);
+  const [focusBookmarksBarTick, setFocusBookmarksBarTick] = useState(0);
 
   // Derived active tab
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  const activeUrl = activeTab?.url ?? '';
+
+  // Is the active URL already bookmarked? Derived from the tree so both the
+  // star (URLBar) and the dialog stay in sync without extra IPC.
+  const existingBookmark: BookmarkNode | null = useMemo(() => {
+    if (!bookmarksTree || !activeUrl) return null;
+    const hit = findBookmarkByUrl(bookmarksTree, activeUrl);
+    return hit;
+  }, [bookmarksTree, activeUrl]);
+
+  const visibility = bookmarksTree?.visibility ?? 'always';
+  const isNtp = NTP_URL_RE.test(activeUrl);
+  const barVisible =
+    visibility === 'always' || (visibility === 'ntp-only' && isNtp);
 
   // ---------------------------------------------------------------------------
-  // Bootstrap: load initial state
+  // Bootstrap: load initial tab + bookmarks state
   // ---------------------------------------------------------------------------
   useEffect(() => {
     electronAPI.tabs.getState().then((state) => {
@@ -61,7 +168,21 @@ export function WindowChrome(): React.ReactElement {
       setTabs(state.tabs);
       setActiveTabId(state.activeTabId);
     });
+    electronAPI.tabs.getClosedTabs().then((records) => {
+      setClosedTabs(records);
+    });
+    electronAPI.bookmarks.list().then((tree) => {
+      console.log('[WindowChrome] Bookmarks loaded:', tree.roots[0].children?.length ?? 0, 'bar items');
+      setBookmarksTree(tree);
+    });
   }, []);
+
+  // Push total chrome height to main whenever bar visibility changes so the
+  // WebContentsView repositions correctly.
+  useEffect(() => {
+    const total = BASE_CHROME_HEIGHT + (barVisible ? BOOKMARKS_BAR_HEIGHT : 0);
+    electronAPI.shell.setChromeHeight(total);
+  }, [barVisible]);
 
   // ---------------------------------------------------------------------------
   // IPC event subscriptions
@@ -90,6 +211,10 @@ export function WindowChrome(): React.ReactElement {
       },
     );
 
+    const unsubClosedTabs = electronAPI.on.closedTabsUpdated((records) => {
+      setClosedTabs(records);
+    });
+
     const unsubFocusUrl = electronAPI.on.focusUrlBar(() => {
       setUrlBarFocused(true);
     });
@@ -98,15 +223,41 @@ export function WindowChrome(): React.ReactElement {
       console.log('[WindowChrome] Target lost for tab:', tabId);
     });
 
+    const unsubBookmarksUpdated = electronAPI.on.bookmarksUpdated((tree) => {
+      setBookmarksTree(tree);
+    });
+
+    const unsubOpenDialog = electronAPI.on.openBookmarkDialog(() => {
+      setBookmarkDialogOpen(true);
+    });
+
+    const unsubToggleBar = electronAPI.on.toggleBookmarksBar(() => {
+      // Cmd+Shift+B flips "always" ↔ "never" from whatever the current state
+      // is. When in ntp-only, flip to "always" so the user gets a concrete
+      // change they can see.
+      const current = bookmarksTree?.visibility ?? 'always';
+      const next: Visibility = current === 'always' ? 'never' : 'always';
+      void electronAPI.bookmarks.setVisibility(next);
+    });
+
+    const unsubFocusBar = electronAPI.on.focusBookmarksBar(() => {
+      setFocusBookmarksBarTick((n) => n + 1);
+    });
+
     return () => {
       unsubTabsState();
       unsubTabUpdated();
       unsubTabActivated();
       unsubFaviconUpdated();
+      unsubClosedTabs();
       unsubFocusUrl();
       unsubTargetLost();
+      unsubBookmarksUpdated();
+      unsubOpenDialog();
+      unsubToggleBar();
+      unsubFocusBar();
     };
-  }, []);
+  }, [bookmarksTree?.visibility]);
 
   // ---------------------------------------------------------------------------
   // Tab actions
@@ -138,9 +289,16 @@ export function WindowChrome(): React.ReactElement {
     if (activeTabId) electronAPI.tabs.forward(activeTabId);
   }, [activeTabId]);
 
-  const handleReload = useCallback(() => {
-    if (activeTabId) electronAPI.tabs.reload(activeTabId);
-  }, [activeTabId]);
+  // Issue #25 — Shift-click on the reload button performs a hard reload
+  // (bypasses the HTTP cache). Plain click keeps normal reload behaviour.
+  const handleReload = useCallback(
+    (hard: boolean) => {
+      if (!activeTabId) return;
+      if (hard) electronAPI.tabs.reloadHard(activeTabId);
+      else electronAPI.tabs.reload(activeTabId);
+    },
+    [activeTabId],
+  );
 
   const handleNavigate = useCallback(
     (input: string) => {
@@ -152,6 +310,23 @@ export function WindowChrome(): React.ReactElement {
   const handleUrlFocusClear = useCallback(() => {
     setUrlBarFocused(false);
   }, []);
+
+  const handleHistoryToggle = useCallback(() => {
+    setHistoryOpen((v) => !v);
+  }, []);
+
+  const handleHistoryClose = useCallback(() => {
+    setHistoryOpen(false);
+  }, []);
+
+  const handleRestoreClosed = useCallback((index: number) => {
+    electronAPI.tabs.reopenClosedAt(index);
+  }, []);
+
+  const handleStarClick = useCallback(() => {
+    if (!activeUrl) return;
+    setBookmarkDialogOpen(true);
+  }, [activeUrl]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -173,8 +348,18 @@ export function WindowChrome(): React.ReactElement {
         />
       </div>
 
-      {/* Toolbar row: nav + URL bar */}
+      {/* Toolbar row: history + nav + URL bar */}
       <div className="window-chrome__toolbar">
+        <div className="window-chrome__history-anchor" ref={historyAnchorRef}>
+          <HistoryButton open={historyOpen} onToggle={handleHistoryToggle} />
+          <RecentlyClosedDropdown
+            open={historyOpen}
+            onClose={handleHistoryClose}
+            entries={closedTabs}
+            onRestore={handleRestoreClosed}
+          />
+        </div>
+
         <NavButtons
           canGoBack={activeTab?.canGoBack ?? false}
           canGoForward={activeTab?.canGoForward ?? false}
@@ -185,13 +370,67 @@ export function WindowChrome(): React.ReactElement {
         />
 
         <URLBar
-          url={activeTab?.url ?? ''}
+          url={activeUrl}
           isLoading={activeTab?.isLoading ?? false}
           onNavigate={handleNavigate}
           focused={urlBarFocused}
           onFocusClear={handleUrlFocusClear}
+          isBookmarked={!!existingBookmark}
+          onToggleBookmark={handleStarClick}
         />
       </div>
+
+      {/* Bookmarks bar (always / ntp-only on NTP) */}
+      {barVisible && bookmarksTree && (
+        <BookmarksBar
+          tree={bookmarksTree}
+          onOpen={(url) => {
+            if (activeTabId) electronAPI.tabs.navigate(activeTabId, url);
+          }}
+          onOpenInNewTab={(url) => {
+            electronAPI.tabs.create(url);
+          }}
+          focusTick={focusBookmarksBarTick}
+        />
+      )}
+
+      {/* Save/Edit dialog */}
+      {bookmarkDialogOpen && activeUrl && (
+        <BookmarkDialog
+          url={activeUrl}
+          title={activeTab?.title ?? ''}
+          existing={existingBookmark}
+          tree={bookmarksTree}
+          onClose={() => setBookmarkDialogOpen(false)}
+        />
+      )}
+
+      {/* Find-in-page overlay. Renders null unless Cmd+F was pressed. The
+          overlay is absolutely positioned by CSS so it floats over content
+          without shifting the chrome layout. */}
+      <FindBar activeTabId={activeTabId} />
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function findBookmarkByUrl(
+  tree: PersistedBookmarks,
+  url: string,
+): BookmarkNode | null {
+  const walk = (node: BookmarkNode): BookmarkNode | null => {
+    if (node.type === 'bookmark' && node.url === url) return node;
+    for (const child of node.children ?? []) {
+      const hit = walk(child);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  for (const root of tree.roots) {
+    const hit = walk(root);
+    if (hit) return hit;
+  }
+  return null;
 }

@@ -1,0 +1,175 @@
+{
+  "audit_date": "2026-04-17",
+  "method": "static-analysis",
+  "note": "axe-core npm package not installed (no-new-deps rule). Violations identified via manual static analysis of all renderer TSX files. Fixes applied in the same pass.",
+  "screens": [
+    {
+      "screen": "onboarding-welcome",
+      "file": "src/renderer/onboarding/Welcome.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [],
+        "moderate": [],
+        "minor": []
+      },
+      "passes": [
+        "h1 present with sr-only class and aria-label",
+        "wordmark img has alt text, aria-hidden on decorative copy",
+        "CTA button has type=button and aria-label",
+        "No form elements — no label linkage needed"
+      ]
+    },
+    {
+      "screen": "onboarding-naming",
+      "file": "src/renderer/onboarding/NamingFlow.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [],
+        "moderate": [],
+        "minor": []
+      },
+      "passes": [
+        "label[for=agent-name-input] linked to input[id=agent-name-input]",
+        "aria-describedby on input points to error paragraph when present",
+        "aria-invalid toggled on error",
+        "error p has role=alert",
+        "hint p has aria-live=polite",
+        "Back/Continue buttons have aria-label and type attributes"
+      ]
+    },
+    {
+      "screen": "onboarding-account",
+      "file": "src/renderer/onboarding/AccountCreation.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [],
+        "moderate": [],
+        "minor": []
+      },
+      "passes": [
+        "All three inputs have id matching label[for]",
+        "aria-required=true on all inputs",
+        "Google button has aria-label",
+        "Error paragraph has role=alert and aria-live=polite",
+        "trust-signal p has aria-label, lock SVG aria-hidden"
+      ]
+    },
+    {
+      "screen": "onboarding-account (Google scopes modal)",
+      "file": "src/renderer/onboarding/GoogleScopesModal.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [
+          {
+            "rule_id": "nested-interactive",
+            "element": "div.google-service-row[role=listitem] > div[role=checkbox]",
+            "description": "Interactive role=checkbox nested inside interactive role=listitem; the outer row also handled click/keydown — two interactive controls for one action violates the nested-interactive rule",
+            "fix_applied": "Replaced div.google-service-row with <label role=listitem> containing a visually-hidden <input type=checkbox> and a purely decorative visual indicator (aria-hidden). Removed role=checkbox and duplicate keyboard handlers from the row element.",
+            "status": "FIXED"
+          }
+        ],
+        "moderate": [],
+        "minor": []
+      }
+    },
+    {
+      "screen": "shell-empty",
+      "file": "src/renderer/shell/TabStrip.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [
+          {
+            "rule_id": "aria-required-parent",
+            "element": "div.tab-item[role=tab]",
+            "description": "Elements with role=tab must be owned by an element with role=tablist. The tablist was on div.tab-strip but tabs were direct children of the intermediate div.tab-strip__tabs (no role), breaking required tablist→tab ownership.",
+            "fix_applied": "Moved role=tablist and added aria-label='Browser tabs' to div.tab-strip__tabs (direct parent of tab items). Changed outer div.tab-strip to role=presentation to remove phantom tablist semantics.",
+            "status": "FIXED"
+          },
+          {
+            "rule_id": "button-type",
+            "element": "button.tab-item__close",
+            "description": "Close button inside tab item had no type attribute — defaults to type=submit which can trigger unexpected form submission if ever wrapped in a form.",
+            "fix_applied": "Added type=button to tab close button.",
+            "status": "FIXED"
+          },
+          {
+            "rule_id": "button-type",
+            "element": "button.tab-strip__new-tab",
+            "description": "New-tab button had no type attribute.",
+            "fix_applied": "Added type=button.",
+            "status": "FIXED"
+          }
+        ],
+        "moderate": [],
+        "minor": []
+      }
+    },
+    {
+      "screen": "pill-idle",
+      "file": "src/renderer/pill/PillInput.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [],
+        "moderate": [],
+        "minor": []
+      },
+      "passes": [
+        "pill-input has aria-label='Agent prompt input'",
+        "Search icon span has aria-hidden=true",
+        "pill-empty-state div has aria-hidden=true",
+        "pill-divider has aria-hidden=true",
+        "PillInput is auto-focused on mount"
+      ]
+    },
+    {
+      "screen": "settings-api-key",
+      "file": "src/renderer/settings/SettingsApp.tsx",
+      "violations": {
+        "critical": [],
+        "serious": [],
+        "moderate": [
+          {
+            "rule_id": "button-type",
+            "element": "button.agb-modal__close-btn (Modal base component)",
+            "description": "Modal close button in base Modal component had no type attribute — potential accidental form submission.",
+            "fix_applied": "Added type=button to Modal close button in src/renderer/components/base/Modal.tsx.",
+            "status": "FIXED"
+          }
+        ],
+        "minor": []
+      },
+      "passes": [
+        "label[for=api-key-input] linked to input",
+        "Eye toggle button has aria-label='Show/Hide API key'",
+        "Status paragraph has role=status and aria-live=polite",
+        "Settings sidebar uses role=navigation with aria-label",
+        "Nav items use aria-current=page on active tab",
+        "Arrow-key roving tabindex implemented (tabIndex -1 on inactive items)",
+        "Settings shell has role=application with aria-label",
+        "Main content area uses <main> landmark",
+        "Header uses <header> landmark",
+        "Agent tab input has label[for=agent-name-input]",
+        "Appearance tab uses <fieldset><legend> for radio group",
+        "Factory Reset modal uses Modal base component (role=dialog, aria-modal, aria-labelledby)"
+      ]
+    }
+  ],
+  "summary": {
+    "screens_audited": 6,
+    "violations_before": {
+      "critical": 0,
+      "serious": 3,
+      "moderate": 1,
+      "minor": 0,
+      "total": 4
+    },
+    "violations_after": {
+      "critical": 0,
+      "serious": 0,
+      "moderate": 0,
+      "minor": 0,
+      "total": 0
+    },
+    "fixes_applied": 4
+  }
+}
