@@ -368,12 +368,48 @@
   gap: 16px;
 }
 
+/* Base wrapper — no animation by default; animation class applied via JS */
 [data-theme="onboarding"] .mascot-wrapper {
-  animation: mascot-float 3s var(--ease-decelerate) infinite;
+  will-change: transform;
 }
 
+/* ---- Animation classes ---- */
+
+/* idle: gentle 6px float, 3s sinusoidal */
+[data-theme="onboarding"] .mascot-anim-idle {
+  animation: mascot-float 3s ease-in-out infinite;
+}
+
+/* thinking: tighter 4px float, 0.8s — conveys urgency */
+[data-theme="onboarding"] .mascot-anim-thinking {
+  animation: mascot-float 0.8s ease-in-out infinite;
+}
+
+/* celebrating: scale-pop once (0.4s spring), then settles — JS resets to idle */
+[data-theme="onboarding"] .mascot-anim-celebrating {
+  animation: mascot-celebrate 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* error: quick horizontal shake (0.3s) then settles — JS resets to idle */
+[data-theme="onboarding"] .mascot-anim-error {
+  animation: mascot-shake 0.3s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* Legacy data-state support for any direct consumers not using the class API */
 [data-theme="onboarding"] .mascot-wrapper[data-state="loading"] {
-  animation: mascot-float 1s var(--ease-decelerate) infinite;
+  animation: mascot-float 0.8s ease-in-out infinite;
+}
+
+/* ---- Reduced-motion override — collapses all mascot animations ---- */
+@media (prefers-reduced-motion: reduce) {
+  [data-theme="onboarding"] .mascot-anim-idle,
+  [data-theme="onboarding"] .mascot-anim-thinking,
+  [data-theme="onboarding"] .mascot-anim-celebrating,
+  [data-theme="onboarding"] .mascot-anim-error,
+  [data-theme="onboarding"] .mascot-wrapper[data-state="loading"] {
+    animation: none;
+    transform: none;
+  }
 }
 
 /* Mascot variant row (bottom of onboarding — color/style options) */

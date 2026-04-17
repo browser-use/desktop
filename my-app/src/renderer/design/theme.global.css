@@ -302,6 +302,24 @@ ol {
   95%            { transform: scaleY(0.1); }
 }
 
+@keyframes mascot-celebrate {
+  0%   { transform: scale(1)    translateY(0); }
+  30%  { transform: scale(1.12) translateY(-8px); }
+  60%  { transform: scale(0.96) translateY(2px); }
+  80%  { transform: scale(1.04) translateY(-3px); }
+  100% { transform: scale(1)    translateY(0); }
+}
+
+@keyframes mascot-shake {
+  0%   { transform: translateX(0); }
+  15%  { transform: translateX(-7px); }
+  35%  { transform: translateX(7px); }
+  55%  { transform: translateX(-5px); }
+  75%  { transform: translateX(4px); }
+  90%  { transform: translateX(-2px); }
+  100% { transform: translateX(0); }
+}
+
 /* Animation utility classes */
 .animate-fade-in   { animation: fade-in var(--duration-normal) var(--ease-decelerate) forwards; }
 .animate-slide-up  { animation: slide-up var(--duration-moderate) var(--ease-decelerate) forwards; }
