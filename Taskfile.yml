@@ -80,15 +80,21 @@ tasks:
       - docker compose exec daemon bash
 
   up:
-    desc: Start everything (daemon + browser). The one command to run the full stack.
+    desc: Start the browser (TS agent runs in-process, no daemon needed)
+    dir: "{{.APP_DIR}}"
     cmds:
-      - task: daemon:up
-      - task: start
+      - npm start
+
+  logs:
+    desc: Tail the app log file (main process + renderer console)
+    cmds:
+      - tail -f "$$HOME/Library/Application Support/my-app/logs/main.log"
 
   down:
-    desc: Stop everything (daemon container + any orphan processes)
+    desc: Stop Docker daemon container (legacy, not needed for default TS engine)
+    dir: "{{.APP_DIR}}/python"
     cmds:
-      - task: daemon:down
+      - docker compose down 2>/dev/null || true
 
   # ----- quality gates ------------------------------------------------------
 

@@ -13,6 +13,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      external: ['@anthropic-ai/sdk', 'dotenv'],
       output: {
         entryFileNames: 'main.js',
       },
