@@ -156,8 +156,10 @@ export function WindowChrome(): React.ReactElement {
 
   const visibility = bookmarksTree?.visibility ?? 'always';
   const isNtp = NTP_URL_RE.test(activeUrl);
+  const barChildCount = bookmarksTree?.roots[0]?.children?.length ?? 0;
+  const barHasContent = barChildCount > 0;
   const barVisible =
-    visibility === 'always' || (visibility === 'ntp-only' && isNtp);
+    barHasContent && (visibility === 'always' || (visibility === 'ntp-only' && isNtp));
 
   // ---------------------------------------------------------------------------
   // Bootstrap: load initial tab + bookmarks state
