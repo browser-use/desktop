@@ -14,6 +14,8 @@ my-app/python/__pycache__/
 my-app/python/**/__pycache__/
 my-app/python/.pytest_cache/
 my-app/python/**/*.pyc
+my-app/python/.venv/
+my-app/python/venv/
 
 # Logs
 *.log
