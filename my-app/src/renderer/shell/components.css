@@ -138,12 +138,24 @@
   color: var(--color-fg-primary);
 }
 
-/* Active tab matches the toolbar bg — the tab visually merges into the toolbar,
-   which is the defining Chrome look. No accent underline, no border. */
+/* Active tab: chrome stays flat, so the indicator is a 2px accent underline
+   anchored at the tab's bottom edge. Inset 10px on each side so it reads as a
+   pill-underline, not a full-width bar. Text goes primary for legibility. */
 .tab-item--active,
 .tab-item--active:hover {
   background: var(--color-tab-active);
   color: var(--color-fg-primary);
+}
+
+.tab-item--active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  background: var(--color-accent-default);
+  border-radius: 1px 1px 0 0;
 }
 
 .tab-item--drag-over {
