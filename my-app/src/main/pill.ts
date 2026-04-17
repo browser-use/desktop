@@ -117,7 +117,7 @@ export function createPillWindow(): BrowserWindow {
       preload: path.join(__dirname, 'pill.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 

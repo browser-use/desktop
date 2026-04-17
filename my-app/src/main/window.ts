@@ -82,7 +82,7 @@ export function createShellWindow(): BrowserWindow {
       preload: path.join(__dirname, 'shell.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
