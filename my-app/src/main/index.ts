@@ -111,6 +111,20 @@ function openShellAndWire(): BrowserWindow {
 
   shellWindow.on('resize', () => tabManager?.relayout());
 
+  // DEV/TEST: expose tabManager on the Node.js global object so E2E tests can
+  // reach it via electronApp.evaluate() calls (which run in the same Node.js
+  // process and share the global scope).  The BrowserWindow proxy returned by
+  // getAllWindows() inside evaluate() is a different JS object from shellWindow,
+  // so property annotations on the window instance are not visible there.
+  // Using global.__tabManager__ is the reliable approach.
+  // Gated on NODE_ENV=test so this is never present in production.
+  if (process.env.NODE_ENV === 'test') {
+    (global as any).__tabManager__ = tabManager;
+    mainLogger.info('main.openShellAndWire.testGlobal', {
+      msg: 'global.__tabManager__ set for E2E test access',
+    });
+  }
+
   return shellWindow;
 }
 
@@ -480,5 +494,34 @@ if (process.env.NODE_ENV === 'test') {
     const socketPath = _getSocketPath();
     mainLogger.info('main.test:get-daemon-socket', { socketPath });
     return socketPath;
+  });
+
+  // ---------------------------------------------------------------------------
+  // DEV/TEST IPC: test:get-tab-state
+  // Returns the current TabManager state (tabs array + activeTabId).
+  // Used by session-restore.spec.ts to read tab state without DOM assertions.
+  // Gated on NODE_ENV=test so it is never present in production builds.
+  // ---------------------------------------------------------------------------
+  ipcMain.handle('test:get-tab-state', () => {
+    if (!tabManager) {
+      mainLogger.warn('main.test:get-tab-state', { msg: 'tabManager not yet initialised' });
+      return null;
+    }
+    const state = tabManager.getState();
+    mainLogger.info('main.test:get-tab-state', { tabCount: state.tabs.length, activeTabId: state.activeTabId });
+    return state;
+  });
+
+  // ---------------------------------------------------------------------------
+  // DEV/TEST IPC: test:flush-session
+  // Synchronously flushes the in-memory session to disk.
+  // Used by session-restore.spec.ts to ensure session.json is written before
+  // closing the app (avoids relying solely on before-quit debounce flush).
+  // Gated on NODE_ENV=test so it is never present in production builds.
+  // ---------------------------------------------------------------------------
+  ipcMain.handle('test:flush-session', () => {
+    mainLogger.info('main.test:flush-session', { msg: 'Forced sync session flush via test IPC' });
+    tabManager?.saveSession();
+    tabManager?.flushSession();
   });
 }
