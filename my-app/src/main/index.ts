@@ -24,6 +24,13 @@ import { registerProtocol, initOAuthHandler } from './oauth';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers, unregisterOnboardingHandlers } from './identity/onboardingHandlers';
 import { mainLogger } from './logger';
+// Track 1 — Agent wiring: daemon lifecycle + API key
+import { DaemonClient } from './daemon/client';
+import { startDaemon, stopDaemon, handlePillSubmit, handlePillCancel } from './daemonLifecycle';
+import { getApiKey } from './agentApiKey';
+// Track 5 — Settings
+import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
+import { registerSettingsHandlers, unregisterSettingsHandlers } from './settings/ipc';
 
 // ---------------------------------------------------------------------------
 // Remote debugging: MUST be called before app.whenReady()
@@ -50,6 +57,7 @@ let onboardingWindow: BrowserWindow | null = null;
 const accountStore = new AccountStore();
 const oauthClient = new OAuthClient({ clientId: process.env.GOOGLE_CLIENT_ID ?? 'PLACEHOLDER_CLIENT_ID' });
 const keychainStore = new KeychainStore();
+const daemonClient = new DaemonClient();
 
 // ---------------------------------------------------------------------------
 // Helper: open shell window and wire it up (used by both paths)
@@ -92,16 +100,20 @@ function openShellAndWire(): BrowserWindow {
 app.whenReady().then(async () => {
   mainLogger.info('main.appReady');
 
-  // Track B IPC: pill:submit — get active CDP URL, send agent_task to daemon
+  // Track 1 IPC: pill:submit — get active CDP URL, send agent_task to daemon
   ipcMain.handle('pill:submit', async (_event, { prompt }: { prompt: string }) => {
-    mainLogger.info('main.pill:submit', { promptLength: prompt?.length });
-    const task_id = crypto.randomUUID();
-    const cdpUrl = tabManager ? await tabManager.getActiveTabCdpUrl() : null;
-    mainLogger.info('main.pill:submit.cdp', { task_id, cdpUrl });
-    // TODO(Track D): when DaemonClient is connected, call:
-    //   daemonClient.send(makeRequest({ meta: 'agent_task', prompt, per_target_cdp_url: cdpUrl ?? '', task_id }))
-    //   and subscribe daemonClient.onEvent(forwardAgentEvent)
-    return { task_id };
+    const account = accountStore.load();
+    return handlePillSubmit({
+      prompt,
+      getActiveTabCdpUrl: async () => tabManager ? await tabManager.getActiveTabCdpUrl() : null,
+      daemonClient,
+      getApiKey: () => getApiKey({ accountEmail: account?.email }),
+    });
+  });
+
+  // Track 1 IPC: pill:cancel — cancel a running agent task
+  ipcMain.handle('pill:cancel', async (_event, { task_id }: { task_id: string }) => {
+    return handlePillCancel({ task_id, daemonClient });
   });
 
   // Track B IPC: pill:hide — hide the pill window and notify renderer
@@ -109,6 +121,9 @@ app.whenReady().then(async () => {
     mainLogger.info('main.pill:hide');
     hidePill();
   });
+
+  // Track 5 — Settings IPC handlers
+  registerSettingsHandlers({ accountStore, keychainStore });
 
   const onboardingComplete = accountStore.isOnboardingComplete();
   mainLogger.info('main.onboardingGate', { onboardingComplete });
@@ -144,15 +159,39 @@ app.whenReady().then(async () => {
     openShellAndWire();
   }
 
+  // Track 1: Start daemon after shell is ready (async, non-blocking)
+  (async () => {
+    try {
+      const account = accountStore.load();
+      const apiKey = await getApiKey({ accountEmail: account?.email });
+      if (apiKey) {
+        await startDaemon({ apiKey, daemonClient });
+        mainLogger.info('main.daemon.started', { msg: 'Agent daemon started and connected' });
+      } else {
+        mainLogger.warn('main.daemon.noApiKey', {
+          msg: 'No API key available — daemon not started. Configure via Settings.',
+        });
+      }
+    } catch (err) {
+      mainLogger.error('main.daemon.startFailed', {
+        error: (err as Error).message,
+        stack: (err as Error).stack,
+      });
+    }
+  })();
+
   // Flush session on quit
-  app.on('before-quit', () => {
-    mainLogger.info('main.beforeQuit', { msg: 'Flushing session' });
+  app.on('before-quit', async () => {
+    mainLogger.info('main.beforeQuit', { msg: 'Flushing session + stopping daemon' });
     tabManager?.flushSession();
+    await stopDaemon();
   });
 
   // Track B — unregister hotkeys on quit (macOS cleanup)
+  // Track 5 — unregister settings handlers on quit
   app.on('will-quit', () => {
     unregisterHotkeys();
+    unregisterSettingsHandlers();
   });
 
   app.on('activate', () => {
@@ -204,7 +243,29 @@ function registerKeyboardShortcuts(): void {
   }
 
   const template: MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    {
+      role: 'appMenu',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Settings…',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => {
+            mainLogger.debug('shortcuts.openSettings');
+            openSettingsWindow();
+          },
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
     {
       label: 'File',
       submenu: [
