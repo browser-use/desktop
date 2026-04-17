@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { TabStrip } from './TabStrip';
 import { NavButtons } from './NavButtons';
 import { URLBar } from './URLBar';
+import { FindBar } from './FindBar';
 import type { TabManagerState, TabState } from '../../main/tabs/TabManager';
 
 // Typed reference to the contextBridge API
@@ -192,6 +193,11 @@ export function WindowChrome(): React.ReactElement {
           onFocusClear={handleUrlFocusClear}
         />
       </div>
+
+      {/* Find-in-page overlay. Renders null unless Cmd+F was pressed. The
+          overlay is absolutely positioned by CSS so it floats over content
+          without shifting the chrome layout. */}
+      <FindBar activeTabId={activeTabId} />
     </div>
   );
 }

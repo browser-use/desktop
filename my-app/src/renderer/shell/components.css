@@ -400,3 +400,97 @@
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   FindBar — Chrome-parity find-in-page overlay
+   Positioned absolutely over the content area, anchored to the bottom of the
+   chrome. The chrome is made position:relative so this overlay anchors to it.
+   Right-aligned to match Chrome's placement.
+   --------------------------------------------------------------------------- */
+.window-chrome {
+  position: relative;
+}
+
+.find-bar {
+  position: absolute;
+  top: var(--chrome-height);
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+  min-width: 280px;
+}
+
+.find-bar__input {
+  flex: 1;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+  min-width: 0;
+}
+
+.find-bar__input::placeholder {
+  color: var(--color-fg-tertiary);
+}
+
+.find-bar__counter {
+  flex-shrink: 0;
+  padding: 0 8px 0 4px;
+  color: var(--color-fg-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+  text-align: right;
+  user-select: none;
+}
+
+.find-bar__btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color      var(--duration-fast) var(--ease-out);
+}
+
+.find-bar__btn:hover:not(:disabled) {
+  background: var(--color-surface-interactive-hover);
+  color: var(--color-fg-primary);
+}
+
+.find-bar__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.find-bar__btn--close {
+  margin-left: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .find-bar__btn {
+    transition: none;
+  }
+}

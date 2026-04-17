@@ -368,6 +368,35 @@ function registerKeyboardShortcuts(): void {
         },
         { type: 'separator' },
         {
+          // Opens the FindBar for the active tab. The renderer owns the UI;
+          // main just sends 'find-open' with the remembered per-tab query so
+          // re-opening Cmd+F restores the previous search (Chrome parity).
+          label: 'Find…',
+          accelerator: 'CommandOrControl+F',
+          click: () => {
+            mainLogger.debug('shortcuts.find');
+            const lastQuery = tabManager?.getActiveTabLastFindQuery() ?? '';
+            shellWindow?.webContents.send('find-open', { lastQuery });
+          },
+        },
+        {
+          label: 'Find Next',
+          accelerator: 'CommandOrControl+G',
+          click: () => {
+            mainLogger.debug('shortcuts.findNext');
+            tabManager?.findNextInActiveTab();
+          },
+        },
+        {
+          label: 'Find Previous',
+          accelerator: 'CommandOrControl+Shift+G',
+          click: () => {
+            mainLogger.debug('shortcuts.findPrev');
+            tabManager?.findPreviousInActiveTab();
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Zoom In',
           accelerator: 'CommandOrControl+=',
           click: () => {

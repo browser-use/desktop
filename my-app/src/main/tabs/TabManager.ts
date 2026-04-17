@@ -49,6 +49,14 @@ export interface TabManagerState {
   cdpPort: number | null;
 }
 
+export interface FindResultPayload {
+  tabId: string;
+  requestId: number;
+  activeMatchOrdinal: number;
+  matches: number;
+  finalUpdate: boolean;
+}
+
 export class TabManager {
   private win: BrowserWindow;
   private tabs: Map<string, WebContentsView> = new Map();
@@ -57,6 +65,9 @@ export class TabManager {
   private navControllers: Map<string, NavigationController> = new Map();
   private sessionStore: SessionStore;
   private cdpPort: number | null = null;
+  // Per-tab last find query — lets Cmd+F re-open with the previous query
+  // pre-filled (Chrome parity). Session-only; cleared on tab close.
+  private lastFindQuery: Map<string, string> = new Map();
 
   constructor(win: BrowserWindow) {
     this.win = win;
@@ -296,6 +307,7 @@ export class TabManager {
 
     this.tabs.delete(tabId);
     this.navControllers.delete(tabId);
+    this.lastFindQuery.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
 
     if (this.activeTabId === tabId) {
@@ -414,6 +426,69 @@ export class TabManager {
     if (!view) return;
     view.webContents.setZoomLevel(0);
     mainLogger.debug('TabManager.zoom.reset', { tabId: this.activeTabId });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Find-in-page (Cmd+F)
+  // ---------------------------------------------------------------------------
+  //
+  // Electron's webContents.findInPage delivers results asynchronously via the
+  // 'found-in-page' event (attached in attachViewEvents). Each tab keeps its
+  // own last-query in lastFindQuery so re-opening Cmd+F pre-fills the input.
+
+  /**
+   * Start or continue a find-in-page operation on the active tab.
+   * @param text     search query (empty string is a no-op)
+   * @param findNext true = move to next match of an existing search; false = fresh search
+   * @param forward  direction; only meaningful when findNext is true
+   */
+  findInActiveTab(text: string, findNext = false, forward = true): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    if (!text) {
+      // Empty query → stop and clear selection; counter resets to 0/0.
+      view.webContents.stopFindInPage('clearSelection');
+      this.lastFindQuery.delete(this.activeTabId);
+      return;
+    }
+    this.lastFindQuery.set(this.activeTabId, text);
+    mainLogger.debug('TabManager.findInActiveTab', {
+      tabId: this.activeTabId,
+      textLen: text.length,
+      findNext,
+      forward,
+    });
+    view.webContents.findInPage(text, { findNext, forward, matchCase: false });
+  }
+
+  findNextInActiveTab(): void {
+    if (!this.activeTabId) return;
+    const q = this.lastFindQuery.get(this.activeTabId);
+    if (!q) return;
+    this.findInActiveTab(q, true, true);
+  }
+
+  findPreviousInActiveTab(): void {
+    if (!this.activeTabId) return;
+    const q = this.lastFindQuery.get(this.activeTabId);
+    if (!q) return;
+    this.findInActiveTab(q, true, false);
+  }
+
+  /** Stop find on the active tab. Default 'clearSelection' matches Esc behaviour. */
+  stopFindInActiveTab(action: 'clearSelection' | 'keepSelection' | 'activateSelection' = 'clearSelection'): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    mainLogger.debug('TabManager.stopFindInActiveTab', { tabId: this.activeTabId, action });
+    view.webContents.stopFindInPage(action);
+  }
+
+  /** Last remembered query for the active tab (empty string when none). */
+  getActiveTabLastFindQuery(): string {
+    if (!this.activeTabId) return '';
+    return this.lastFindQuery.get(this.activeTabId) ?? '';
   }
 
   // ---------------------------------------------------------------------------
@@ -537,6 +612,27 @@ export class TabManager {
       this.createTab(url);
     });
 
+    // Find-in-page results stream back here. We only broadcast the final
+    // update (result.finalUpdate === true) so the renderer doesn't flicker
+    // through intermediate match counts as Chromium scans the document.
+    wc.on('found-in-page', (_e, result) => {
+      mainLogger.debug('TabManager.tab.foundInPage', {
+        tabId,
+        requestId: result.requestId,
+        matches: result.matches,
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        finalUpdate: result.finalUpdate,
+      });
+      const payload: FindResultPayload = {
+        tabId,
+        requestId: result.requestId,
+        activeMatchOrdinal: result.activeMatchOrdinal ?? 0,
+        matches: result.matches ?? 0,
+        finalUpdate: !!result.finalUpdate,
+      };
+      this.safeSend('find-result', payload);
+    });
+
     // Handle target_lost for active tab agent enforcement
     wc.on('destroyed', () => {
       mainLogger.info('TabManager.tab.destroyed', { tabId });
@@ -628,6 +724,29 @@ export class TabManager {
     ipcMain.handle('tabs:get-active-target-id', async () => {
       return this.getActiveTabTargetId();
     });
+
+    // Find-in-page IPC. The renderer is the source of truth for the query and
+    // direction; main just proxies to webContents and forwards 'found-in-page'
+    // events back via the 'find-result' channel (see attachViewEvents).
+    ipcMain.handle('find:start', (_e, text: string) => {
+      this.findInActiveTab(text ?? '', false, true);
+    });
+
+    ipcMain.handle('find:next', () => {
+      this.findNextInActiveTab();
+    });
+
+    ipcMain.handle('find:prev', () => {
+      this.findPreviousInActiveTab();
+    });
+
+    ipcMain.handle('find:stop', () => {
+      this.stopFindInActiveTab('clearSelection');
+    });
+
+    ipcMain.handle('find:get-last-query', () => {
+      return this.getActiveTabLastFindQuery();
+    });
   }
 
   destroy(): void {
@@ -643,5 +762,10 @@ export class TabManager {
     ipcMain.removeHandler('tabs:get-state');
     ipcMain.removeHandler('tabs:get-active-cdp-url');
     ipcMain.removeHandler('tabs:get-active-target-id');
+    ipcMain.removeHandler('find:start');
+    ipcMain.removeHandler('find:next');
+    ipcMain.removeHandler('find:prev');
+    ipcMain.removeHandler('find:stop');
+    ipcMain.removeHandler('find:get-last-query');
   }
 }

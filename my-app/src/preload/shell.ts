@@ -4,12 +4,12 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { TabManagerState, TabState } from '../main/tabs/TabManager';
+import type { TabManagerState, TabState, FindResultPayload } from '../main/tabs/TabManager';
 
 // ---------------------------------------------------------------------------
 // Type re-exports for renderer consumption
 // ---------------------------------------------------------------------------
-export type { TabManagerState, TabState };
+export type { TabManagerState, TabState, FindResultPayload };
 
 // ---------------------------------------------------------------------------
 // electronAPI surface exposed to renderer
@@ -55,6 +55,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     getActiveTabTargetId: (): Promise<string | null> =>
       ipcRenderer.invoke('tabs:get-active-target-id'),
+  },
+
+  // Find-in-page. Main owns the search state on webContents; the renderer just
+  // fires queries and renders results streamed back via on.findResult.
+  find: {
+    start: (text: string): Promise<void> =>
+      ipcRenderer.invoke('find:start', text),
+    next: (): Promise<void> => ipcRenderer.invoke('find:next'),
+    prev: (): Promise<void> => ipcRenderer.invoke('find:prev'),
+    stop: (): Promise<void> => ipcRenderer.invoke('find:stop'),
+    getLastQuery: (): Promise<string> =>
+      ipcRenderer.invoke('find:get-last-query'),
   },
 
   // Event listeners
@@ -118,6 +130,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ) => cb(payload);
       ipcRenderer.on('target-lost', handler);
       return () => ipcRenderer.removeListener('target-lost', handler);
+    },
+
+    // Menu → 'Find…' asks the renderer to open the FindBar.
+    // Main sends the remembered last query so the input pre-fills (Chrome parity).
+    findOpen: (
+      cb: (payload: { lastQuery: string }) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        payload: { lastQuery: string },
+      ) => cb(payload);
+      ipcRenderer.on('find-open', handler);
+      return () => ipcRenderer.removeListener('find-open', handler);
+    },
+
+    // Streamed results from webContents.findInPage. Only finalUpdate===true
+    // payloads are meaningful for the visible counter.
+    findResult: (
+      cb: (payload: FindResultPayload) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        payload: FindResultPayload,
+      ) => cb(payload);
+      ipcRenderer.on('find-result', handler);
+      return () => ipcRenderer.removeListener('find-result', handler);
     },
   },
 });
