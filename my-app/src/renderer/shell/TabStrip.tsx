@@ -85,6 +85,7 @@ function TabItem({
 
       {/* Close button */}
       <button
+        type="button"
         className="tab-item__close"
         aria-label={`Close ${tab.title || 'tab'}`}
         onClick={onClose}
@@ -144,8 +145,8 @@ export function TabStrip({
   }, []);
 
   return (
-    <div className="tab-strip" role="tablist" onDragEnd={handleDragEnd}>
-      <div className="tab-strip__tabs">
+    <div className="tab-strip" role="presentation" onDragEnd={handleDragEnd}>
+      <div className="tab-strip__tabs" role="tablist" aria-label="Browser tabs">
         {tabs.map((tab, index) => (
           <TabItem
             key={tab.id}
@@ -166,6 +167,7 @@ export function TabStrip({
       </div>
 
       <button
+        type="button"
         className="tab-strip__new-tab"
         aria-label="New tab"
         onClick={onNewTab}
