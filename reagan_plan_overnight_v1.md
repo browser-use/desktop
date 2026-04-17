@@ -14,138 +14,124 @@
 
 ## Iteration log
 
-`[iter N | ISO time | branch | summary]`
-
-- [iter 0 | 2026-04-17T01:30Z | feat/agent-wiring | baseline + status file]
-- [iter 1 | 2026-04-17T01:40Z | feat/agent-wiring | Track 5 Settings UI complete (10 commits), 107/112 tests pass]
-- [iter 2 | 2026-04-17T02:07Z | feat/agent-wiring | QA harness: fix 5 hotkey tests, 10 visual baselines, HTML review gallery, regression tests (4 commits, 117/117 pass)]
+- [iter 0 | 01:30Z] baseline + status file
+- [iter 1 | 01:40Z] Track 5 Settings UI complete (10 commits, 107/112→117/117)
+- [iter 2 | 02:07Z] QA harness: hotkey fix + 10 visual baselines + HTML review + regression tests (5 commits)
+- [iter 3 | 02:20Z] design polish 5 families + Skeleton + empty/error components (6 commits)
+- [iter 4 | 02:41Z] CI workflow + dev scripts + logging audit + crash telemetry + design-system doc + visual refresh (6 commits)
+- [iter 5 | 03:00Z] a11y/contrast/reduced-motion + microcopy + e2e test infra + MockDaemon injection + test IPC (3 commits, vite.settings.config.ts change REVERTED per project memory)
 
 ---
 
 ## Current branch state
 
 - Branch: `feat/agent-wiring`
-- Commits ahead of 29d3edf (prior HEAD): 14
-- Track 1 (Agent wiring) — **DONE**, 14 integration tests green, committed
-- Track 5 (Settings) — **DONE**, 17 integration tests green, 6 feat commits
-- Track 3 (QA harness) — **DONE** (iter 2), see P1 checklist below
-- `.env` — **present** (gitignored), contains ANTHROPIC_API_KEY
+- Commits ahead of 29d3edf (prior HEAD): **35**
+- Track 1 (Agent wiring) — **DONE**
+- Track 2 (Design polish) — **DONE** across all 5 families
+- Track 3 (QA harness) — **DONE**
+- Track 5 (Settings) — **DONE**
+- Track 6 (Branding) — **DONE**
+- Track 4 (Figma) — **BLOCKED** (OAuth requires user interaction)
 
 ## Test state
 
-- Full vitest suite: **117 pass / 0 fail** (9 test files)
-- preload-path.spec.ts (Playwright): **5 pass** (1.1s)
-- visual:capture (Playwright): **15/15 pass** (10 screenshots captured, 5 blocked — see Blockers)
-- E2E Playwright pill-flow: skip (unskip plan documented in pill-flow.spec.ts)
+- Vitest unit+integration: **117 pass / 0 fail** (9 test files)
+- preload-path.spec.ts (Playwright): **5 pass**
+- visual:capture (Playwright): **15/15 spec pass**, 10 PNG baselines committed
+- E2E Playwright pill-flow: UNSKIPPED but not yet executed post-refactor (iter 6 task)
+- E2E golden-path: not yet written
 - Python pytest: not run this loop
 
 ---
 
-## Task queue (ordered by priority)
+## Remaining work queue
 
-### P1 — Track 3: QA harness + visual baselines (**DONE** iter 2)
-- [x] Fix the 5 `tests/pill/hotkey.spec.ts` failures — updated to new Menu-accelerator contract (6/6 pass)
-- [x] Capture baseline screenshots for every screen via `tests/visual/capture.spec.ts` — rewrote to dev-mode launcher
-- [x] Commit screenshots to `tests/visual/references/*.png` — 10 screenshots committed
-- [x] Verify Playwright-Electron harness launches app cleanly — shell, onboarding, pill all launching
-- [x] HTML review surface under `tests/visual/review.html` — slider diff, approve/reject, localStorage, summary counter
-- [x] Un-skip `tests/e2e/pill-flow.spec.ts` — too invasive; detailed 5-point unskip plan committed instead
-- [x] Regression test: `tests/regression/preload-path.spec.ts` — 5/5 pass, asserts full electronAPI surface
-- [x] Regression test: `tests/regression/no-global-shortcuts.spec.ts` — 5/5 pass via vitest
+### P1 — Verify e2e pill-flow passes post-unskip
+Run `npx playwright test tests/e2e/pill-flow.spec.ts` and fix any env issues. Set `DAEMON_MOCK=1` + `NODE_ENV=test` + `DEV_MODE=1` in the test launcher.
 
-### P2 — Track 6: Branding wire-up (~45m, low risk)
-- [ ] Generate `.icns` from `assets/brand/icons/app-icon-1024.svg` → `assets/icon.icns`
-- [ ] Verify `forge.config.ts` `icon: 'assets/icon'` resolves correctly
-- [ ] Replace `<CharacterMascot>` placeholder (if svg-based) with brand mascot SVGs at appropriate states (idle/thinking/celebrating/error)
-- [ ] Use `wordmark-dark.svg` + `wordmark-light.svg` in onboarding welcome header
-- [ ] Add `forge.config.ts` `productName: 'Agentic Browser'` if missing; confirm `appBundleId`
+### P2 — Golden-path e2e
+Write `tests/e2e/golden-path.spec.ts` (the test-engineer started this but didn't finish). Assert: fresh install → onboarding opens → naming submit → account mock → shell opens → Cmd+K → agent task → done → quit → re-open → shell opens directly.
 
-### P3 — Track 2: Design polish per-family (~3h, split across multiple iterations)
-Spawn parallel impeccable subagents. One subagent per family:
-- [ ] Onboarding family: Welcome, NamingFlow, AccountCreation, GoogleScopesModal, mascot animations
-- [ ] Shell chrome: TabStrip, URLBar, NavButtons, WindowChrome
-- [ ] Pill: Pill, PillInput, ProgressToast, ResultDisplay
-- [ ] Settings: SettingsApp sections (just shipped, apply polish pass)
-- [ ] Empty/error states: new EmptyShellState, EmptyAgentState, ErrorBoundary, OfflineBanner
-- [ ] Loading skeletons + consistent KeyHint chip usage
+### P3 — Settings captures unblock (safe approach)
+Do NOT override Vite `root` in vite.settings.config.ts (violates project memory). Instead, either:
+- (a) Have capture.spec.ts shell out to `electron-forge start` via `spawn`, attach Playwright via remote debug port, then take screenshots. Heavier but respects the Forge build pipeline.
+- (b) Write a separate `scripts/build-settings-renderer.ts` that invokes Forge's VitePlugin machinery directly to produce the expected output path.
+- (c) Accept the gap and add docs noting settings screenshots captured manually.
 
-### P4 — Track 4: Figma sync (skip if auth friction)
-- [ ] `figma-use` skill: inspect file `AnYunq5B4ekWJMwDmnVMo2`
-- [ ] Create "Agentic Browser" section: Design System / Onboarding / Shell / Pill / Settings / Error+Empty
-- [ ] Push current app screenshots as frames
-- [ ] Code Connect mappings for base components
+### P4 — Agent-task-wiki e2e (needs LLM)
+`tests/e2e/agent-task-wiki.spec.ts`: real agent task against a local wikipedia fixture page. Requires `ANTHROPIC_API_KEY` (available in `.env`). Should use a tiny deterministic prompt ("scroll to bottom of page and report the last section heading").
 
-### P5 — Tech debt + infra
-- [ ] `.github/workflows/qa.yml`: lint → typecheck → unit → integration → e2e → upload visual review
-- [ ] `tests/e2e/agent-task-wiki.spec.ts`: wikipedia scroll-to-bottom end-to-end
-- [ ] Verbose logging audit: every IPC handler must have structured entry+exit logs
-- [ ] Dev script: `npm run dev:settings` to load the Settings window standalone for design review
+### P5 — Python pytest audit
+`cd my-app/python && pytest` — report counts. Fix anything trivial (imports, deprecation warnings).
 
-### P6 — UX smoothness (catch-all, end of night)
-- [ ] Keyboard navigation: Tab-order audit on every screen, focus rings consistent
-- [ ] Reduced-motion media query respected for mascot animations
-- [ ] High-contrast audit: WCAG AA on all text over backgrounds
-- [ ] Sound effects: optional, subtle click/success chime (respect `prefers-reduced-motion`)
+### P6 — Docs
+- `my-app/README.md`: update to reflect new commands (`npm run dev:settings`, `npm run qa`, `npm run qa:review`)
+- `CONTRIBUTING.md`: dev setup, test commands, how to regenerate baselines
+
+### P7 — Onboarding polish validation
+Run onboarding end-to-end in the app (requires `electron-forge start`). Verify mascot animations play correctly, wordmark renders, focus rings visible on Tab navigation. Capture screenshots if possible.
+
+### P8 — Figma sync (when user wakes up)
+The Figma OAuth URL was generated: user needs to visit it + paste callback. See iter 4 logs. Deferred.
 
 ---
 
 ## Blockers encountered
 
-- **[2026-04-17T01:50Z] Packaged .app has stale asar** — `renderer/shell/index.html` and `renderer/pill/index.html` missing from `.app` asar. Packaged artifact needs `npm run package` with current source. Workaround: rewrote capture.spec.ts to launch via `node_modules/.bin/electron` + `.vite/build/main.js` (dev mode).
-
-- **[2026-04-17T02:00Z] Settings visual captures blocked** — `SETTINGS_VITE_DEV_SERVER_URL` is injected by Forge at build time only; undefined in standalone dev launch. `SettingsWindow.ts` falls through to `loadFile` with a path that doesn't exist in dev build (`renderer/settings/settings.html` not built). Workaround: none without `electron-forge start` or pre-building settings renderer. Settings captures (5 screens) remain `success=false` in manifest.
-
-- **[2026-04-17T02:00Z] onboarding-account-scopes capture blocked** — Google OAuth "Continue with Google" button triggers external browser flow, no in-app scopes modal appears in test env. Workaround: none without mocking the OAuth flow. Remains `success=false`.
-
-- **[2026-04-17T02:05Z] pill-flow e2e unskip too invasive** — Requires MockDaemonClient injection into main process, Menu accelerator trigger (not keyboard.press), separate pill BrowserWindow targeting, and `test:close-active-tab` IPC handler. Full 5-point plan documented in `tests/e2e/pill-flow.spec.ts` header.
+- **[02:00Z] Settings visual captures** — `SETTINGS_VITE_DEV_SERVER_URL` undefined in standalone Electron launch, `loadFile` path doesn't exist. iter 5 test-engineer attempted vite-root override fix but that violated the `project_electron_forge_vite_paths` memory rule and was reverted. See P3 above for safe approaches.
+- **[02:00Z] onboarding-account-scopes capture** — Google OAuth opens external browser; needs mock. See P8.
+- **[02:07Z] pill-flow e2e unskip** — iter 5 completed the refactor (MockDaemonClient, test:open-pill IPC, Menu accelerator trigger) but the spec has not been run against the real harness yet. See P1.
+- **[02:41Z] Figma sync** — OAuth URL issued, user must visit + paste callback. See P8.
 
 ---
 
 ## Screenshots captured
 
-`tests/visual/references/`:
-- `onboarding-welcome.png` (920×640) ✓
-- `onboarding-naming.png` (920×640) ✓
-- `onboarding-account.png` (920×640) ✓
-- `onboarding-account-scopes.png` — capture failed (OAuth external flow)
-- `shell-empty.png` (1280×800) ✓
-- `shell-3-tabs.png` (1280×800) ✓
-- `pill-idle.png` (560×72 — pill window itself) ✓
-- `pill-streaming.png` (1280×800) ✓
-- `pill-done.png` (1280×800) ✓
-- `pill-error.png` (1280×800) ✓
-- `settings-*.png` (5 screens) — capture failed (SETTINGS_VITE_DEV_SERVER_URL not injected)
-- `manifest.json` — 15 entries, 10 success
+`my-app/tests/visual/references/` (10 PNGs):
+- onboarding-welcome, onboarding-naming, onboarding-account
+- shell-empty, shell-3-tabs
+- pill-idle, pill-streaming, pill-done, pill-error
+- `manifest.json` (15 entries, 10 success)
 
 ---
 
-## Commits made this loop
+## Commits made this loop (35 total)
 
-`iter 2`:
-- `8c7956f` test(hotkeys): fix hotkey tests after Menu-accelerator refactor
-- `5eead90` test(visual): baseline screenshots for all windows
-- `d4ea076` test(visual): HTML review surface
-- `e1791a9` test(regression): preload-path + no-global-shortcuts
-- `2ce6881` test(e2e): document pill-flow unskip plan
-
-`iter 1`:
-- `2b052ca` feat(settings): IPC handlers
-- `f26f0f6` feat(settings): renderer entry
-- `64601a9` feat(settings): SettingsApp UI
-- `916bf77` feat(settings): CSS
-- `3334773` feat(settings): wire IPC + Cmd+, menu item
-- `a348f8f` feat(settings): forge config
-- `200cd15` feat(daemon): lifecycle + API key + pill:submit wiring
-- `9c7a9dd` feat(settings): scaffold (SettingsWindow, preload, HTML, vite config, tests)
-- `95405dd` test: onboarding-gate mock widening
-- `41e34ad` chore: brand assets + overnight plan + gitignore .harness
+iter 1 (10): 200cd15, 9c7a9dd, 95405dd, c2e41b6, 2b052ca, f26f0f6, 64601a9, 916bf77, 3334773, a348f8f
+iter 2 (5): 8c7956f, 5eead90, d4ea076, e1791a9, 2ce6881
+iter 3 (6): 2e4cb5e, 3b995a2, 2b98948, 0e6bd14, 0dbfa5f, c5845fa
+iter 3 brand (3): 6552165, 0f506fd, 4aba6cb
+iter 4 (6): 1a46bf2, 2261dc6, 4866fca, 19c5bfb, c92711a, c3b417b, fbc933e, 700ad2e
+iter 5 (3): 0634f30, 4c2b7ee, 0258e59
 
 ---
 
 ## Decision log
 
-- **Settings window size:** 720×560 fixed. Matches spec from Track 5 plan. Hidden title bar inset.
-- **API key masking:** loadApiKey returns `sk-ant-...XXXX` (first 7 + last 4) not the full key. Reduces over-the-wire exposure if ever logged accidentally.
-- **Factory reset in test env:** skips `app.relaunch()` when `NODE_ENV=test`, to keep tests hermetic.
-- **`.harness/` gitignored:** contains ephemeral session signals from the OMC harness. Not reproducible state.
-- **Track 1 commit ordering:** scaffold commits had to land AFTER Track 5 feat commits because executor created feat commits first. Git log reads slightly out-of-order but each commit is self-consistent.
+- **Settings window size:** 720×560 fixed. Matches Track 5 spec.
+- **API key masking:** `sk-ant-...XXXX` (first 7 + last 4). Never log full.
+- **Factory reset in test env:** skips `app.relaunch()`.
+- **.harness/, tests/visual/captures/, tests/visual/diff/:** gitignored (ephemeral).
+- **vite.settings.config.ts root override:** REVERTED iter 5 — violated stored memory `project_electron_forge_vite_paths` ("NO root override").
+- **setDaemonClient:** gated on `DAEMON_MOCK=1` env var (safety guard — never active in prod).
+- **test:open-pill IPC:** gated on `DEV_MODE=1 || NODE_ENV=test` (never registered in prod builds).
+- **Brand mascot animations:** BRAND.md-exact easings — idle 3s float, thinking 0.8s bounce, celebrating spring pop, error sharp shake.
+- **Reduced-motion:** single global catch-all in theme.global.css AFTER specifics; no !important needed.
+- **WCAG AA contrast:** fgTertiary lightened in both themes to pass 3:1 minimum.
+- **Figma deferred:** OAuth can't be completed while user is asleep.
+
+---
+
+## Next iteration (iter 6) plan
+
+Delegate to parallel agents:
+- **Agent A**: Run `npx playwright test tests/e2e/pill-flow.spec.ts` with proper env vars, fix any failures; write `golden-path.spec.ts`. 30 min budget.
+- **Agent B**: Python pytest audit + README/CONTRIBUTING updates. 20 min budget.
+- **Agent C** (optional): Approach P3 settings-captures via option (b) — build helper script. 30 min budget.
+
+After agents complete:
+- Aggregate reports
+- Commit what's ready
+- Update this file
+- Schedule next wakeup (1500s heartbeat)
