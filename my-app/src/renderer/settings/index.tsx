@@ -15,6 +15,7 @@ import '../design/theme.global.css';
 import '../design/theme.onboarding.css';
 import '../components/base/components.css';
 import './settings.css';
+import './clearData.css';
 
 import { SettingsApp } from './SettingsApp';
 

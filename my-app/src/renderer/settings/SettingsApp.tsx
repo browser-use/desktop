@@ -18,6 +18,7 @@ import {
   Spinner,
   KeyHint,
 } from '../components/base';
+import { ClearDataDialog } from './ClearDataDialog';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -28,12 +29,14 @@ const TAB_AGENT        = 'agent'       as const;
 const TAB_APPEARANCE   = 'appearance'  as const;
 const TAB_SCOPES       = 'scopes'      as const;
 const TAB_DANGER       = 'danger'      as const;
+const TAB_PRIVACY      = 'privacy'     as const;
 
 type TabId =
   | typeof TAB_API_KEY
   | typeof TAB_AGENT
   | typeof TAB_APPEARANCE
   | typeof TAB_SCOPES
+  | typeof TAB_PRIVACY
   | typeof TAB_DANGER;
 
 const TABS: Array<{ id: TabId; label: string }> = [
@@ -41,6 +44,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: TAB_AGENT,      label: 'Agent' },
   { id: TAB_APPEARANCE, label: 'Appearance' },
   { id: TAB_SCOPES,     label: 'Google Scopes' },
+  { id: TAB_PRIVACY,    label: 'Privacy and security' },
   { id: TAB_DANGER,     label: 'Danger Zone' },
 ];
 
@@ -76,6 +80,18 @@ declare global {
       getOAuthScopes: () => Promise<OAuthScopeStatus[]>;
       reConsentScope: (scope: string) => Promise<void>;
       factoryReset: () => Promise<void>;
+      clearBrowsingData: (req: {
+        types: Array<
+          | 'history' | 'cookies' | 'cache' | 'downloads'
+          | 'passwords' | 'autofill' | 'siteSettings' | 'hostedApp'
+        >;
+        timeRangeMs: number;
+      }) => Promise<{
+        cleared: string[];
+        errors: Record<string, string>;
+        notes: Record<string, string>;
+      }>;
+      onOpenClearDataDialog: (handler: () => void) => () => void;
       closeWindow: () => void;
     };
   }
@@ -517,6 +533,68 @@ function GoogleScopesTab(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// Privacy and security tab
+// ---------------------------------------------------------------------------
+
+interface PrivacyTabProps {
+  openDialog: boolean;
+  onDialogChange: (open: boolean) => void;
+}
+
+function PrivacyTab({ openDialog, onDialogChange }: PrivacyTabProps): React.ReactElement {
+  const toast = useToast();
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Privacy and security</h2>
+      <p className="settings-section-desc">
+        Control what local browsing data is stored on this device.
+      </p>
+
+      <Card variant="default" padding="md" className="settings-card">
+        <div className="settings-privacy-row">
+          <div>
+            <p className="settings-privacy-label">Clear browsing data</p>
+            <p className="settings-privacy-desc">
+              Clear history, cookies, cache, and more. Keyboard shortcut:
+              {' '}Cmd+Shift+Delete.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => onDialogChange(true)}
+          >
+            Clear data…
+          </Button>
+        </div>
+      </Card>
+
+      <ClearDataDialog
+        open={openDialog}
+        onClose={() => onDialogChange(false)}
+        onComplete={(result) => {
+          const errCount = Object.keys(result.errors).length;
+          if (errCount === 0) {
+            toast.show({
+              variant: 'success',
+              title: 'Data cleared',
+              message: `Cleared ${result.cleared.length} item${result.cleared.length === 1 ? '' : 's'}.`,
+            });
+          } else {
+            toast.show({
+              variant: 'error',
+              title: 'Partial clear',
+              message: `${errCount} item${errCount === 1 ? '' : 's'} failed.`,
+            });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Danger Zone tab
 // ---------------------------------------------------------------------------
 
@@ -616,7 +694,20 @@ function DangerZoneTab(): React.ReactElement {
 
 function SettingsInner(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<TabId>(TAB_API_KEY);
+  const [clearDataOpen, setClearDataOpen] = useState(false);
   const navListRef = React.useRef<HTMLUListElement>(null);
+
+  // Main -> renderer: Cmd+Shift+Delete menu click sends
+  // 'settings:open-clear-data-dialog'. Route to Privacy tab and open modal.
+  useEffect(() => {
+    const unsubscribe = window.settingsAPI.onOpenClearDataDialog(() => {
+      setActiveTab(TAB_PRIVACY);
+      setClearDataOpen(true);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   function handleClose(): void {
     window.settingsAPI.closeWindow();
@@ -654,6 +745,7 @@ function SettingsInner(): React.ReactElement {
     [TAB_AGENT]:      <AgentTab />,
     [TAB_APPEARANCE]: <AppearanceTab />,
     [TAB_SCOPES]:     <GoogleScopesTab />,
+    [TAB_PRIVACY]:    <PrivacyTab openDialog={clearDataOpen} onDialogChange={setClearDataOpen} />,
     [TAB_DANGER]:     <DangerZoneTab />,
   };
 
