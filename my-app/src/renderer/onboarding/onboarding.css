@@ -25,13 +25,12 @@ body {
   height: calc(100% - 0px);
 }
 
-/* Input focus: accent border + glow. Suppress the default outline ring because
-   the border-color change provides equivalent visual focus indication. */
+/* Input focus: lift border to a neutral gray. No loud accent outline/glow —
+   the neon ring was too aggressive and made the whole input glow green. */
 .auth-input:focus-visible {
-  outline: 2px solid var(--color-accent-default);
-  outline-offset: 0px;
-  border-color: var(--color-accent-default);
-  box-shadow: var(--glow-accent);
+  outline: none;
+  border-color: var(--color-fg-secondary);
+  box-shadow: none;
 }
 
 /* Disabled state for submit button */

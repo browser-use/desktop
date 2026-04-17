@@ -14,7 +14,10 @@ import { StepIndicator } from './StepIndicator';
 import { CapabilitiesGrid } from './CapabilitiesGrid';
 import { CharacterMascot } from './CharacterMascot';
 import { KeyHint } from '../components/base';
-import wordmarkLightUrl from '../../../assets/brand/wordmarks/wordmark-light.svg';
+// wordmark-dark.svg is the DARK-MODE variant (white text on transparent).
+// wordmark-light.svg is for LIGHT backgrounds (dark text). Onboarding is dark
+// so we use dark-variant. Previous build had this backwards — text was invisible.
+import wordmarkDarkUrl from '../../../assets/brand/wordmarks/wordmark-dark.svg';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -66,7 +69,7 @@ export function Welcome({ onNext, agentName }: WelcomeProps): React.ReactElement
             Agentic Browser
           </h1>
           <img
-            src={wordmarkLightUrl}
+            src={wordmarkDarkUrl}
             alt="Agentic Browser"
             width={WORDMARK_WIDTH}
             aria-hidden="true"
