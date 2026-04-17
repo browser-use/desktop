@@ -401,9 +401,12 @@ test.describe('Pill Flow', () => {
     const targetPage = pillPage ?? handle.shellPage;
     const taskId = `mock-task-${Date.now()}`;
 
-    // Inject events from main process to simulate daemon streaming
-    const eventsPromise = handle.electronApp.evaluate(async (_, tid) => {
-      const { BrowserWindow } = await import('electron');
+    // Inject events from main process to simulate daemon streaming.
+    // NOTE: electronApp.evaluate() runs in the Electron main process (ESM).
+    // Neither dynamic import() nor require() work in this context.
+    // The correct pattern is to receive Electron APIs via the first parameter
+    // that Playwright's evaluate() passes (the electron module object).
+    const eventsPromise = handle.electronApp.evaluate(async ({ BrowserWindow }, tid) => {
       const wins = BrowserWindow.getAllWindows();
       await new Promise<void>((r) => setTimeout(r, 100));
       for (const w of wins) {
@@ -450,8 +453,7 @@ test.describe('Pill Flow', () => {
 
     const taskId = `done-task-${Date.now()}`;
 
-    await handle.electronApp.evaluate(async (_, tid) => {
-      const { BrowserWindow } = await import('electron');
+    await handle.electronApp.evaluate(async ({ BrowserWindow }, tid) => {
       const wins = BrowserWindow.getAllWindows();
       for (const w of wins) {
         w.webContents.send('pill:event', {
@@ -489,8 +491,7 @@ test.describe('Pill Flow', () => {
 
     const taskId = `fail-task-${Date.now()}`;
 
-    await handle.electronApp.evaluate(async (_, tid) => {
-      const { BrowserWindow } = await import('electron');
+    await handle.electronApp.evaluate(async ({ BrowserWindow }, tid) => {
       const wins = BrowserWindow.getAllWindows();
       for (const w of wins) {
         w.webContents.send('pill:event', {
@@ -528,8 +529,7 @@ test.describe('Pill Flow', () => {
 
     const taskId = `target-lost-task-${Date.now()}`;
 
-    await handle.electronApp.evaluate(async (_, tid) => {
-      const { BrowserWindow } = await import('electron');
+    await handle.electronApp.evaluate(async ({ BrowserWindow }, tid) => {
       const wins = BrowserWindow.getAllWindows();
       for (const w of wins) {
         w.webContents.send('pill:event', {
