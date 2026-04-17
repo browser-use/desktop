@@ -43,13 +43,15 @@
   --color-text-tertiary: var(--color-fg-tertiary);
   --color-accent:        var(--color-accent-default);
   --color-danger:        var(--color-status-danger);
-  /* Unified chrome: tab-row bg = toolbar bg. No visible seam between tab row
-     and toolbar. Active tab carries a subtle white-alpha overlay so it reads
-     as "selected" without bridging a seam. Hover sits one step below active. */
+  /* Unified chrome: every surface (tab row, active tab, inactive tab, toolbar)
+     is the SAME color — --color-bg-elevated. No visible seam anywhere and no
+     "floating chip" effect. The active tab is distinguished by text color
+     (primary vs. secondary) and its visible close button; hover adds a subtle
+     white-alpha lift. This is an Arc/Safari-style unified chrome. */
   --color-tab-row-bg:    var(--color-bg-elevated);
-  --color-tab-active:    rgba(255, 255, 255, 0.08);
+  --color-tab-active:    transparent;
   --color-tab-inactive:  transparent;
-  --color-tab-hover:     rgba(255, 255, 255, 0.04);
+  --color-tab-hover:     rgba(255, 255, 255, 0.05);
   --color-loading:       var(--color-accent-default);
 
   /* Radius aliases for shell component code that predates the token system */
