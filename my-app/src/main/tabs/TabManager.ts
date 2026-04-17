@@ -49,6 +49,19 @@ export interface TabManagerState {
   cdpPort: number | null;
 }
 
+export interface ClosedTabRecord {
+  id: string;
+  url: string;
+  title: string;
+  favicon: string | null;
+  history: { url: string }[];
+  historyIndex: number;
+  scrollY: number | null;
+  closedAt: number;
+}
+
+const MAX_CLOSED = 25;
+
 export class TabManager {
   private win: BrowserWindow;
   private tabs: Map<string, WebContentsView> = new Map();
@@ -57,11 +70,19 @@ export class TabManager {
   private navControllers: Map<string, NavigationController> = new Map();
   private sessionStore: SessionStore;
   private cdpPort: number | null = null;
+  private closedStack: ClosedTabRecord[] = [];
+  // Main-process observer (e.g. menu rebuilder) that needs to know when the
+  // closed-tabs stack mutates. Renderer gets a separate IPC broadcast.
+  private onClosedTabsChanged: (() => void) | null = null;
 
   constructor(win: BrowserWindow) {
     this.win = win;
     this.sessionStore = new SessionStore();
     this.registerIpcHandlers();
+  }
+
+  setOnClosedTabsChanged(cb: (() => void) | null): void {
+    this.onClosedTabsChanged = cb;
   }
 
   // ---------------------------------------------------------------------------
@@ -291,6 +312,16 @@ export class TabManager {
 
     mainLogger.info('TabManager.closeTab', { tabId });
 
+    // Capture closed-tab record BEFORE destroying the view. Scroll capture is
+    // best-effort (races with page destruction); history capture uses
+    // Electron 30+ navigationHistory API with fallback to current URL only.
+    void this.captureClosedRecord(tabId, view).catch((err) => {
+      mainLogger.warn('TabManager.captureClosedRecord.failed', {
+        tabId,
+        error: (err as Error).message,
+      });
+    });
+
     this.win.contentView.removeChildView(view);
     (view.webContents as any).destroy?.();
 
@@ -314,6 +345,60 @@ export class TabManager {
 
     this.saveSession();
     this.broadcastState();
+  }
+
+  // Capture closed-tab metadata for restore. Fires synchronously in its sync
+  // portion (url/title/favicon/history) so the record is on the stack before
+  // the view is destroyed. The scrollY read is async JS eval — we fire-and-forget
+  // but still unshift before awaiting, so the record exists even if scroll fails.
+  private async captureClosedRecord(tabId: string, view: WebContentsView): Promise<void> {
+    const wc = view.webContents;
+
+    let history: { url: string }[] = [];
+    let historyIndex = 0;
+    try {
+      // Electron 30+: wc.navigationHistory.getAllEntries() / getActiveIndex()
+      const navHistory = (wc as any).navigationHistory;
+      if (navHistory?.getAllEntries) {
+        const entries = navHistory.getAllEntries() as Array<{ url: string; title?: string }>;
+        history = entries.map((e) => ({ url: e.url }));
+        historyIndex = navHistory.getActiveIndex?.() ?? 0;
+      } else {
+        history = [{ url: wc.getURL() }];
+        historyIndex = 0;
+      }
+    } catch {
+      history = [{ url: wc.getURL() }];
+      historyIndex = 0;
+    }
+
+    const record: ClosedTabRecord = {
+      id: tabId,
+      url: wc.getURL(),
+      title: wc.getTitle() || 'New Tab',
+      favicon: (view as any)._favicon ?? null,
+      history,
+      historyIndex,
+      scrollY: null,
+      closedAt: Date.now(),
+    };
+
+    this.closedStack.unshift(record);
+    if (this.closedStack.length > MAX_CLOSED) {
+      this.closedStack.length = MAX_CLOSED;
+    }
+    this.notifyClosedTabsChanged();
+
+    // Best-effort scroll capture — races with view destruction, so catch + null.
+    try {
+      const scrollY = await wc.executeJavaScript('window.scrollY', true);
+      if (typeof scrollY === 'number' && Number.isFinite(scrollY)) {
+        record.scrollY = scrollY;
+        this.notifyClosedTabsChanged();
+      }
+    } catch {
+      // view was destroyed before the JS eval resolved — leave scrollY as null
+    }
   }
 
   activateTab(tabId: string): void {
@@ -347,6 +432,80 @@ export class TabManager {
     mainLogger.info('TabManager.moveTab.ok', { tabId, toIndex });
     this.saveSession();
     this.broadcastState();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Closed-tab restore (Cmd+Shift+T + History menu / dropdown)
+  // ---------------------------------------------------------------------------
+
+  reopenLastClosed(): void {
+    if (this.closedStack.length === 0) {
+      mainLogger.debug('TabManager.reopenLastClosed.empty');
+      return;
+    }
+    const record = this.closedStack.shift()!;
+    this.restoreClosedRecord(record);
+    this.notifyClosedTabsChanged();
+  }
+
+  reopenClosedAt(index: number): void {
+    if (index < 0 || index >= this.closedStack.length) {
+      mainLogger.warn('TabManager.reopenClosedAt.outOfRange', { index, size: this.closedStack.length });
+      return;
+    }
+    const [record] = this.closedStack.splice(index, 1);
+    this.restoreClosedRecord(record);
+    this.notifyClosedTabsChanged();
+  }
+
+  getClosedTabs(): ClosedTabRecord[] {
+    return this.closedStack.slice();
+  }
+
+  clearClosedTabs(): void {
+    this.closedStack = [];
+    this.notifyClosedTabsChanged();
+  }
+
+  // NOTE: whole-window restore is out of scope — multi-window infra is not yet
+  // in place, so this only handles individual tab records. When BrowserWindow
+  // lifecycle gains closed-window capture, this method will dispatch on the
+  // record shape (tab vs. window) via a tagged union.
+  private restoreClosedRecord(record: ClosedTabRecord): void {
+    const activeEntryUrl =
+      record.history[record.historyIndex]?.url ?? record.url ?? NEW_TAB_URL;
+
+    mainLogger.info('TabManager.restoreClosedRecord', {
+      id: record.id,
+      url: activeEntryUrl,
+      historyLen: record.history.length,
+      historyIndex: record.historyIndex,
+    });
+
+    const newTabId = this.createTab(activeEntryUrl);
+    const view = this.tabs.get(newTabId);
+    if (!view) return;
+    const wc = view.webContents;
+
+    // One-shot post-load restore: replay scroll position. Electron's public
+    // API doesn't let us inject a full back/forward history stack into a new
+    // WebContents, so history restore is a best-effort no-op today; the
+    // captured entries live on the record for future use.
+    const onFinishLoad = () => {
+      wc.removeListener('did-finish-load', onFinishLoad);
+      if (record.scrollY != null && record.scrollY > 0) {
+        wc.executeJavaScript(
+          `window.scrollTo(0, ${Number(record.scrollY)})`,
+          true,
+        ).catch((err) => {
+          mainLogger.debug('TabManager.restoreClosedRecord.scrollFailed', {
+            tabId: newTabId,
+            error: (err as Error).message,
+          });
+        });
+      }
+    };
+    wc.on('did-finish-load', onFinishLoad);
   }
 
   // ---------------------------------------------------------------------------
@@ -593,6 +752,17 @@ export class TabManager {
     this.safeSend('tabs-state', state);
   }
 
+  private notifyClosedTabsChanged(): void {
+    this.safeSend('closed-tabs-updated', this.getClosedTabs());
+    try {
+      this.onClosedTabsChanged?.();
+    } catch (err) {
+      mainLogger.warn('TabManager.onClosedTabsChanged.threw', {
+        error: (err as Error).message,
+      });
+    }
+  }
+
   private safeSend(channel: string, payload: unknown): void {
     if (this.win.isDestroyed() || this.win.webContents.isDestroyed()) return;
     this.win.webContents.send(channel, payload);
@@ -661,6 +831,18 @@ export class TabManager {
     ipcMain.handle('tabs:get-active-target-id', async () => {
       return this.getActiveTabTargetId();
     });
+
+    ipcMain.handle('tabs:reopen-last-closed', () => {
+      this.reopenLastClosed();
+    });
+
+    ipcMain.handle('tabs:reopen-closed-at', (_e, index: number) => {
+      this.reopenClosedAt(index);
+    });
+
+    ipcMain.handle('tabs:get-closed-tabs', () => {
+      return this.getClosedTabs();
+    });
   }
 
   destroy(): void {
@@ -677,5 +859,8 @@ export class TabManager {
     ipcMain.removeHandler('tabs:get-state');
     ipcMain.removeHandler('tabs:get-active-cdp-url');
     ipcMain.removeHandler('tabs:get-active-target-id');
+    ipcMain.removeHandler('tabs:reopen-last-closed');
+    ipcMain.removeHandler('tabs:reopen-closed-at');
+    ipcMain.removeHandler('tabs:get-closed-tabs');
   }
 }
