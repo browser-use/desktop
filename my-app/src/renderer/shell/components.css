@@ -25,11 +25,14 @@
   display: flex;
   align-items: center;
   height: var(--tab-height);
+  background: var(--color-chrome-bg);
   -webkit-app-region: drag;
 }
 
 .window-chrome__traffic-light-spacer {
-  width: 72px;
+  /* macOS traffic lights in hiddenInset are positioned ~8px from left edge,
+     occupy ~54px, with ~18px right padding. 80px clears them cleanly. */
+  width: 80px;
   height: 100%;
   flex-shrink: 0;
   -webkit-app-region: drag;
@@ -111,7 +114,9 @@
   color: var(--color-text-primary);
 }
 
-/* Accent underline for active tab — clinical shell feel */
+/* Active tab indicator: subtle text-colored line, not neon.
+   The accent token (#c8f135) is too aggressive on a dark tab bar;
+   use a muted light line that reads as "this tab is active" without shouting. */
 .tab-item--active::after {
   content: '';
   position: absolute;
@@ -119,7 +124,8 @@
   left: 8px;
   right: 8px;
   height: 2px;
-  background: var(--color-accent);
+  background: var(--color-text-primary);
+  opacity: 0.6;
   border-radius: 1px 1px 0 0;
 }
 
@@ -143,11 +149,11 @@
   object-fit: contain;
 }
 
+/* Invisible placeholder: holds the 14×14 slot so layout doesn't shift
+   when a favicon arrives. No visible chrome — a gray square reads as broken. */
 .tab-item__favicon-placeholder {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--color-border);
+  width: 14px;
+  height: 14px;
 }
 
 .tab-item__spinner {

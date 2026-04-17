@@ -164,17 +164,17 @@ export function TabStrip({
             isDragOver={dragOverIndex === index}
           />
         ))}
+        {/* + button sits right after the last tab (Chrome-style), not pinned right */}
+        <button
+          type="button"
+          className="tab-strip__new-tab"
+          aria-label="New tab"
+          onClick={onNewTab}
+          title="New Tab (Cmd+T)"
+        >
+          +
+        </button>
       </div>
-
-      <button
-        type="button"
-        className="tab-strip__new-tab"
-        aria-label="New tab"
-        onClick={onNewTab}
-        title="New Tab (Cmd+T)"
-      >
-        +
-      </button>
     </div>
   );
 }

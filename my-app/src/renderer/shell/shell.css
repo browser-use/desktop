@@ -10,17 +10,17 @@
 
 :root {
   --color-bg: #0d0d0d;
+  --color-chrome-bg: #1a1a1d;      /* tab-row frame, distinct from page bg */
   --color-surface: #141414;
-  --color-surface-hover: #1c1c1c;
+  --color-surface-hover: rgba(255, 255, 255, 0.05);
   --color-border: #262626;
   --color-text-primary: #e8e8e8;
   --color-text-secondary: #888888;
-  --color-text-tertiary: #686868;  /* was #555555 — WCAG 3:1 fix (3.06:1 on surface-hover) */
-  /* Brand accent: neon yellow-green — matches BRAND.md and design tokens */
+  --color-text-tertiary: #686868;
   --color-accent: #c8f135;
   --color-accent-hover: #d4f74e;
   --color-danger: #f87171;
-  --color-tab-active: #1c1c1c;
+  --color-tab-active: #2a2a2e;     /* noticeably lighter than chrome — Chrome-style 2-tone */
   --color-tab-inactive: transparent;
   --color-loading: #c8f135;
 
