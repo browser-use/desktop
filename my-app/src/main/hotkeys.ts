@@ -9,29 +9,17 @@
  */
 
 import { globalShortcut } from 'electron';
+import { mainLogger } from './logger';
 
 // ---------------------------------------------------------------------------
-// D2 — Dev-only structured logger
+// Scoped logger shim — delegates to mainLogger with component prefix
 // ---------------------------------------------------------------------------
-
-const DEV =
-  process.env.NODE_ENV !== 'production' || process.env.AGENTIC_DEV === '1';
 
 const log = {
-  debug: DEV
-    ? (comp: string, ctx: object) =>
-        console.log(JSON.stringify({ ts: Date.now(), level: 'debug', component: comp, ...ctx }))
-    : () => {},
-  info: DEV
-    ? (comp: string, ctx: object) =>
-        console.log(JSON.stringify({ ts: Date.now(), level: 'info', component: comp, ...ctx }))
-    : () => {},
-  warn: (comp: string, ctx: object) =>
-    console.warn(JSON.stringify({ ts: Date.now(), level: 'warn', component: comp, ...ctx })),
-  error: (comp: string, ctx: object) =>
-    console.error(
-      JSON.stringify({ ts: Date.now(), level: 'error', component: comp, ...ctx }),
-    ),
+  debug: (comp: string, ctx: object) => mainLogger.debug(comp, ctx as Record<string, unknown>),
+  info:  (comp: string, ctx: object) => mainLogger.info(comp, ctx as Record<string, unknown>),
+  warn:  (comp: string, ctx: object) => mainLogger.warn(comp, ctx as Record<string, unknown>),
+  error: (comp: string, ctx: object) => mainLogger.error(comp, ctx as Record<string, unknown>),
 };
 
 // ---------------------------------------------------------------------------

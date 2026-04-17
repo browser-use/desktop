@@ -15,6 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NavigationController } from './NavigationController';
 import { SessionStore, PersistedSession, PersistedTab } from './SessionStore';
 import { parseNavigationInput } from '../navigation';
+import { mainLogger } from '../logger';
 
 const NEW_TAB_URL = 'https://www.google.com';
 const CHROME_HEIGHT = 72; // shell toolbar height in pixels
@@ -69,7 +70,7 @@ export class TabManager {
         const match = wsUrl.match(/:(\d+)\//);
         if (match) {
           this.cdpPort = parseInt(match[1], 10);
-          console.log(`[TabManager] Discovered CDP port: ${this.cdpPort}`);
+          mainLogger.info('TabManager.discoverCdpPort.ok', { cdpPort: this.cdpPort, source: 'debugger-url' });
           return this.cdpPort;
         }
       }
@@ -81,14 +82,14 @@ export class TabManager {
         const res = await fetch(`http://localhost:${port}/json/version`);
         if (res.ok) {
           this.cdpPort = port;
-          console.log(`[TabManager] Discovered CDP port via poll: ${port}`);
+          mainLogger.info('TabManager.discoverCdpPort.ok', { cdpPort: port, source: 'poll' });
           return port;
         }
       } catch {
         // continue
       }
     }
-    console.warn('[TabManager] Could not discover CDP port');
+    mainLogger.warn('TabManager.discoverCdpPort.notFound', { msg: 'Could not discover CDP port' });
     return null;
   }
 
@@ -109,7 +110,7 @@ export class TabManager {
       );
       return target?.id ?? null;
     } catch (err) {
-      console.error('[TabManager] Failed to get active tab target ID:', err);
+      mainLogger.error('TabManager.getActiveTabTargetId.failed', { error: (err as Error).message, stack: (err as Error).stack });
       return null;
     }
   }
@@ -127,12 +128,12 @@ export class TabManager {
   restoreSession(): void {
     const session = this.sessionStore.load();
     if (session.tabs.length === 0) {
-      console.log('[TabManager] No saved tabs, opening new tab');
+      mainLogger.info('TabManager.restoreSession.empty', { msg: 'No saved tabs, opening new tab' });
       this.createTab(NEW_TAB_URL);
       return;
     }
 
-    console.log(`[TabManager] Restoring ${session.tabs.length} tabs`);
+    mainLogger.info('TabManager.restoreSession', { tabCount: session.tabs.length });
     for (const persisted of session.tabs) {
       this.createTab(persisted.url, persisted.id);
     }
@@ -172,7 +173,7 @@ export class TabManager {
     const tabId = id ?? uuidv4();
     const targetUrl = url ?? NEW_TAB_URL;
 
-    console.log(`[TabManager] Creating tab ${tabId} → ${targetUrl}`);
+    mainLogger.info('TabManager.createTab', { tabId, url: targetUrl });
 
     const view = new WebContentsView({
       webPreferences: {
@@ -202,11 +203,11 @@ export class TabManager {
   closeTab(tabId: string): void {
     const view = this.tabs.get(tabId);
     if (!view) {
-      console.warn(`[TabManager] closeTab: unknown tab ${tabId}`);
+      mainLogger.warn('TabManager.closeTab.unknown', { tabId });
       return;
     }
 
-    console.log(`[TabManager] Closing tab ${tabId}`);
+    mainLogger.info('TabManager.closeTab', { tabId });
 
     this.win.contentView.removeChildView(view);
     (view.webContents as any).destroy?.();
@@ -234,7 +235,7 @@ export class TabManager {
   activateTab(tabId: string): void {
     const view = this.tabs.get(tabId);
     if (!view) {
-      console.warn(`[TabManager] activateTab: unknown tab ${tabId}`);
+      mainLogger.warn('TabManager.activateTab.unknown', { tabId });
       return;
     }
 
@@ -249,7 +250,7 @@ export class TabManager {
     this.positionView(view);
     view.webContents.focus();
 
-    console.log(`[TabManager] Activated tab ${tabId}`);
+    mainLogger.info('TabManager.activateTab.ok', { tabId });
     this.win.webContents.send('tab-activated', tabId);
     this.broadcastState();
   }
@@ -259,7 +260,7 @@ export class TabManager {
     if (fromIndex === -1) return;
     this.tabOrder.splice(fromIndex, 1);
     this.tabOrder.splice(Math.max(0, Math.min(toIndex, this.tabOrder.length)), 0, tabId);
-    console.log(`[TabManager] Moved tab ${tabId} to index ${toIndex}`);
+    mainLogger.info('TabManager.moveTab.ok', { tabId, toIndex });
     this.saveSession();
     this.broadcastState();
   }
@@ -274,7 +275,7 @@ export class TabManager {
     if (nav) {
       nav.navigate(url);
     } else {
-      console.warn(`[TabManager] navigate: no controller for tab ${tabId}`);
+      mainLogger.warn('TabManager.navigate.noController', { tabId });
     }
   }
 
@@ -369,13 +370,13 @@ export class TabManager {
     const wc = view.webContents;
 
     wc.on('page-title-updated', (_e, title) => {
-      console.log(`[TabManager] tab ${tabId} title: ${title}`);
+      mainLogger.debug('TabManager.tab.titleUpdated', { tabId, title });
       this.sendTabUpdate(tabId);
     });
 
     wc.on('page-favicon-updated', (_e, favicons) => {
       const favicon = favicons[0] ?? null;
-      console.log(`[TabManager] tab ${tabId} favicon: ${favicon}`);
+      mainLogger.debug('TabManager.tab.faviconUpdated', { tabId, hasFavicon: !!favicon });
       // Store favicon on the view for state retrieval
       (view as any)._favicon = favicon;
       this.sendTabFaviconUpdate(tabId, favicon);
@@ -383,29 +384,29 @@ export class TabManager {
     });
 
     wc.on('did-start-loading', () => {
-      console.log(`[TabManager] tab ${tabId} loading started`);
+      mainLogger.debug('TabManager.tab.loadStart', { tabId });
       this.sendTabUpdate(tabId);
     });
 
     wc.on('did-stop-loading', () => {
-      console.log(`[TabManager] tab ${tabId} loading stopped`);
+      mainLogger.debug('TabManager.tab.loadStop', { tabId });
       this.sendTabUpdate(tabId);
     });
 
     wc.on('did-navigate', (_e, url) => {
-      console.log(`[TabManager] tab ${tabId} navigated: ${url}`);
+      mainLogger.info('TabManager.tab.navigate', { tabId, url });
       this.sendTabUpdate(tabId);
       this.saveSession();
     });
 
     wc.on('did-navigate-in-page', (_e, url) => {
-      console.log(`[TabManager] tab ${tabId} in-page navigate: ${url}`);
+      mainLogger.debug('TabManager.tab.navigateInPage', { tabId, url });
       this.sendTabUpdate(tabId);
       this.saveSession();
     });
 
     wc.on('did-finish-load', () => {
-      console.log(`[TabManager] tab ${tabId} finished loading`);
+      mainLogger.debug('TabManager.tab.didFinishLoad', { tabId });
       this.sendTabUpdate(tabId);
     });
 
@@ -416,7 +417,7 @@ export class TabManager {
 
     // Handle target_lost for active tab agent enforcement
     wc.on('destroyed', () => {
-      console.log(`[TabManager] tab ${tabId} WebContents destroyed`);
+      mainLogger.info('TabManager.tab.destroyed', { tabId });
       if (!this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
         this.win.webContents.send('target-lost', { tabId });
       }
