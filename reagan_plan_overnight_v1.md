@@ -27,6 +27,7 @@
 - [iter 9 | 04:00Z] daemon crash recovery e2e GREEN (4/4) + _getDaemonPid + test IPCs (2 commits f84a23b, 0f80587)
 - [iter 10 | 04:30Z] performance audit — shell 196KB / pill 205KB / settings 213KB JS (all PASS <400KB); main.js 115KB; app.asar 36KB; 118 vitest GREEN; PERFORMANCE.md written (1 commit)
 - [iter 12 | 06:00Z] full QA sweep: all suites run, 5 ESLint errors fixed, visual baselines refreshed (10 PNGs), CURRENT_STATE.md written (2 commits)
+- [iter 13 | 06:35Z] session restore e2e GREEN (3/3) — tabs + active index persist across relaunch; test IPCs added (test:get-tab-state, test:flush-session); global.__tabManager__ sentinel set in NODE_ENV=test; vitest 118/118 unaffected (2 commits)
 
 ---
 
