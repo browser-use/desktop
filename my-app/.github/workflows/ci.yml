@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'track/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14]   # arm64 only for CI; Intel covered by release workflow
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: my-app/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: my-app
+        run: npm ci
+
+      - name: Lint
+        working-directory: my-app
+        run: npm run lint
+
+      - name: Type-check
+        working-directory: my-app
+        run: npx tsc --noEmit
+        continue-on-error: true   # type errors are warnings until all tracks land
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install PyInstaller
+        working-directory: my-app/python
+        run: pip install pyinstaller
+
+      - name: Build Python daemon (stub)
+        working-directory: my-app/python
+        run: bash build.sh
+
+      - name: Verify daemon binary exists
+        run: |
+          BINARY="my-app/python/dist/agent_daemon"
+          if [[ ! -f "$BINARY" ]]; then
+            echo "ERROR: daemon binary not found at $BINARY"
+            exit 1
+          fi
+          echo "Daemon binary found: $(du -sh "$BINARY" | cut -f1)"
+          file "$BINARY"
+
+      # NOTE: code signing is skipped in CI — no credentials available.
+      # Signing happens in release.yml using repository secrets.
+      - name: Package (unsigned — CI only)
+        working-directory: my-app
+        run: npm run package
+        env:
+          # Suppress osxSign/osxNotarize by not setting SIGNING_IDENTITY.
+          # forge.config.ts checks for this env var before enabling signing.
+          SKIP_SIGNING: '1'
+
+      - name: Verify asar.unpacked contains daemon
+        run: |
+          UNPACKED="my-app/out/$(ls my-app/out | head -1)/Contents/Resources/app.asar.unpacked"
+          if [[ -d "$UNPACKED" ]]; then
+            echo "asar.unpacked contents:"
+            find "$UNPACKED" -name "agent_daemon" -o -name "*.py" | head -20
+          else
+            echo "WARNING: asar.unpacked not found at $UNPACKED — check asarUnpack config"
+          fi

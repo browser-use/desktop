@@ -10,7 +10,17 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
+    "lint": "eslint --ext .ts,.tsx .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "playwright test --config=tests/setup/playwright.config.ts",
+    "parity": "ts-node --project tsconfig.json tests/parity/run-parity.ts",
+    "parity:dry-run": "ts-node --project tsconfig.json tests/parity/run-parity.ts --dry-run",
+    "parity:capture-baseline": "ts-node --project tsconfig.json tests/parity/run-parity.ts --capture-baseline",
+    "visual:capture": "playwright test --config=tests/visual/visual-qa.config.ts",
+    "visual:diff": "ts-node --project tsconfig.json tests/visual/diff.ts",
+    "visual:qa": "npm run visual:capture && npm run visual:diff"
   },
   "keywords": [],
   "author": {
@@ -21,6 +31,7 @@
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-dmg": "^7.11.1",
     "@electron-forge/maker-rpm": "^7.11.1",
     "@electron-forge/maker-squirrel": "^7.11.1",
     "@electron-forge/maker-zip": "^7.11.1",
@@ -28,16 +39,30 @@
     "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron-forge/plugin-vite": "^7.11.1",
     "@electron/fuses": "^1.8.0",
+    "@playwright/test": "^1.59.1",
+    "@testing-library/react": "^16.3.2",
     "@types/electron-squirrel-startup": "^1.0.2",
+    "@types/pngjs": "^6.0.5",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "electron": "41.2.1",
+    "electron-playwright-helpers": "^1.8.2",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
+    "jsdom": "^29.0.2",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
     "typescript": "~4.5.4",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^1.6.1"
   },
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
+    "electron-squirrel-startup": "^1.0.1",
+    "keytar": "^7.9.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "uuid": "^13.0.0"
   }
 }

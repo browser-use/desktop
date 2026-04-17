@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # triggers on v0.1.0, v0.1.1, etc.
+
+# Each arch built on native hardware — PyInstaller does NOT support cross-compilation.
+# macos-13 = Intel x86_64 (Haswell, GitHub-hosted)
+# macos-14 = Apple Silicon arm64 (M1, GitHub-hosted)
+
+jobs:
+  build:
+    name: Build DMG (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x86_64
+          - runner: macos-14
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: my-app/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: my-app
+        run: npm ci
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install PyInstaller and build deps
+        working-directory: my-app/python
+        run: pip install pyinstaller
+
+      - name: Build Python daemon
+        working-directory: my-app/python
+        run: bash build.sh
+        env:
+          ARCH: ${{ matrix.arch }}
+
+      # Import the Developer ID Application certificate into a temporary keychain.
+      # The keychain is scoped to this runner and deleted at the end of the job.
+      # APPLE_DEVELOPER_CERTIFICATE_P12_BASE64: base64-encoded .p12 export.
+      #   How to produce: base64 -i certificate.p12 | pbcopy
+      # APPLE_DEVELOPER_CERTIFICATE_PASSWORD: the password set when exporting the .p12.
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          # Remove any leftover keychain from a previous run
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERTIFICATE_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm -f /tmp/cert.p12
+
+          # Make the keychain searchable and allow codesign to use it without a prompt
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "[CI] Certificate imported into $KEYCHAIN_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+
+      # Sign the PyInstaller binary BEFORE electron-forge packages the .app.
+      # Notarization scans every Mach-O; an unsigned nested binary causes rejection.
+      - name: Sign Python daemon binary
+        working-directory: my-app
+        run: bash scripts/sign-python.sh python/dist/agent_daemon
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      # electron-forge make runs osxSign (via SIGNING_IDENTITY) and
+      # osxNotarize (via APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID).
+      # SKIP_SIGNING must NOT be set here — omitting it enables signing.
+      - name: Build and sign DMG
+        working-directory: my-app
+        run: npm run make
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Verify DMG was produced
+        run: |
+          DMG=$(find my-app/out/make -name "*.dmg" | head -1)
+          if [[ -z "$DMG" ]]; then
+            echo "ERROR: no .dmg found in my-app/out/make/"
+            ls -la my-app/out/make/ || true
+            exit 1
+          fi
+          echo "DMG produced: $DMG"
+          echo "Size: $(du -sh "$DMG" | cut -f1)"
+
+      - name: Verify daemon in asar.unpacked
+        run: |
+          APP_DIR=$(find my-app/out/make -name "*.app" | head -1)
+          if [[ -z "$APP_DIR" ]]; then
+            APP_DIR=$(find my-app/out -name "*.app" | head -1)
+          fi
+          if [[ -n "$APP_DIR" ]]; then
+            UNPACKED="$APP_DIR/Contents/Resources/app.asar.unpacked"
+            echo "Checking $UNPACKED"
+            find "$UNPACKED" -name "agent_daemon" 2>/dev/null && echo "daemon binary found in asar.unpacked" || echo "WARNING: daemon not found in asar.unpacked"
+          else
+            echo "WARNING: could not locate .app bundle to verify asar.unpacked"
+          fi
+
+      # Notarize the DMG. electron-forge's osxNotarize handles this when the
+      # block is uncommented in forge.config.ts. This step is an explicit
+      # fallback / confirmation using notarytool directly.
+      - name: Notarize DMG
+        run: |
+          DMG=$(find my-app/out/make -name "*.dmg" | head -1)
+          if [[ -z "$DMG" ]]; then
+            echo "ERROR: no .dmg to notarize"
+            exit 1
+          fi
+          echo "[CI] Submitting $DMG for notarization ..."
+          xcrun notarytool submit "$DMG" \
+            --apple-id     "$APPLE_ID" \
+            --password     "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id      "$APPLE_TEAM_ID" \
+            --wait
+          echo "[CI] Notarization accepted"
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Staple notarization ticket
+        run: |
+          DMG=$(find my-app/out/make -name "*.dmg" | head -1)
+          echo "[CI] Stapling notarization ticket to $DMG ..."
+          xcrun stapler staple "$DMG"
+          echo "[CI] Staple complete"
+
+      # Run the verification script — exits non-zero on any failure, failing the job.
+      - name: Verify signing and notarization
+        working-directory: my-app
+        run: bash scripts/verify-signing.sh
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          echo "[CI] Keychain cleaned up"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}-${{ github.ref_name }}
+          path: my-app/out/make/*.dmg
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: my-app/out/make/*.dmg
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        com.apple.security.cs.allow-jit
+        Required by the Python interpreter bundled via PyInstaller.
+        CPython uses JIT memory mappings (mmap with PROT_EXEC) for bytecode
+        compilation. Without this entitlement, hardened-runtime code signing
+        blocks those allocations and the interpreter crashes at startup.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!--
+        com.apple.security.cs.allow-unsigned-executable-memory
+        Required by Python's dynamic code evaluation (eval/exec/compile).
+        Even with JIT disabled, the Python interpreter writes executable
+        pages that are not backed by a signed binary. Without this, Apple's
+        hardened runtime kills the process with SIGKILL on those writes.
+        The agent daemon uses exec() for the agent loop; this is load-bearing.
+    -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!--
+        com.apple.security.cs.disable-library-validation
+        Allows the PyInstaller single-file executable to load its bundled
+        dylibs (extracted at runtime into a temp dir) without each one
+        being individually codesigned with the same Team ID.
+        PyInstaller --onefile extracts libs to a temp path at launch;
+        those extracted copies would otherwise fail library validation.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!--
+        com.apple.security.network.client
+        The agent daemon makes outbound connections to the LLM API
+        (api.anthropic.com) and to Chromium's CDP WebSocket endpoint
+        (localhost). Both require this entitlement under hardened runtime.
+    -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!--
+        com.apple.security.files.user-selected.read-write
+        Allows the agent daemon to read/write files the user has explicitly
+        selected (e.g. file uploads/downloads triggered by agent tasks).
+        Scoped to user-selected paths only — not a broad file-system grant.
+    -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>
