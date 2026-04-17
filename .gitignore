@@ -28,6 +28,10 @@ my-app/tests/debug/
 # Harness runtime artifacts (session signals, ephemeral)
 .harness/
 
+# Claude Code local project settings (ephemeral)
+.claude/
+!.claude/settings.json
+
 # Visual capture outputs (ephemeral, manifest-driven)
 my-app/tests/visual/captures/
 my-app/tests/visual/diff/

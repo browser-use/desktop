@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hello, World! program - Test Encyclopedia</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #202122;
+      background: #fff;
+    }
+
+    #site-header {
+      background: #fff;
+      border-bottom: 1px solid #a2a9b1;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #site-header .logo {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000;
+      text-decoration: none;
+    }
+
+    #site-header .tagline {
+      font-size: 11px;
+      color: #54595d;
+    }
+
+    #content-wrapper {
+      display: flex;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+
+    #toc-sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      padding: 16px 16px 16px 0;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+    }
+
+    #toc-sidebar .toc-title {
+      font-weight: bold;
+      font-size: 13px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #a2a9b1;
+      padding-bottom: 4px;
+    }
+
+    #toc-sidebar ol {
+      padding-left: 20px;
+      font-size: 13px;
+    }
+
+    #toc-sidebar ol li {
+      margin: 4px 0;
+    }
+
+    #toc-sidebar ol li a {
+      color: #0645ad;
+      text-decoration: none;
+    }
+
+    #toc-sidebar ol li a:hover {
+      text-decoration: underline;
+    }
+
+    #article-body {
+      flex: 1;
+      padding: 16px;
+      min-width: 0;
+    }
+
+    #article-title {
+      font-family: 'Linux Libertine', Georgia, serif;
+      font-size: 28px;
+      font-weight: normal;
+      border-bottom: 1px solid #a2a9b1;
+      padding-bottom: 4px;
+      margin-bottom: 12px;
+    }
+
+    .article-summary {
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .article-summary b {
+      font-weight: bold;
+    }
+
+    h2.section-heading {
+      font-family: 'Linux Libertine', Georgia, serif;
+      font-size: 22px;
+      font-weight: normal;
+      border-bottom: 1px solid #a2a9b1;
+      padding-bottom: 2px;
+      margin: 24px 0 12px;
+    }
+
+    h3.sub-heading {
+      font-size: 16px;
+      font-weight: bold;
+      margin: 16px 0 8px;
+    }
+
+    p {
+      margin-bottom: 12px;
+    }
+
+    .code-block {
+      background: #f8f9fa;
+      border: 1px solid #a2a9b1;
+      border-radius: 2px;
+      padding: 12px 16px;
+      font-family: 'DejaVu Sans Mono', monospace;
+      font-size: 13px;
+      margin: 12px 0 16px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .ref-note {
+      font-size: 12px;
+      color: #54595d;
+    }
+
+    .infobox {
+      float: right;
+      clear: right;
+      margin: 0 0 16px 24px;
+      border: 1px solid #a2a9b1;
+      background: #f8f9fa;
+      font-size: 12px;
+      padding: 8px;
+      width: 220px;
+    }
+
+    .infobox table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .infobox td {
+      padding: 2px 4px;
+      vertical-align: top;
+    }
+
+    .infobox .infobox-title {
+      text-align: center;
+      font-weight: bold;
+      font-size: 13px;
+      padding: 4px;
+      background: #cee0f2;
+      border-bottom: 1px solid #a2a9b1;
+    }
+
+    #article-footer {
+      border-top: 1px solid #a2a9b1;
+      margin-top: 40px;
+      padding: 16px 0;
+      font-size: 12px;
+      color: #54595d;
+    }
+
+    #article-footer a {
+      color: #0645ad;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="site-header">
+    <a class="logo" href="#">TestEncyclopedia</a>
+    <span class="tagline">The Free Test Reference</span>
+  </div>
+
+  <div id="content-wrapper">
+
+    <nav id="toc-sidebar">
+      <div class="toc-title">Contents</div>
+      <ol>
+        <li><a href="#history">History</a></li>
+        <li><a href="#variations">Variations by language</a></li>
+        <li><a href="#c-example">C example</a></li>
+        <li><a href="#python-example">Python example</a></li>
+        <li><a href="#java-example">Java example</a></li>
+        <li><a href="#javascript-example">JavaScript example</a></li>
+        <li><a href="#cultural-impact">Cultural impact</a></li>
+        <li><a href="#education">In education</a></li>
+        <li><a href="#see-also">See also</a></li>
+        <li><a href="#references">References</a></li>
+      </ol>
+    </nav>
+
+    <article id="article-body">
+
+      <h1 id="article-title">"Hello, World!" program</h1>
+
+      <div class="article-summary">
+        <div class="infobox">
+          <div class="infobox-title">"Hello, World!" program</div>
+          <table>
+            <tr><td><b>Paradigm</b></td><td>Any</td></tr>
+            <tr><td><b>First used</b></td><td>1972 (Bell Labs)</td></tr>
+            <tr><td><b>Purpose</b></td><td>Introductory example</td></tr>
+            <tr><td><b>Common output</b></td><td><code>Hello, World!</code></td></tr>
+          </table>
+        </div>
+
+        <p>
+          A <b>"Hello, World!"</b> program is generally a simple computer program which outputs (or displays)
+          to the screen a message similar to <i>"Hello, World!"</i> while ignoring any input. A small piece
+          of code in most general-purpose programming languages, this program is used to illustrate a
+          language's basic syntax. A "Hello, World!" program is often the first written by a student of
+          a new programming language, but such a program can also be used as a sanity check to ensure
+          that computer software intended to compile or run source code is correctly installed, and
+          that its operator understands how to use it.
+        </p>
+
+        <p>
+          The phrase "Hello, World!" was introduced in Brian Kernighan's 1972 paper "A Tutorial
+          Introduction to the Language B". The first known instance of the usage of the words
+          "hello, world" in computer literature occurred earlier, in Kernighan's internal Bell Labs
+          memorandum documenting the B programming language. The phrase became common in
+          the computing community after it was used in the 1978 book <i>The C Programming Language</i>.
+          Since then, it has been used as an introductory program in numerous computer science textbooks.
+        </p>
+      </div>
+
+      <!-- ==================== Section 1: History ==================== -->
+      <h2 class="section-heading" id="history">History</h2>
+
+      <p>
+        The tradition of using "Hello, World!" as a test message was widely popularized by Brian
+        Kernighan and Dennis Ritchie's 1978 book <i>The C Programming Language</i>. The book's second
+        chapter opens with the program. It was also mentioned in Kernighan's earlier 1972 tutorial
+        on the B programming language, making it one of the earliest known examples of the phrase
+        in computing literature.
+      </p>
+
+      <p>
+        Prior to Kernighan's usage, the term "hello world" appeared in a 1967 publication by
+        Kernighan called "A Tutorial Introduction to the Language B." The original message was
+        chosen for its simplicity and positive character. Unlike programs that performed computation
+        or required user input, a simple print statement demonstrates the minimum functionality
+        needed to produce visible output from a programming environment.
+      </p>
+
+      <p>
+        The historical significance of this tradition extends beyond mere pedagogy. The "Hello,
+        World!" program implicitly tests that the toolchain — compiler, linker, runtime, and
+        operating system libraries — are all correctly configured and interoperating. A failed
+        "Hello, World!" is an immediate diagnostic signal that something fundamental is broken
+        in the development environment.
+      </p>
+
+      <!-- ==================== Section 2: Variations ==================== -->
+      <h2 class="section-heading" id="variations">Variations by language</h2>
+
+      <p>
+        Hundreds of programming languages, scripting languages, markup languages, and query
+        languages now have "Hello, World!" implementations. The variations are instructive:
+        they reveal the syntactic weight of each language, the relationship between source
+        code and executable form, and the conventions around standard output.
+      </p>
+
+      <p>
+        In compiled languages such as C and Go, the program demonstrates the compilation step
+        and the linking of system libraries. In interpreted languages such as Python and Ruby,
+        the absence of a compilation step is itself a feature demonstrated. In languages with
+        verbose boilerplate such as Java, the program reveals class-based structure. In purely
+        functional languages, the program may expose the handling of side effects via monads
+        or other mechanisms.
+      </p>
+
+      <p>
+        Some programming environments — notably interactive REPLs (Read-Eval-Print Loops) —
+        treat the concept slightly differently. In a REPL, typing an expression that evaluates
+        to a string will print that string automatically, without an explicit print statement.
+        This is a meaningful distinction from batch-mode execution that the "Hello, World!"
+        example can be used to demonstrate.
+      </p>
+
+      <!-- ==================== Section 3: C ==================== -->
+      <h2 class="section-heading" id="c-example">C example</h2>
+
+      <p>
+        The canonical C implementation, as published by Kernighan and Ritchie, is widely regarded
+        as the authoritative form of the program. It requires a single include directive, a
+        <code>main</code> function, and a call to <code>printf</code> from the standard library.
+      </p>
+
+      <div class="code-block">#include &lt;stdio.h&gt;
+
+int main(void) {
+    printf("Hello, World!\n");
+    return 0;
+}</div>
+
+      <p>
+        The return value of <code>main</code> is the exit status of the process. A value of
+        <code>0</code> conventionally indicates success. Modern compilers will often issue a
+        warning if the return statement is omitted from a non-void function, making the explicit
+        <code>return 0;</code> both correct and stylistically advised.
+      </p>
+
+      <p>
+        Compilation on a POSIX system is achieved with <code>cc hello.c -o hello</code> followed
+        by <code>./hello</code>. The output <code>Hello, World!</code> followed by a newline is
+        sent to the standard output stream (<code>stdout</code>), which is typically connected
+        to the terminal. On most systems the output is line-buffered and will appear immediately.
+      </p>
+
+      <!-- ==================== Section 4: Python ==================== -->
+      <h2 class="section-heading" id="python-example">Python example</h2>
+
+      <p>
+        Python's "Hello, World!" demonstrates the language's philosophy of readability and
+        minimal ceremony. No import statements, no boilerplate function declarations, no
+        semicolons — just a single call to the built-in <code>print</code> function.
+      </p>
+
+      <div class="code-block">print("Hello, World!")</div>
+
+      <p>
+        In Python 2, <code>print</code> was a statement rather than a function, meaning the
+        parentheses were optional. Python 3 changed this, and <code>print()</code> is now
+        unambiguously a function call. This is one of the few backward-incompatible changes
+        between Python 2 and 3, and the "Hello, World!" example is sometimes used to
+        illustrate the difference.
+      </p>
+
+      <p>
+        Running <code>python3 hello.py</code> from a terminal will execute the script. In
+        interactive mode, typing <code>print("Hello, World!")</code> at the Python prompt
+        produces the same result, as does simply typing the string <code>"Hello, World!"</code>
+        because the REPL will display the repr of the expression.
+      </p>
+
+      <!-- ==================== Section 5: Java ==================== -->
+      <h2 class="section-heading" id="java-example">Java example</h2>
+
+      <p>
+        Java's "Hello, World!" is frequently cited as an example of the language's verbosity
+        relative to scripting languages. It requires a class declaration, a specific method
+        signature for the entry point, and a fully qualified call to the system output stream.
+      </p>
+
+      <div class="code-block">public class HelloWorld {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}</div>
+
+      <p>
+        The source file must be named <code>HelloWorld.java</code> to match the public class
+        name — a constraint that surprises many newcomers. Compilation with <code>javac
+        HelloWorld.java</code> produces a <code>HelloWorld.class</code> bytecode file that
+        is executed by the Java Virtual Machine with <code>java HelloWorld</code>.
+      </p>
+
+      <p>
+        With the introduction of JEP 445 (Unnamed Classes and Instance Main Methods) in Java 21
+        as a preview feature, a simplified form of the program became possible, significantly
+        reducing the boilerplate required. Future versions of Java may further simplify entry
+        points for small programs, narrowing the gap with scripting languages.
+      </p>
+
+      <!-- ==================== Section 6: JavaScript ==================== -->
+      <h2 class="section-heading" id="javascript-example">JavaScript example</h2>
+
+      <p>
+        JavaScript's "Hello, World!" varies by environment. In a browser context, the most
+        direct equivalent uses <code>console.log</code> to write to the browser's developer
+        console. Alternatively, <code>document.write</code> or DOM manipulation can produce
+        visible output on the page.
+      </p>
+
+      <div class="code-block">console.log("Hello, World!");</div>
+
+      <p>
+        In a Node.js environment, <code>console.log</code> writes to <code>stdout</code>,
+        making it equivalent to <code>print</code> in Python or <code>printf</code> in C.
+        This portability across browser and server environments is one of JavaScript's
+        defining characteristics and is demonstrated implicitly by the simple example.
+      </p>
+
+      <p>
+        Browser-based JavaScript also allows <code>alert("Hello, World!")</code> to produce
+        a modal dialog, though this approach is considered poor practice in modern web
+        development. The <code>console.log</code> approach is preferred in all contexts
+        where the developer console is accessible.
+      </p>
+
+      <!-- ==================== Section 7: Cultural Impact ==================== -->
+      <h2 class="section-heading" id="cultural-impact">Cultural impact</h2>
+
+      <p>
+        "Hello, World!" has transcended its origins as a programming exercise. The phrase
+        appears in popular culture as a metaphor for first communication, debut, or announcement.
+        Technology companies launching new products sometimes use "Hello, World!" as a nod to
+        computing history. Books, films, and music have incorporated the phrase as a shorthand
+        for the moment of first contact between a new entity and its environment.
+      </p>
+
+      <p>
+        In the software industry, the simplicity of the "Hello, World!" program is invoked
+        in discussions about developer experience, framework design, and language ergonomics.
+        A framework's "Hello, World!" — the minimum code required to produce any visible result —
+        is a standard benchmark for assessing how much ceremony a technology imposes on beginners.
+        Frameworks that require extensive configuration before producing output are sometimes
+        said to have a "heavy Hello World."
+      </p>
+
+      <p>
+        The program also plays a role in technical hiring. Some interviewers ask candidates to
+        write a "Hello, World!" program in an unfamiliar language, not to test programming
+        skill per se but to observe how the candidate approaches an unknown environment — whether
+        they consult documentation, ask clarifying questions, or demonstrate systematic reasoning.
+      </p>
+
+      <!-- ==================== Section 8: Education ==================== -->
+      <h2 class="section-heading" id="education">In education</h2>
+
+      <p>
+        Educational use of "Hello, World!" begins in introductory computer science courses and
+        extends to professional bootcamps, online tutorials, and self-directed learning resources.
+        The program's value is not in what it teaches about algorithms or data structures but
+        in what it teaches about the development loop: write code, compile or interpret, observe
+        output, iterate.
+      </p>
+
+      <p>
+        For beginners, successfully running "Hello, World!" for the first time is an important
+        psychological milestone. It confirms that the development environment is configured
+        correctly, that the learner can navigate the necessary tools, and that code they write
+        has a visible effect. This feedback loop — often called the "write-run-see" cycle — is
+        foundational to programming pedagogy.
+      </p>
+
+      <p>
+        Educators have also used "Hello, World!" to introduce concepts beyond basic syntax.
+        The choice of <code>stdout</code> versus <code>stderr</code>, the significance of
+        exit codes, the difference between compiled and interpreted execution, and the semantics
+        of string literals are all topics that can be explored through small variations on the
+        classic program.
+      </p>
+
+      <!-- ==================== Section 9: See Also ==================== -->
+      <h2 class="section-heading" id="see-also">See also</h2>
+
+      <p>
+        A number of related topics are relevant to understanding the "Hello, World!" program
+        in context. The following articles provide additional background on the concepts,
+        languages, and historical figures involved:
+      </p>
+
+      <ul style="padding-left: 24px; margin-bottom: 16px;">
+        <li style="margin: 4px 0;">Brian Kernighan — co-author of <i>The C Programming Language</i></li>
+        <li style="margin: 4px 0;">Dennis Ritchie — creator of the C programming language</li>
+        <li style="margin: 4px 0;">B (programming language) — predecessor to C, first use of phrase</li>
+        <li style="margin: 4px 0;">The C Programming Language — seminal textbook</li>
+        <li style="margin: 4px 0;">Esoteric programming languages — unusual "Hello, World!" implementations</li>
+        <li style="margin: 4px 0;">Software portability — related to cross-platform "Hello, World!" testing</li>
+        <li style="margin: 4px 0;">Programming language comparison</li>
+      </ul>
+
+      <!-- ==================== Section 10: References ==================== -->
+      <h2 class="section-heading" id="references">References</h2>
+
+      <ol style="padding-left: 24px;">
+        <li style="margin: 6px 0;" class="ref-note">
+          Kernighan, Brian W. (1972). "A Tutorial Introduction to the Language B".
+          <i>Bell Laboratories Internal Memorandum</i>.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          Kernighan, Brian W.; Ritchie, Dennis M. (1978). <i>The C Programming Language</i>
+          (1st ed.). Englewood Cliffs, NJ: Prentice Hall. ISBN 0-13-110163-3.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          Kernighan, Brian W.; Ritchie, Dennis M. (1988). <i>The C Programming Language</i>
+          (2nd ed.). Englewood Cliffs, NJ: Prentice Hall. ISBN 0-13-110362-8.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          McIlroy, M. Douglas (1987). <i>A Research Unix Reader: Annotated Excerpts from the
+          Programmer's Manual</i>. Bell Labs Technical Report.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          "JEP 445: Unnamed Classes and Instance Main Methods (Preview)". OpenJDK.
+          <a href="#">openjdk.org</a>. Retrieved 2024.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          Van Rossum, Guido (2009). "Python 3 incompatibilities — print statement to function."
+          <i>Python Enhancement Proposals</i>.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          ECMA International (2023). <i>ECMAScript 2023 Language Specification</i>. ECMA-262.
+        </li>
+        <li style="margin: 6px 0;" class="ref-note">
+          Abelson, Harold; Sussman, Gerald Jay (1996). <i>Structure and Interpretation of
+          Computer Programs</i> (2nd ed.). MIT Press. ISBN 0-262-51087-1.
+        </li>
+      </ol>
+
+      <div id="article-footer">
+        <p>This page was last edited on 17 April 2026. Text is available under the
+        <a href="#">Creative Commons Attribution-ShareAlike License 4.0</a>.
+        This is a local test fixture — not a real encyclopedia.</p>
+      </div>
+
+    </article>
+  </div>
+
+</body>
+</html>
