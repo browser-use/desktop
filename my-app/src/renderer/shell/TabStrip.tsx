@@ -17,6 +17,7 @@ import type { TabGroup } from '../../main/tabs/TabGroupStore';
 
 declare const electronAPI: {
   tabs: {
+    create: (url?: string) => Promise<string>;
     showContextMenu: (tabId: string) => Promise<void>;
     muteTab: (tabId: string) => Promise<void>;
   };
@@ -510,6 +511,14 @@ export function TabStrip({
   const handleGroupContextMenu = useCallback((e: React.MouseEvent, group: TabGroup) => {
     e.preventDefault();
     const menu = [
+      {
+        label: 'New Tab in Group',
+        action: () => {
+          electronAPI.tabs.create().then((newTabId) => {
+            electronAPI.tabGroups.addTab({ groupId: group.id, tabId: newTabId });
+          }).catch(() => {});
+        },
+      },
       {
         label: 'Rename',
         action: () => {
