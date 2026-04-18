@@ -121,8 +121,9 @@ function handleActionSetBadge(
   tabId?: number,
 ) {
   const id = assertString(extensionId, 'extensionId', 200);
-  mainLogger.info(`${LOG_PREFIX}.actionSetBadge`, { extensionId: id, text, tabId });
-  runtime().actionApi.setBadgeText(id, text, tabId);
+  const validText = assertString(text, 'text', 200);
+  mainLogger.info(`${LOG_PREFIX}.actionSetBadge`, { extensionId: id, text: validText, tabId });
+  runtime().actionApi.setBadgeText(id, validText, tabId);
 }
 
 function handleActionSetTitle(
@@ -132,8 +133,9 @@ function handleActionSetTitle(
   tabId?: number,
 ) {
   const id = assertString(extensionId, 'extensionId', 200);
-  mainLogger.info(`${LOG_PREFIX}.actionSetTitle`, { extensionId: id, title, tabId });
-  runtime().actionApi.setTitle(id, title, tabId);
+  const validTitle = assertString(title, 'title', 500);
+  mainLogger.info(`${LOG_PREFIX}.actionSetTitle`, { extensionId: id, title: validTitle, tabId });
+  runtime().actionApi.setTitle(id, validTitle, tabId);
 }
 
 function handleActionSetPopup(
@@ -143,8 +145,9 @@ function handleActionSetPopup(
   tabId?: number,
 ) {
   const id = assertString(extensionId, 'extensionId', 200);
-  mainLogger.info(`${LOG_PREFIX}.actionSetPopup`, { extensionId: id, popup, tabId });
-  runtime().actionApi.setPopup(id, popup, tabId);
+  const validPopup = assertString(popup, 'popup', 1024);
+  mainLogger.info(`${LOG_PREFIX}.actionSetPopup`, { extensionId: id, popup: validPopup, tabId });
+  runtime().actionApi.setPopup(id, validPopup, tabId);
 }
 
 function handleDnrGetRules(
@@ -198,8 +201,9 @@ function handleActiveTabGrant(
   url: string,
 ) {
   const id = assertString(extensionId, 'extensionId', 200);
-  mainLogger.info(`${LOG_PREFIX}.activeTabGrant`, { extensionId: id, tabId, url: url?.slice(0, 80) });
-  runtime().grantActiveTab(id, tabId, url);
+  const validUrl = assertString(url, 'url', 2048);
+  mainLogger.info(`${LOG_PREFIX}.activeTabGrant`, { extensionId: id, tabId, url: validUrl.slice(0, 80) });
+  runtime().grantActiveTab(id, tabId, validUrl);
 }
 
 function handleActiveTabCheck(
