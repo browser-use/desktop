@@ -148,6 +148,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     bookmarkAllTabs: (payload: { folderName: string }): Promise<BookmarkNode> =>
       ipcRenderer.invoke('bookmarks:bookmark-all-tabs', payload),
+
+    exportHtml: (): Promise<{ ok: boolean; filePath?: string }> =>
+      ipcRenderer.invoke('bookmarks:export-html'),
+
+    importHtml: (): Promise<{ ok: boolean; imported: number; skipped: number }> =>
+      ipcRenderer.invoke('bookmarks:import-html'),
   },
 
   // Zoom controls — per-origin persistence + badge UI
