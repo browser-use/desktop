@@ -52,6 +52,9 @@ declare const electronAPI: {
     getSite: (origin: string) => Promise<PermissionEntry[]>;
     setSite: (origin: string, permissionType: string, state: string) => Promise<void>;
   };
+  tabs: {
+    navigateActive: (input: string) => Promise<void>;
+  };
 };
 
 interface URLBarProps {
