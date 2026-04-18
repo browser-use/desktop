@@ -429,6 +429,7 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
   });
 
   win.on('resize', () => tm.relayout());
+  win.on('closed', () => tm.destroy());
 
   mainLogger.info('main.openNewWindow.done', { windowId: win.id });
   return win;
