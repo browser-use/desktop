@@ -796,7 +796,10 @@ app.whenReady().then(async () => {
   registerSearchEngineHandlers({
     store: searchEngineStore,
     onDefaultChanged: (searchUrl) => {
-      tabManager?.setSearchUrlTemplate(searchUrl);
+      // Broadcast to ALL active TabManager instances (primary + extra windows + incognito).
+      for (const tm of TabManager.getAllInstances()) {
+        tm.setSearchUrlTemplate(searchUrl);
+      }
     },
   });
 

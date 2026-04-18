@@ -152,13 +152,12 @@ const NEWTAB_URL_RE = /newtab\.html$/;
 
 export class TabManager {
   // ---------------------------------------------------------------------------
-  // Static instance registry — lets callers look up by window id and broadcast
-  // to all active windows.
+  // Static instance registry — lets callers broadcast to all active windows.
   // ---------------------------------------------------------------------------
-  static readonly instances = new Map<number, TabManager>();
+  private static readonly _instances: Set<TabManager> = new Set();
 
   static getAllInstances(): TabManager[] {
-    return Array.from(TabManager.instances.values());
+    return Array.from(TabManager._instances);
   }
 
   private win: BrowserWindow;
@@ -271,6 +270,7 @@ export class TabManager {
 
     this.registerIpcHandlers();
     this.registerCertErrorHandler();
+    TabManager._instances.add(this);
     mainLogger.info('TabManager.init', {
       isGuest: this.isGuest,
       partition: this.partition,
@@ -2697,20 +2697,7 @@ export class TabManager {
   }
 
   destroy(): void {
-    TabManager.instances.delete(this.win.id);
-
-    // Only unregister process-wide IPC handlers when the last TabManager
-    // instance is being destroyed. With multiple windows open (e.g. from
-    // tab-detach), closing one window must not tear down IPC handlers that
-    // are still needed by the remaining windows.
-    if (TabManager.instances.size > 0) {
-      mainLogger.info('TabManager.destroy.skipIpcRemoval', {
-        remainingInstances: TabManager.instances.size,
-        msg: 'Other windows still open — preserving shared IPC handlers',
-      });
-      return;
-    }
-
+    TabManager._instances.delete(this);
     ipcMain.removeHandler('tabs:create');
     ipcMain.removeHandler('tabs:close');
     ipcMain.removeHandler('tabs:activate');
