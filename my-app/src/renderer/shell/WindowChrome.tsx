@@ -11,6 +11,7 @@ import { URLBar } from './URLBar';
 import { BookmarksBar } from './BookmarksBar';
 import { BookmarkDialog } from './BookmarkDialog';
 import { FindBar } from './FindBar';
+import { ProfileMenu } from './ProfileMenu';
 import type {
   TabManagerState,
   TabState,
@@ -46,6 +47,7 @@ declare const electronAPI: {
     reopenLastClosed: () => Promise<void>;
     reopenClosedAt: (index: number) => Promise<void>;
     getClosedTabs: () => Promise<ClosedTabRecord[]>;
+    showContextMenu: (tabId: string) => Promise<void>;
   };
   cdp: {
     getActiveTabCdpUrl: () => Promise<string | null>;
@@ -300,6 +302,8 @@ export function WindowChrome(): React.ReactElement {
           isBookmarked={!!existingBookmark}
           onToggleBookmark={handleStarClick}
         />
+
+        <ProfileMenu />
       </div>
 
       {/* Bookmarks bar (always / ntp-only on NTP) */}
