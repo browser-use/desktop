@@ -80,7 +80,11 @@ export function registerPermissionHandlers(opts: RegisterPermissionHandlersOptio
 
     ipcMain.handle('protocol-handlers:register', (e, protocol: string, origin: string, url: string) => {
       const senderOrigin = e.senderFrame?.origin;
-      if (senderOrigin && senderOrigin !== origin) {
+      if (!senderOrigin) {
+        mainLogger.warn('protocol-handlers:register.no-sender-origin', { claimedOrigin: origin });
+        throw new Error('Cannot verify caller origin');
+      }
+      if (senderOrigin !== origin) {
         mainLogger.warn('protocol-handlers:register.origin-mismatch', { senderOrigin, claimedOrigin: origin });
         throw new Error('Origin mismatch: caller origin does not match claimed origin');
       }

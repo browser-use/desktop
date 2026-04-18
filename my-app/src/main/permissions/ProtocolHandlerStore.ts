@@ -72,12 +72,13 @@ export class ProtocolHandlerStore {
       fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf-8');
       mainLogger.info('ProtocolHandlerStore.flushSync.ok');
       this.dirty = false;
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
     } catch (err) {
       mainLogger.error('ProtocolHandlerStore.flushSync.failed', { error: (err as Error).message });
-    }
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
+      this.schedulePersist();
     }
   }
 
