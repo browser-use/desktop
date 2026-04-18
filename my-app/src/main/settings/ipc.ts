@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, dialog, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
 import { mainLogger } from '../logger';
 import type { AccountStore } from '../identity/AccountStore';
 import type { KeychainStore } from '../identity/KeychainStore';
@@ -93,6 +93,11 @@ const CH_GET_DNT_ENABLED     = 'settings:get-dnt-enabled';
 const CH_SET_DNT_ENABLED     = 'settings:set-dnt-enabled';
 const CH_GET_GPC_ENABLED          = 'settings:get-gpc-enabled';
 const CH_SET_GPC_ENABLED          = 'settings:set-gpc-enabled';
+const CH_GET_SYNC_PREFS           = 'settings:get-sync-prefs';
+const CH_SET_SYNC_PREFS           = 'settings:set-sync-prefs';
+const CH_SET_SYNC_PASSPHRASE      = 'settings:set-sync-passphrase';
+const CH_CLEAR_SYNC_PASSPHRASE    = 'settings:clear-sync-passphrase';
+const CH_VERIFY_SYNC_PASSPHRASE   = 'settings:verify-sync-passphrase';
 const CH_GET_DOWNLOAD_FOLDER      = 'settings:get-download-folder';
 const CH_SET_DOWNLOAD_FOLDER      = 'settings:set-download-folder';
 const CH_GET_ASK_BEFORE_SAVE      = 'settings:get-ask-before-save';
@@ -100,6 +105,8 @@ const CH_SET_ASK_BEFORE_SAVE      = 'settings:set-ask-before-save';
 const CH_GET_FILE_TYPE_ASSOC      = 'settings:get-file-type-associations';
 const CH_SET_FILE_TYPE_ASSOC      = 'settings:set-file-type-association';
 const CH_REMOVE_FILE_TYPE_ASSOC   = 'settings:remove-file-type-association';
+const CH_GET_LIVE_CAPTION         = 'settings:get-live-caption';
+const CH_SET_LIVE_CAPTION         = 'settings:set-live-caption';
 
 // ---------------------------------------------------------------------------
 // Module-level deps (set by registerSettingsHandlers)
@@ -140,6 +147,26 @@ interface Preferences {
   theme?: string;
   fontSize?: number;
   defaultPageZoom?: number;
+  syncPrefs?: {
+    enabled: boolean;
+    syncEverything: boolean;
+    bookmarks: boolean;
+    readingList: boolean;
+    passwords: boolean;
+    addresses: boolean;
+    payments: boolean;
+    historyAndTabs: boolean;
+    savedTabGroups: boolean;
+    extensions: boolean;
+    settings: boolean;
+    encryptionEnabled: boolean;
+    // PBKDF2 hash of the passphrase (stored for verification, never the raw passphrase)
+    encryptionKeyHash?: string;
+    // Random salt (hex) persisted alongside the hash for PBKDF2 verification
+    encryptionSalt?: string;
+  };
+  liveCaptionEnabled?: boolean;
+  liveCaptionLanguage?: string;
   [key: string]: unknown;
 }
 
@@ -678,6 +705,99 @@ export function refreshPrivacyHeaders(): void {
   mainLogger.info('privacy.refreshHeaders.installed');
 }
 
+function handleGetSyncPrefs() {
+  const prefs = readPrefs();
+  const raw = prefs.syncPrefs ?? {
+    enabled: false,
+    syncEverything: true,
+    bookmarks: true,
+    readingList: true,
+    passwords: true,
+    addresses: true,
+    payments: true,
+    historyAndTabs: true,
+    savedTabGroups: true,
+    extensions: true,
+    settings: true,
+    encryptionEnabled: false,
+  };
+  // Strip credential fields — never expose hash or salt to the renderer.
+  const { encryptionKeyHash: _h, encryptionSalt: _s, ...safe } = raw as typeof raw & {
+    encryptionKeyHash?: string; encryptionSalt?: string;
+  };
+  return safe;
+}
+
+const SYNC_BOOL_KEYS = new Set([
+  'enabled', 'syncEverything', 'bookmarks', 'readingList', 'passwords',
+  'addresses', 'payments', 'historyAndTabs', 'savedTabGroups', 'extensions',
+  'settings', 'encryptionEnabled',
+]);
+
+function handleSetSyncPrefs(_e: Electron.IpcMainInvokeEvent, patch: unknown): boolean {
+  if (typeof patch !== 'object' || patch === null) return false;
+  const prefs = readPrefs();
+  const current = prefs.syncPrefs ?? {};
+  // Whitelist only known boolean keys to prevent renderer from injecting arbitrary data.
+  const safe: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (SYNC_BOOL_KEYS.has(k) && typeof v === 'boolean') safe[k] = v;
+  }
+  mergePrefs({ syncPrefs: { ...current, ...safe } } as Partial<Preferences>);
+  return true;
+}
+
+async function handleSetSyncPassphrase(_e: Electron.IpcMainInvokeEvent, passphrase: unknown): Promise<boolean> {
+  if (typeof passphrase !== 'string' || passphrase.length < 8) return false;
+  const { pbkdf2, randomBytes } = await import('node:crypto');
+  const salt = randomBytes(16).toString('hex');
+  const hash = await new Promise<string>((resolve, reject) => {
+    pbkdf2(passphrase, salt, 100000, 32, 'sha256', (err, key) => {
+      if (err) reject(err);
+      else resolve(key.toString('hex'));
+    });
+  });
+  const prefs = readPrefs();
+  const current = prefs.syncPrefs ?? {};
+  mergePrefs({ syncPrefs: { ...current, encryptionEnabled: true, encryptionKeyHash: hash, encryptionSalt: salt } } as Partial<Preferences>);
+  return true;
+}
+
+async function handleVerifySyncPassphrase(_e: Electron.IpcMainInvokeEvent, passphrase: unknown): Promise<boolean> {
+  if (typeof passphrase !== 'string') return false;
+  const prefs = readPrefs();
+  const stored = prefs.syncPrefs?.encryptionKeyHash;
+  if (!stored) return false;
+  const salt = prefs.syncPrefs?.encryptionSalt;
+  const { pbkdf2, randomBytes } = await import('node:crypto');
+  const derive = (s: string): Promise<string> =>
+    new Promise<string>((resolve, reject) => {
+      pbkdf2(passphrase, s, 100000, 32, 'sha256', (err, key) => {
+        if (err) reject(err); else resolve(key.toString('hex'));
+      });
+    });
+  // Try with stored random salt first; fall back to legacy static salt for
+  // passphrases set before the salted-hash migration.
+  const effectiveSalt = salt ?? 'sync-passphrase-salt';
+  const hash = await derive(effectiveSalt);
+  if (hash !== stored) return false;
+  // Opportunistically upgrade legacy (no-salt) records to salted format.
+  if (!salt) {
+    const newSalt = randomBytes(16).toString('hex');
+    const newHash = await derive(newSalt);
+    const current = readPrefs().syncPrefs ?? {};
+    mergePrefs({ syncPrefs: { ...current, encryptionKeyHash: newHash, encryptionSalt: newSalt } } as Partial<Preferences>);
+  }
+  return true;
+}
+
+function handleClearSyncPassphrase(): void {
+  const prefs = readPrefs();
+  const current = prefs.syncPrefs ?? {};
+  const { encryptionKeyHash: _removed, ...rest } = current as typeof current & { encryptionKeyHash?: string };
+  mergePrefs({ syncPrefs: { ...rest, encryptionEnabled: false } } as Partial<Preferences>);
+}
+
 // ---------------------------------------------------------------------------
 // Downloads settings handlers
 // ---------------------------------------------------------------------------
@@ -752,6 +872,39 @@ function handleRemoveFileTypeAssociation(_event: Electron.IpcMainInvokeEvent, ex
   mainLogger.info(`${CH_REMOVE_FILE_TYPE_ASSOC}.ok`, { ext: normalized });
 }
 
+// ---------------------------------------------------------------------------
+// Live Caption (a11y) settings handlers
+// ---------------------------------------------------------------------------
+
+function handleGetLiveCaption(): { enabled: boolean; language: string } {
+  mainLogger.info(CH_GET_LIVE_CAPTION);
+  const prefs = readPrefs();
+  const result = {
+    enabled: prefs.liveCaptionEnabled === true,
+    language: typeof prefs.liveCaptionLanguage === 'string' ? prefs.liveCaptionLanguage : 'en-US',
+  };
+  mainLogger.info(`${CH_GET_LIVE_CAPTION}.ok`, result);
+  return result;
+}
+
+function handleSetLiveCaption(
+  _event: Electron.IpcMainInvokeEvent,
+  patch: { enabled?: boolean; language?: string },
+): boolean {
+  if (typeof patch !== 'object' || patch === null) return false;
+  mainLogger.info(CH_SET_LIVE_CAPTION, { patch });
+  if (patch.enabled !== undefined) mergePrefs({ liveCaptionEnabled: Boolean(patch.enabled) });
+  if (typeof patch.language === 'string') mergePrefs({ liveCaptionLanguage: patch.language });
+  mainLogger.info(`${CH_SET_LIVE_CAPTION}.ok`);
+  const current = handleGetLiveCaption();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('live-caption:state-changed', current);
+    }
+  }
+  return true;
+}
+
 function handleCloseWindow(): void {
   mainLogger.info(CH_CLOSE_WINDOW);
   const win = getSettingsWindow();
@@ -798,19 +951,26 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
   ipcMain.handle(CH_SET_HTTPS_FIRST,    handleSetHttpsFirst);
   ipcMain.handle(CH_GET_DNT_ENABLED,    handleGetDntEnabled);
   ipcMain.handle(CH_SET_DNT_ENABLED,    handleSetDntEnabled);
-  ipcMain.handle(CH_GET_GPC_ENABLED,         handleGetGpcEnabled);
-  ipcMain.handle(CH_SET_GPC_ENABLED,         handleSetGpcEnabled);
-  ipcMain.handle(CH_GET_DOWNLOAD_FOLDER,     handleGetDownloadFolder);
-  ipcMain.handle(CH_SET_DOWNLOAD_FOLDER,     handleSetDownloadFolder);
-  ipcMain.handle(CH_GET_ASK_BEFORE_SAVE,     handleGetAskBeforeSave);
-  ipcMain.handle(CH_SET_ASK_BEFORE_SAVE,     handleSetAskBeforeSave);
-  ipcMain.handle(CH_GET_FILE_TYPE_ASSOC,     handleGetFileTypeAssociations);
-  ipcMain.handle(CH_SET_FILE_TYPE_ASSOC,     handleSetFileTypeAssociation);
-  ipcMain.handle(CH_REMOVE_FILE_TYPE_ASSOC,  handleRemoveFileTypeAssociation);
+  ipcMain.handle(CH_GET_GPC_ENABLED,          handleGetGpcEnabled);
+  ipcMain.handle(CH_SET_GPC_ENABLED,          handleSetGpcEnabled);
+  ipcMain.handle(CH_GET_SYNC_PREFS,           handleGetSyncPrefs);
+  ipcMain.handle(CH_SET_SYNC_PREFS,           handleSetSyncPrefs);
+  ipcMain.handle(CH_SET_SYNC_PASSPHRASE,      handleSetSyncPassphrase);
+  ipcMain.handle(CH_VERIFY_SYNC_PASSPHRASE,   handleVerifySyncPassphrase);
+  ipcMain.handle(CH_CLEAR_SYNC_PASSPHRASE,    handleClearSyncPassphrase);
+  ipcMain.handle(CH_GET_DOWNLOAD_FOLDER,      handleGetDownloadFolder);
+  ipcMain.handle(CH_SET_DOWNLOAD_FOLDER,      handleSetDownloadFolder);
+  ipcMain.handle(CH_GET_ASK_BEFORE_SAVE,      handleGetAskBeforeSave);
+  ipcMain.handle(CH_SET_ASK_BEFORE_SAVE,      handleSetAskBeforeSave);
+  ipcMain.handle(CH_GET_FILE_TYPE_ASSOC,      handleGetFileTypeAssociations);
+  ipcMain.handle(CH_SET_FILE_TYPE_ASSOC,      handleSetFileTypeAssociation);
+  ipcMain.handle(CH_REMOVE_FILE_TYPE_ASSOC,   handleRemoveFileTypeAssociation);
+  ipcMain.handle(CH_GET_LIVE_CAPTION,         handleGetLiveCaption);
+  ipcMain.handle(CH_SET_LIVE_CAPTION,         handleSetLiveCaption);
 
   refreshPrivacyHeaders();
 
-  mainLogger.info('settings.ipc.register.ok', { channelCount: 34 });
+  mainLogger.info('settings.ipc.register.ok', { channelCount: 39 });
 }
 
 export function unregisterSettingsHandlers(): void {
@@ -841,6 +1001,11 @@ export function unregisterSettingsHandlers(): void {
   ipcMain.removeHandler(CH_SET_DNT_ENABLED);
   ipcMain.removeHandler(CH_GET_GPC_ENABLED);
   ipcMain.removeHandler(CH_SET_GPC_ENABLED);
+  ipcMain.removeHandler(CH_GET_SYNC_PREFS);
+  ipcMain.removeHandler(CH_SET_SYNC_PREFS);
+  ipcMain.removeHandler(CH_SET_SYNC_PASSPHRASE);
+  ipcMain.removeHandler(CH_VERIFY_SYNC_PASSPHRASE);
+  ipcMain.removeHandler(CH_CLEAR_SYNC_PASSPHRASE);
   ipcMain.removeHandler(CH_GET_DOWNLOAD_FOLDER);
   ipcMain.removeHandler(CH_SET_DOWNLOAD_FOLDER);
   ipcMain.removeHandler(CH_GET_ASK_BEFORE_SAVE);
@@ -848,6 +1013,8 @@ export function unregisterSettingsHandlers(): void {
   ipcMain.removeHandler(CH_GET_FILE_TYPE_ASSOC);
   ipcMain.removeHandler(CH_SET_FILE_TYPE_ASSOC);
   ipcMain.removeHandler(CH_REMOVE_FILE_TYPE_ASSOC);
+  ipcMain.removeHandler(CH_GET_LIVE_CAPTION);
+  ipcMain.removeHandler(CH_SET_LIVE_CAPTION);
 
   _accountStore  = null;
   _keychainStore = null;

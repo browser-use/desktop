@@ -33,10 +33,28 @@ export interface DownloadItem {
   openWhenDone: boolean;
   speed: number;
   eta: number;
+  warningLevel?: 'dangerous' | 'suspicious' | 'insecure' | null;
+  warningDismissed?: boolean;
 }
 
 // Serializable version sent to renderer
 export type DownloadItemDTO = Omit<DownloadItem, never>;
+
+// ---------------------------------------------------------------------------
+// Safe-browsing heuristics
+// ---------------------------------------------------------------------------
+
+const DANGEROUS_EXTS = new Set(['.exe', '.msi', '.bat', '.cmd', '.scr', '.pif', '.com', '.jar', '.vbs', '.ps1', '.psm1']);
+const SUSPICIOUS_EXTS = new Set(['.dmg', '.pkg', '.deb', '.rpm', '.sh', '.bash', '.zsh', '.app', '.crx', '.xpi']);
+
+function classifyDownload(url: string, referrer: string, filename: string): 'dangerous' | 'suspicious' | 'insecure' | null {
+  const ext = path.extname(filename).toLowerCase();
+  // Extension checks take precedence over transport — a dangerous .exe over HTTP is still dangerous.
+  if (DANGEROUS_EXTS.has(ext)) return 'dangerous';
+  if (SUSPICIOUS_EXTS.has(ext)) return 'suspicious';
+  if (referrer.startsWith('https://') && url.startsWith('http://')) return 'insecure';
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -60,6 +78,7 @@ const CH_REMOVE = 'downloads:remove';
 const CH_CLEAR_ALL = 'downloads:clear-all';
 const CH_GET_SHOW_ON_COMPLETE = 'downloads:get-show-on-complete';
 const CH_SET_SHOW_ON_COMPLETE = 'downloads:set-show-on-complete';
+const CH_DISMISS_WARNING = 'downloads:dismiss-warning';
 
 // Events (main → renderer)
 const EVT_DOWNLOAD_STARTED = 'download-started';
@@ -123,6 +142,9 @@ export class DownloadManager {
         totalBytes,
       });
 
+      const referrer = (webContents?.getURL?.() ?? '');
+      const warningLevel = classifyDownload(url, referrer, filename);
+
       const dlItem: DownloadItem = {
         id,
         filename,
@@ -136,10 +158,18 @@ export class DownloadManager {
         openWhenDone: false,
         speed: 0,
         eta: 0,
+        warningLevel,
+        warningDismissed: false,
       };
 
       this.downloads.set(id, dlItem);
       this.electronItems.set(id, item);
+
+      if (warningLevel === 'dangerous') {
+        item.pause();
+        dlItem.status = 'paused';
+        mainLogger.info('DownloadManager.dangerousDownloadPaused', { id, filename, warningLevel });
+      }
 
       // Update savePath after dialog (Electron sets it after user picks location)
       item.once('done', () => {
@@ -287,7 +317,11 @@ export class DownloadManager {
       this.setShowOnComplete(value);
     });
 
-    mainLogger.info('DownloadManager.ipc.registered', { channelCount: 12 });
+    ipcMain.handle(CH_DISMISS_WARNING, (_e, id: string) => {
+      this.dismissWarning(id);
+    });
+
+    mainLogger.info('DownloadManager.ipc.registered', { channelCount: 13 });
   }
 
   // ---------------------------------------------------------------------------
@@ -365,6 +399,22 @@ export class DownloadManager {
     }
     mainLogger.info('DownloadManager.showInFolder', { id, path: dl.savePath });
     shell.showItemInFolder(dl.savePath);
+  }
+
+  private dismissWarning(id: string): void {
+    const dl = this.downloads.get(id);
+    const eItem = this.electronItems.get(id);
+    if (!dl) {
+      mainLogger.warn('DownloadManager.dismissWarning.notFound', { id });
+      return;
+    }
+    dl.warningDismissed = true;
+    if (eItem && dl.status === 'paused' && eItem.canResume()) {
+      eItem.resume();
+      dl.status = 'in-progress';
+    }
+    mainLogger.info('DownloadManager.dismissWarning', { id, filename: dl.filename });
+    this.broadcastState();
   }
 
   private setOpenWhenDone(id: string, value: boolean): void {
@@ -579,6 +629,7 @@ export class DownloadManager {
     ipcMain.removeHandler(CH_CLEAR_ALL);
     ipcMain.removeHandler(CH_GET_SHOW_ON_COMPLETE);
     ipcMain.removeHandler(CH_SET_SHOW_ON_COMPLETE);
+    ipcMain.removeHandler(CH_DISMISS_WARNING);
     for (const timer of this.throttleTimers.values()) {
       clearTimeout(timer);
     }
