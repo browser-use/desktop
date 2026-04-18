@@ -358,6 +358,16 @@ export class BookmarkStore {
     let imported = 0;
     let skipped = 0;
 
+    const decodeHtmlEntities = (s: string): string =>
+      s
+        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+        .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+
     // Normalise line endings.
     const text = html.replace(/\r\n?/g, '\n');
 
@@ -390,7 +400,7 @@ export class BookmarkStore {
       }
 
       // H3 folder header
-      const h3Name = (m[2] ?? m[3] ?? '').trim();
+      const h3Name = decodeHtmlEntities((m[2] ?? m[3] ?? '').trim());
       if (h3Name) {
         const h3Ts = m[1] ? parseInt(m[1], 10) * 1000 : Date.now();
         const lowerName = h3Name.toLowerCase();
@@ -412,8 +422,8 @@ export class BookmarkStore {
       }
 
       // A bookmark anchor
-      const href = (m[4] ?? m[7] ?? '').trim();
-      const name = (m[6] ?? m[8] ?? '').trim();
+      const href = decodeHtmlEntities((m[4] ?? m[7] ?? '').trim());
+      const name = decodeHtmlEntities((m[6] ?? m[8] ?? '').trim());
       const ts = m[5] ? parseInt(m[5], 10) * 1000 : Date.now();
 
       if (!href || !/^https?:\/\//i.test(href)) {
