@@ -526,6 +526,12 @@ export class TabManager {
       }
     }
 
+    // Remove tab from its group, if any, so the group store doesn't hold stale IDs.
+    if (this.tabGroupStore?.getGroupForTab(tabId)) {
+      this.tabGroupStore.removeTabFromGroup(tabId);
+      this.safeSend('tab-groups:updated', this.tabGroupStore.listGroups());
+    }
+
     this.saveSession();
     this.broadcastState();
   }
