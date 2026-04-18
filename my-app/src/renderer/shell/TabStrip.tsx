@@ -18,6 +18,8 @@ declare const electronAPI: {
   tabs: {
     showContextMenu: (tabId: string) => Promise<void>;
     muteTab: (tabId: string) => Promise<void>;
+    pin: (tabId: string) => Promise<void>;
+    unpin: (tabId: string) => Promise<void>;
   };
 };
 
@@ -577,25 +579,35 @@ export function TabStrip({
             type="button"
             className="tab-strip__multiselect-btn tab-strip__multiselect-btn--secondary"
             onClick={() => {
-              // Stub: move selected tabs to new window
-              console.log('[TabStrip] Move to new window (stub):', [...selectedTabIds]);
+              const selected = tabs.filter((t) => selectedTabIds.has(t.id));
+              const anyAudible = selected.some((t) => t.audible && !t.muted);
+              selected.forEach((t) => {
+                if (anyAudible ? !t.muted : t.muted) {
+                  electronAPI.tabs.muteTab(t.id).catch(() => {});
+                }
+              });
               setSelectedTabIds(new Set());
             }}
-            title="Move to new window"
+            title="Mute/unmute selected tabs"
           >
-            New window
+            Mute
           </button>
           <button
             type="button"
             className="tab-strip__multiselect-btn tab-strip__multiselect-btn--secondary"
             onClick={() => {
-              // Stub: pin/unpin selected tabs
-              console.log('[TabStrip] Pin/unpin tabs (stub):', [...selectedTabIds]);
+              const selected = tabs.filter((t) => selectedTabIds.has(t.id));
+              const anyUnpinned = selected.some((t) => !t.pinned);
+              selected.forEach((t) => {
+                if (anyUnpinned ? !t.pinned : t.pinned) {
+                  (anyUnpinned ? electronAPI.tabs.pin : electronAPI.tabs.unpin)(t.id).catch(() => {});
+                }
+              });
               setSelectedTabIds(new Set());
             }}
             title="Pin/unpin selected tabs"
           >
-            Pin/unpin
+            {tabs.filter((t) => selectedTabIds.has(t.id)).some((t) => !t.pinned) ? 'Pin' : 'Unpin'}
           </button>
         </div>
       )}
