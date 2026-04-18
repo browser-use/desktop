@@ -17,10 +17,17 @@ export default defineConfig({
     name: 'unit',
     include: [
       'tests/unit/**/*.test.ts',
+      'tests/unit/profiles/**/*.spec.{ts,tsx}',
+      'tests/unit/permissions/**/*.spec.{ts,tsx}',
+      'tests/unit/passwords/**/*.spec.{ts,tsx}',
       'tests/pill/**/*.spec.ts',
       'tests/integration/**/*.test.ts',
       // Regression tests that don't need a live Electron process
       'tests/regression/no-global-shortcuts.spec.ts',
+    ],
+    // jsdom for React component specs; node for everything else
+    environmentMatchGlobs: [
+      ['tests/unit/**/*.spec.tsx', 'jsdom'],
     ],
     exclude: ['tests/e2e/**', 'tests/parity/**'],
     environment: 'node',
