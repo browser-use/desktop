@@ -1713,11 +1713,13 @@ function switchTabRelative(delta: number): void {
 ipcMain.handle('shell:get-platform', () => process.platform);
 
 // Issue #12 — Window naming: set a custom OS-level window title
-ipcMain.handle('window:set-name', (_e, name: string) => {
+ipcMain.handle('window:set-name', (e, name: string) => {
   windowCustomName = name && name.trim() ? name.trim() : null;
   mainLogger.info('main.window:set-name', { name: windowCustomName });
-  if (shellWindow && !shellWindow.isDestroyed()) {
-    shellWindow.setTitle(windowCustomName ?? app.getName());
+  const callerWin = BrowserWindow.fromWebContents(e.sender);
+  const targetWin = callerWin ?? shellWindow;
+  if (targetWin && !targetWin.isDestroyed()) {
+    targetWin.setTitle(windowCustomName ?? app.getName());
   }
 });
 
