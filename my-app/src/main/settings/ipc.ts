@@ -690,7 +690,7 @@ function handleGetDownloadFolder(): string {
   return folder;
 }
 
-async function handleSetDownloadFolder(): Promise<string> {
+async function handleSetDownloadFolder(): Promise<string | null> {
   mainLogger.info(CH_SET_DOWNLOAD_FOLDER);
   const result = await dialog.showOpenDialog({
     title: 'Select download folder',
@@ -699,7 +699,7 @@ async function handleSetDownloadFolder(): Promise<string> {
   });
   if (result.canceled || result.filePaths.length === 0) {
     mainLogger.info(`${CH_SET_DOWNLOAD_FOLDER}.canceled`);
-    return handleGetDownloadFolder();
+    return null;
   }
   const folder = result.filePaths[0];
   mergePrefs({ defaultDownloadFolder: folder });

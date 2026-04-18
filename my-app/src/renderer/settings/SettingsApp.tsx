@@ -2627,8 +2627,10 @@ function DownloadsTab(): React.ReactElement {
   async function handleChangeFolderClick(): Promise<void> {
     try {
       const newFolder = await window.settingsAPI.setDownloadFolder();
-      setDownloadFolder(newFolder);
-      toast.show({ variant: 'success', title: 'Download folder updated' });
+      if (newFolder !== null) {
+        setDownloadFolder(newFolder);
+        toast.show({ variant: 'success', title: 'Download folder updated' });
+      }
     } catch (err) {
       toast.show({ variant: 'error', title: 'Failed to change folder', message: (err as Error).message });
     }

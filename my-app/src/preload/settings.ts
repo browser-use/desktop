@@ -258,7 +258,7 @@ export interface SettingsAPI {
 
   // Downloads settings
   getDownloadFolder: () => Promise<string>;
-  setDownloadFolder: () => Promise<string>;
+  setDownloadFolder: () => Promise<string | null>;
   getAskBeforeSave: () => Promise<boolean>;
   setAskBeforeSave: (enabled: boolean) => Promise<void>;
   getFileTypeAssociations: () => Promise<Record<string, boolean>>;
@@ -536,9 +536,9 @@ const api: SettingsAPI = {
     return ipcRenderer.invoke('settings:get-download-folder') as Promise<string>;
   },
 
-  setDownloadFolder: async (): Promise<string> => {
+  setDownloadFolder: async (): Promise<string | null> => {
     console.debug('[settings-preload] setDownloadFolder');
-    return ipcRenderer.invoke('settings:set-download-folder') as Promise<string>;
+    return ipcRenderer.invoke('settings:set-download-folder') as Promise<string | null>;
   },
 
   getAskBeforeSave: async (): Promise<boolean> => {
