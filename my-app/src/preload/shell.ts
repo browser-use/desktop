@@ -207,6 +207,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('downloads:get-show-on-complete'),
     setShowOnComplete: (value: boolean): Promise<void> =>
       ipcRenderer.invoke('downloads:set-show-on-complete', value),
+    dismissWarning: (id: string): Promise<void> =>
+      ipcRenderer.invoke('downloads:dismiss-warning', id),
   },
 
   // Permissions — renderer -> main decision relay + query API
