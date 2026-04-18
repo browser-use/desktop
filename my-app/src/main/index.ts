@@ -115,6 +115,8 @@ import { registerPipHandlers, unregisterPipHandlers } from './pip/PictureInPictu
 // Issue #5 — Tab groups
 import { TabGroupStore } from './tabs/TabGroupStore';
 import { registerTabGroupHandlers, unregisterTabGroupHandlers } from './tabs/tab-groups-ipc';
+// Issue #202 — Auto-updater lifecycle
+import { initUpdater, stopUpdater } from './updater';
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -955,6 +957,9 @@ app.whenReady().then(async () => {
 
 
 
+  // Issue #202 — start auto-updater after the main window is up
+  void initUpdater();
+
   // Flush session + bookmarks on quit
   app.on('before-quit', async () => {
     mainLogger.info('main.beforeQuit', { msg: 'Flushing session + hl teardown', isGuest: isGuestSession });
@@ -978,6 +983,7 @@ app.whenReady().then(async () => {
   // Track B — unregister hotkeys on quit (macOS cleanup)
   // Track 5 — unregister settings handlers on quit
   app.on('will-quit', () => {
+    stopUpdater();
     unregisterHotkeys();
     unregisterSettingsHandlers();
     ipcMain.removeHandler('settings:get-zoom-overrides');

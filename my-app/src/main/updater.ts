@@ -34,6 +34,11 @@ let updateCheckTimer: ReturnType<typeof setInterval> | null = null;
  * electron-updater will throw if the app is not packaged.
  */
 export async function initUpdater(): Promise<void> {
+  if (FEED_URL.includes('TODO')) {
+    console.warn('[updater] Skipping auto-update init — FEED_URL is still a placeholder. Replace FEED_URL in updater.ts before shipping.');
+    return;
+  }
+
   if (!app.isPackaged) {
     console.log('[updater] Skipping auto-update init — app is not packaged (dev mode)');
     return;
