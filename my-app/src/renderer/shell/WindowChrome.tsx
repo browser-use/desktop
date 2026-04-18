@@ -99,6 +99,7 @@ declare const electronAPI: {
     clearCompleted: () => Promise<void>;
     getShowOnComplete: () => Promise<boolean>;
     setShowOnComplete: (value: boolean) => Promise<void>;
+    dismissWarning: (id: string) => Promise<void>;
   };
   shell: {
     setChromeHeight: (height: number) => Promise<void>;
@@ -623,6 +624,7 @@ export function WindowChrome(): React.ReactElement {
               onSetOpenWhenDone={(id, v) => electronAPI.downloads.setOpenWhenDone(id, v)}
               onClearCompleted={() => electronAPI.downloads.clearCompleted()}
               onSetShowOnComplete={handleSetShowOnComplete}
+              onDismissWarning={(id) => electronAPI.downloads.dismissWarning(id)}
             />
           )}
         </div>
