@@ -1,7 +1,7 @@
 /**
  * AccountCreation — Screen 3 of onboarding.
  *
- * Google OAuth + email/password form. Linear-inspired styling.
+ * Google OAuth sign-in only. Linear-inspired styling.
  */
 
 import React, { useState } from 'react';
@@ -19,33 +19,10 @@ interface AccountCreationProps {
   oauthError?: string | null;
 }
 
-export function AccountCreation({ onBack, onComplete, oauthError }: AccountCreationProps): React.ReactElement {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
+export function AccountCreation({ onBack, onComplete: _onComplete, oauthError }: AccountCreationProps): React.ReactElement {
   const [showScopesModal, setShowScopesModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  function handleEmailSubmit(e: React.FormEvent): void {
-    e.preventDefault();
-    setFormError(null);
-
-    if (!email.trim() || !email.includes('@')) {
-      setFormError('Please enter a valid email address.');
-      return;
-    }
-    if (password.length < 8) {
-      setFormError('Password must be at least 8 characters.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setFormError('Passwords do not match.');
-      return;
-    }
-
-    onComplete({ email: email.trim() }, []);
-  }
+  const [localError, setLocalError] = useState<string | null>(null);
 
   function handleGoogleClick(): void {
     setShowScopesModal(true);
@@ -60,7 +37,7 @@ export function AccountCreation({ onBack, onComplete, oauthError }: AccountCreat
         await (window as Window & { onboardingAPI: { startOAuth: (scopes: GoogleOAuthScope[]) => Promise<void> } }).onboardingAPI.startOAuth(scopes);
       }
     } catch (err) {
-      setFormError(`OAuth failed to start: ${(err as Error).message}`);
+      setLocalError(`OAuth failed to start: ${(err as Error).message}`);
       setIsLoading(false);
     }
   }
@@ -69,7 +46,7 @@ export function AccountCreation({ onBack, onComplete, oauthError }: AccountCreat
     setShowScopesModal(false);
   }
 
-  const displayError = oauthError ?? formError;
+  const displayError = oauthError ?? localError;
 
   return (
     <>
@@ -125,104 +102,29 @@ export function AccountCreation({ onBack, onComplete, oauthError }: AccountCreat
               </svg>
               {isLoading ? 'Opening browser\u2026' : 'Continue with Google'}
             </button>
-            <p className="account-trust-signal" aria-label="Credentials stored securely">
-              <svg width="10" height="11" viewBox="0 0 10 11" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-                <rect x="1" y="4.5" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                <path d="M3 4.5V3a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-              </svg>
-              Stored securely in your system keychain
-            </p>
           </div>
 
-          <div className="auth-divider">or</div>
-
-          <form className="auth-form" onSubmit={handleEmailSubmit} noValidate>
-            <div className="auth-input-group">
-              <label className="auth-label" htmlFor="email-input">Email</label>
-              <input
-                id="email-input"
-                className="auth-input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@email.com"
-                autoComplete="email"
-                aria-required="true"
-              />
-            </div>
-
-            <div className="auth-input-group">
-              <label className="auth-label" htmlFor="password-input">Password</label>
-              <input
-                id="password-input"
-                className="auth-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-                autoComplete="new-password"
-                aria-required="true"
-              />
-            </div>
-
-            <div className="auth-input-group">
-              <label className="auth-label" htmlFor="confirm-password-input">Confirm password</label>
-              <input
-                id="confirm-password-input"
-                className="auth-input"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter your password"
-                autoComplete="new-password"
-                aria-required="true"
-              />
-            </div>
-
-            {displayError && (
-              <p
-                style={{ color: 'var(--color-status-error)', fontSize: 'var(--font-size-xs)' }}
-                role="alert"
-                aria-live="polite"
-              >
-                {displayError}
-              </p>
-            )}
-
-            <p className="legal-text">
-              By signing up you agree to our{' '}
-              <a href="#terms" onClick={(e) => e.preventDefault()}>Terms of Service</a>
-              {' '}and{' '}
-              <a href="#privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a>.
+          {displayError && (
+            <p
+              style={{ color: 'var(--color-status-error)', fontSize: 'var(--font-size-xs)' }}
+              role="alert"
+              aria-live="polite"
+            >
+              {displayError}
             </p>
+          )}
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="google-btn"
-                onClick={onBack}
-                style={{ flex: 1 }}
-                aria-label="Back"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                className="auth-submit"
-                style={{ flex: 2 }}
-                aria-label="Create Account"
-              >
-                Create account
-              </button>
-            </div>
-          </form>
-
-          <p className="auth-switch">
-            Already have an account?{' '}
-            <button type="button" onClick={() => setFormError('Sign in coming soon.')}>
-              Log in
+          <div style={{ marginTop: 'auto' }}>
+            <button
+              type="button"
+              className="google-btn"
+              onClick={onBack}
+              style={{ width: '100%' }}
+              aria-label="Back"
+            >
+              Back
             </button>
-          </p>
+          </div>
         </div>
 
         <div className="onboarding-panel-right">
