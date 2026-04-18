@@ -16,7 +16,6 @@ import { decode as punyDecode, toASCII } from 'punycode';
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const GOOGLE_FAVICON_API = 'https://www.google.com/s2/favicons?sz=32&domain_url=';
 const SECURE_RE = /^https:\/\//i;
 const INSECURE_RE = /^http:\/\//i;
 // New-tab data: URLs and about:blank are internal placeholders; the omnibox

@@ -51,7 +51,7 @@ export class ShortcutsStore {
       const raw = fs.readFileSync(getShortcutsPath(), 'utf-8');
       const parsed = JSON.parse(raw) as PersistedShortcuts;
       if (parsed.version === 1 && Array.isArray(parsed.entries)) {
-        this.entries = parsed.entries;
+        this.entries = parsed.entries.slice(0, MAX_ENTRIES);
         mainLogger.info('ShortcutsStore.load.ok', { count: this.entries.length });
       } else {
         this.entries = [];

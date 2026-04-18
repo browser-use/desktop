@@ -2,7 +2,7 @@
 // Migrated from .eslintrc.json for eslint v10 + @typescript-eslint v8
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const tsParser = require('@typescript-eslint/parser');
-const importPlugin = require('eslint-plugin-import-x');
+const importXPlugin = require('eslint-plugin-import-x');
 const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const js = require('@eslint/js');
 const globals = require('globals');
@@ -44,7 +44,7 @@ module.exports = [
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
-      'import-x': importPlugin,
+      'import-x': importXPlugin,
       'react-hooks': reactHooksPlugin,
     },
     settings: {

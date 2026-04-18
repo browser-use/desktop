@@ -970,7 +970,7 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
 
   refreshPrivacyHeaders();
 
-  mainLogger.info('settings.ipc.register.ok', { channelCount: 36 });
+  mainLogger.info('settings.ipc.register.ok', { channelCount: 39 });
 }
 
 export function unregisterSettingsHandlers(): void {
