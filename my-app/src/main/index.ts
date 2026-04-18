@@ -1934,7 +1934,7 @@ ipcMain.handle('tabs:move-to-new-window', (e, tabId: string) => {
 // Issue #104 — Live Caption: toggle caption overlay in the shell window.
 ipcMain.handle('live-caption:toggle', (_e, enabled: boolean) => {
   if (shellWindow && !shellWindow.isDestroyed()) {
-    shellWindow.webContents.send('live-caption:state-changed', enabled);
+    shellWindow.webContents.send('live-caption:state-changed', { enabled });
   }
   return true;
 });
