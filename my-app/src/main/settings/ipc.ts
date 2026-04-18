@@ -696,7 +696,7 @@ export function refreshPrivacyHeaders(): void {
 
 function handleGetSyncPrefs() {
   const prefs = readPrefs();
-  return prefs.syncPrefs ?? {
+  const raw = prefs.syncPrefs ?? {
     enabled: false,
     syncEverything: true,
     bookmarks: true,
@@ -710,13 +710,29 @@ function handleGetSyncPrefs() {
     settings: true,
     encryptionEnabled: false,
   };
+  // Strip credential fields — never expose hash or salt to the renderer.
+  const { encryptionKeyHash: _h, encryptionSalt: _s, ...safe } = raw as typeof raw & {
+    encryptionKeyHash?: string; encryptionSalt?: string;
+  };
+  return safe;
 }
+
+const SYNC_BOOL_KEYS = new Set([
+  'enabled', 'syncEverything', 'bookmarks', 'readingList', 'passwords',
+  'addresses', 'payments', 'historyAndTabs', 'savedTabGroups', 'extensions',
+  'settings', 'encryptionEnabled',
+]);
 
 function handleSetSyncPrefs(_e: Electron.IpcMainInvokeEvent, patch: unknown): boolean {
   if (typeof patch !== 'object' || patch === null) return false;
   const prefs = readPrefs();
   const current = prefs.syncPrefs ?? {};
-  mergePrefs({ syncPrefs: { ...current, ...(patch as object) } } as Partial<Preferences>);
+  // Whitelist only known boolean keys to prevent renderer from injecting arbitrary data.
+  const safe: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (SYNC_BOOL_KEYS.has(k) && typeof v === 'boolean') safe[k] = v;
+  }
+  mergePrefs({ syncPrefs: { ...current, ...safe } } as Partial<Preferences>);
   return true;
 }
 
@@ -740,16 +756,28 @@ async function handleVerifySyncPassphrase(_e: Electron.IpcMainInvokeEvent, passp
   if (typeof passphrase !== 'string') return false;
   const prefs = readPrefs();
   const stored = prefs.syncPrefs?.encryptionKeyHash;
+  if (!stored) return false;
   const salt = prefs.syncPrefs?.encryptionSalt;
-  if (!stored || !salt) return false;
-  const { pbkdf2 } = await import('node:crypto');
-  const hash = await new Promise<string>((resolve, reject) => {
-    pbkdf2(passphrase, salt, 100000, 32, 'sha256', (err, key) => {
-      if (err) reject(err);
-      else resolve(key.toString('hex'));
+  const { pbkdf2, randomBytes } = await import('node:crypto');
+  const derive = (s: string): Promise<string> =>
+    new Promise<string>((resolve, reject) => {
+      pbkdf2(passphrase, s, 100000, 32, 'sha256', (err, key) => {
+        if (err) reject(err); else resolve(key.toString('hex'));
+      });
     });
-  });
-  return hash === stored;
+  // Try with stored random salt first; fall back to legacy static salt for
+  // passphrases set before the salted-hash migration.
+  const effectiveSalt = salt ?? 'sync-passphrase-salt';
+  const hash = await derive(effectiveSalt);
+  if (hash !== stored) return false;
+  // Opportunistically upgrade legacy (no-salt) records to salted format.
+  if (!salt) {
+    const newSalt = randomBytes(16).toString('hex');
+    const newHash = await derive(newSalt);
+    const current = readPrefs().syncPrefs ?? {};
+    mergePrefs({ syncPrefs: { ...current, encryptionKeyHash: newHash, encryptionSalt: newSalt } } as Partial<Preferences>);
+  }
+  return true;
 }
 
 function handleClearSyncPassphrase(): void {

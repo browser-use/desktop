@@ -2778,8 +2778,11 @@ function SyncTab(): React.ReactElement {
     }
     setSyncPrefsState(next);
     setSaving(true);
-    await window.settingsAPI.setSyncPrefs(next);
-    setSaving(false);
+    try {
+      await window.settingsAPI.setSyncPrefs(next);
+    } finally {
+      setSaving(false);
+    }
   }, [syncPrefs]);
 
   const categories: Array<{ key: keyof SyncPrefs; label: string; description: string }> = [
