@@ -18,6 +18,38 @@ import type { MV3ExtensionInfo } from './mv3/ManifestV3Runtime';
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Host-access mode.
+ *
+ * NOTE: Only `all-sites` is currently enforced — that matches Electron's
+ * default `session.loadExtension` behavior (extensions run against whatever
+ * `host_permissions` their manifest declares). `specific-sites` and
+ * `on-click` would require per-origin request filtering and activation
+ * gating that Electron does not expose out of the box, so those values
+ * are intentionally rejected by the IPC layer and hidden from the UI
+ * until real enforcement is wired up. See issue #234.
+ */
+export type HostAccessMode = 'all-sites' | 'specific-sites' | 'on-click';
+
+/** Modes that the app actually enforces today. Kept in sync with ipc.ts. */
+export const SUPPORTED_HOST_ACCESS_MODES: readonly HostAccessMode[] = ['all-sites'] as const;
+
+/**
+ * Default host-access mode for newly loaded extensions. Must be a supported
+ * mode; defaulting to a non-enforced value would repeat the bug #234 reports.
+ */
+export const DEFAULT_HOST_ACCESS: HostAccessMode = 'all-sites';
+
+export function isSupportedHostAccess(value: unknown): value is HostAccessMode {
+  return typeof value === 'string'
+    && (SUPPORTED_HOST_ACCESS_MODES as readonly string[]).includes(value);
+}
+
+/** Normalize a persisted/host-access value to one we can actually enforce. */
+export function coerceHostAccess(value: unknown): HostAccessMode {
+  return isSupportedHostAccess(value) ? value : DEFAULT_HOST_ACCESS;
+}
+
 export interface ExtensionRecord {
   id: string;
   name: string;
@@ -27,7 +59,7 @@ export interface ExtensionRecord {
   enabled: boolean;
   permissions: string[];
   hostPermissions: string[];
-  hostAccess: 'all-sites' | 'specific-sites' | 'on-click';
+  hostAccess: HostAccessMode;
   icons: Record<string, string>;
   manifestVersion: number;
 }
@@ -220,7 +252,9 @@ export class ExtensionManager {
         enabled: record.enabled,
         permissions: (manifest?.permissions as string[]) ?? [],
         hostPermissions: (manifest?.host_permissions as string[]) ?? [],
-        hostAccess: (record.hostAccess as ExtensionRecord['hostAccess']) ?? 'on-click',
+        // Coerce any legacy/unsupported persisted value (e.g. on-click, specific-sites)
+        // to the only mode we actually enforce today. See issue #234.
+        hostAccess: coerceHostAccess(record.hostAccess),
         icons: this.extractIcons(manifest, record.path),
         manifestVersion,
       });
@@ -256,7 +290,8 @@ export class ExtensionManager {
         id: ext.id,
         path: resolvedPath,
         enabled: true,
-        hostAccess: 'on-click',
+        // Default to the only mode we actually enforce. See issue #234.
+        hostAccess: DEFAULT_HOST_ACCESS,
       });
     }
 
@@ -273,7 +308,7 @@ export class ExtensionManager {
       enabled: true,
       permissions: (manifest?.permissions as string[]) ?? [],
       hostPermissions: (manifest?.host_permissions as string[]) ?? [],
-      hostAccess: 'on-click',
+      hostAccess: DEFAULT_HOST_ACCESS,
       icons: this.extractIcons(manifest, resolvedPath),
       manifestVersion: (manifest?.manifest_version as number) ?? 2,
     };
@@ -375,11 +410,19 @@ export class ExtensionManager {
     mainLogger.info(`${LOG_PREFIX}.updateExtension.ok`, { id });
   }
 
-  setHostAccess(id: string, hostAccess: ExtensionRecord['hostAccess']): void {
+  setHostAccess(id: string, hostAccess: HostAccessMode): void {
     mainLogger.info(`${LOG_PREFIX}.setHostAccess`, { id, hostAccess });
 
     const record = this.state.extensions.find((e) => e.id === id);
     if (!record) throw new Error(`Extension not found: ${id}`);
+
+    // Only accept modes we can actually enforce at runtime. Accepting a
+    // value we will never enforce is the bug issue #234 flags.
+    if (!isSupportedHostAccess(hostAccess)) {
+      throw new Error(
+        `hostAccess '${hostAccess}' is not supported yet. Supported modes: ${SUPPORTED_HOST_ACCESS_MODES.join(', ')}`,
+      );
+    }
 
     record.hostAccess = hostAccess;
     this.saveState();
