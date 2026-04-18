@@ -75,6 +75,9 @@ import { openExtensionsWindow } from './extensions/ExtensionsWindow';
 // Issue #40 — History
 import { HistoryStore } from './history/HistoryStore';
 import { registerHistoryHandlers, unregisterHistoryHandlers } from './history/ipc';
+// Issue #17 — Omnibox autocomplete
+import { ShortcutsStore } from './omnibox/ShortcutsStore';
+import { registerOmniboxHandlers, unregisterOmniboxHandlers } from './omnibox/ipc';
 // Issue #36 — Downloads
 import { DownloadManager } from './downloads/DownloadManager';
 // Issue #26 — Chrome internal pages
@@ -159,6 +162,7 @@ let permissionAutoRevoker: PermissionAutoRevoker | null = null;
 let contentCategoryStore: ContentCategoryStore | null = null;
 let extensionManager: ExtensionManager | null = null;
 let historyStore: HistoryStore | null = null;
+let shortcutsStore: ShortcutsStore | null = null;
 let downloadManager: DownloadManager | null = null;
 let deviceStore: DeviceStore | null = null;
 let deviceManager: DeviceManager | null = null;
@@ -427,6 +431,15 @@ app.whenReady().then(async () => {
   historyStore = new HistoryStore();
   registerHistoryHandlers({ store: historyStore });
 
+  // Issue #17 — Omnibox autocomplete
+  shortcutsStore = new ShortcutsStore();
+  registerOmniboxHandlers({
+    shortcutsStore,
+    historyStore,
+    bookmarkStore: bookmarkStore!,
+    getOpenTabs: () => tabManager?.getState().tabs.map((t) => ({ title: t.title, url: t.url })) ?? [],
+  });
+
   // Issue #26 — Chrome internal pages
 
   // Issue #98 — Share menu
@@ -658,6 +671,7 @@ app.whenReady().then(async () => {
     unregisterShareHandlers();
     unregisterBookmarkHandlers();
     unregisterHistoryHandlers();
+    unregisterOmniboxHandlers();
     unregisterChromeHandlers();
     unregisterProfileHandlers();
     unregisterContentCategoryHandlers();
