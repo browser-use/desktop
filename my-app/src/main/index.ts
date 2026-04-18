@@ -439,6 +439,10 @@ function openGuestShell(): BrowserWindow {
     tabManager.setContentPolicyEnforcer(contentPolicyEnforcer);
   }
 
+  if (searchEngineStore) {
+    tabManager.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
+  }
+
   tabManager.restoreSession();
 
   tabManager.setOnClosedTabsChanged(() => {
