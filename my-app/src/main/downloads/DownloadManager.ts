@@ -111,7 +111,7 @@ export class DownloadManager {
             item.setSavePath(result.filePath);
             item.resume();
           }
-        });
+        }).catch(() => { item.cancel(); });
       } else if (customFolder) {
         item.setSavePath(path.join(customFolder, filename));
       }
@@ -207,8 +207,8 @@ export class DownloadManager {
               mainLogger.warn('DownloadManager.openWhenDone.failed', { id, error: err });
             });
           } else if (!dlItem.openWhenDone && dlItem.savePath) {
-            // Auto-open by file type association
-            const ext = path.extname(filename).toLowerCase().slice(1);
+            // Auto-open by file type association — use final saved path, not initial filename
+            const ext = path.extname(dlItem.savePath).toLowerCase().slice(1);
             const fileTypeAssociations = (readPrefs().fileTypeAssociations as Record<string, boolean>) ?? {};
             if (ext && fileTypeAssociations[ext] === true) {
               mainLogger.info('DownloadManager.autoOpen', { id, ext });
