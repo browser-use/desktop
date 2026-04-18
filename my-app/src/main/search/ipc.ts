@@ -59,32 +59,17 @@ export function registerSearchEngineHandlers(opts: SearchEnginesIpcOptions): voi
       payload: { id: string; name?: string; keyword?: string; searchUrl?: string },
     ) => {
       const id = assertString(payload?.id, 'id', 256);
-      const isDefault = store.getDefault().id === id;
       const input: Partial<{ name: string; keyword: string; searchUrl: string }> = {};
       if (payload?.name !== undefined) input.name = assertString(payload.name, 'name', 512);
       if (payload?.keyword !== undefined) input.keyword = assertString(payload.keyword, 'keyword', 64);
       if (payload?.searchUrl !== undefined) input.searchUrl = assertString(payload.searchUrl, 'searchUrl', 2048);
-      const result = store.updateCustom(id, input);
-      // If the updated engine is (or was) the default, propagate the new template.
-      if (result && isDefault && onDefaultChanged) {
-        onDefaultChanged(store.getDefault().searchUrl);
-        mainLogger.info('search-engines:update-custom.defaultChanged', { id });
-      }
-      return result;
+      return store.updateCustom(id, input);
     },
   );
 
   ipcMain.handle('search-engines:remove-custom', (_e, id: unknown) => {
     const engineId = assertString(id, 'id', 256);
-    const wasDefault = store.getDefault().id === engineId;
-    const result = store.removeCustom(engineId);
-    // If the removed engine was the default, the store falls back to Google
-    // internally. Notify active TabManagers of the new default URL.
-    if (result && wasDefault && onDefaultChanged) {
-      onDefaultChanged(store.getDefault().searchUrl);
-      mainLogger.info('search-engines:remove-custom.defaultChanged', { fallback: store.getDefault().id });
-    }
-    return result;
+    return store.removeCustom(engineId);
   });
 }
 

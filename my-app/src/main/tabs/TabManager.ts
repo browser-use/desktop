@@ -388,24 +388,6 @@ export class TabManager {
     mainLogger.info('TabManager.setSearchUrlTemplate', { url: url ?? '(reset to default)' });
   }
 
-  private isFullscreen = false;
-
-  setFullscreen(fullscreen: boolean): void {
-    if (this.isFullscreen === fullscreen) return;
-    this.isFullscreen = fullscreen;
-    mainLogger.debug('TabManager.setFullscreen', { fullscreen });
-    this.relayout();
-  }
-
-  setContentVisible(visible: boolean): void {
-    if (!this.activeTabId) return;
-    const view = this.tabs.get(this.activeTabId);
-    if (!view) return;
-    mainLogger.debug('TabManager.setContentVisible', { visible, activeTabId: this.activeTabId });
-    view.setVisible(visible);
-  }
-
-
   setChromeOffset(offset: number): void {
     const next = Math.max(0, Math.min(512, Math.round(offset)));
     if (next === this.chromeOffset) return;

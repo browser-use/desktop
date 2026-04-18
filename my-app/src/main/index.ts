@@ -792,25 +792,16 @@ app.whenReady().then(async () => {
   registerSearchEngineHandlers({
     store: searchEngineStore,
     onDefaultChanged: (searchUrl) => {
-      // Broadcast to ALL active TabManager instances (primary + extra windows + incognito).
-      for (const tm of TabManager.getAllInstances()) {
-        tm.setSearchUrlTemplate(searchUrl);
-      }
+      tabManager?.setSearchUrlTemplate(searchUrl);
     },
   });
 
-  // Issue #45 — Profile picker store must exist BEFORE the profile-scoped
-  // stores so we can resolve `activeProfileId` from the last-selected entry
-  // (or the --profile-id= CLI arg passed by relaunch).
-  profileStore = new ProfileStore();
-  activeProfileId = resolveInitialProfileId(process.argv, profileStore);
-  mainLogger.info('main.initialProfile', { activeProfileId });
-
-  // Issue #208: construct profile-scoped stores with the active profile's
-  // data dir so switching profiles actually isolates bookmarks / history /
-  // passwords / autofill. Re-runs on in-process profile switch.
-  initProfileScopedStores(activeProfileId);
-
+  // Wave1 P3 — Bookmarks: init store + register IPC before the shell loads.
+  // NOTE: BookmarkStore/PasswordStore/HistoryStore currently key off
+  // `app.getPath('userData')` internally and ignore the active profile.
+  // Profile-scoped persistence for those stores is tracked as a follow-up;
+  // only PermissionStore accepts a data dir today.
+  bookmarkStore = new BookmarkStore();
   permissionStore = new PermissionStore(getProfileDataDir(activeProfileId));
   protocolHandlerStore = new ProtocolHandlerStore(getProfileDataDir(activeProfileId));
   deviceStore = new DeviceStore(getProfileDataDir(activeProfileId));

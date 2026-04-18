@@ -150,13 +150,13 @@ export class SearchEngineStore {
     if (!this.dirty) return;
     try {
       fs.writeFileSync(getStorePath(), JSON.stringify(this.state, null, 2), 'utf-8');
-      this.dirty = false;
       mainLogger.info('SearchEngineStore.flushSync.ok', { path: getStorePath() });
     } catch (err) {
       mainLogger.error('SearchEngineStore.flushSync.failed', {
         error: (err as Error).message,
       });
     }
+    this.dirty = false;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
@@ -243,9 +243,6 @@ export class SearchEngineStore {
    */
   buildSearchUrl(query: string): string {
     const engine = this.getDefault();
-    if (!engine.searchUrl.includes('%s')) {
-      return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-    }
     return engine.searchUrl.replace('%s', encodeURIComponent(query));
   }
 }
