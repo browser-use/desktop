@@ -235,42 +235,42 @@ const config: ForgeConfig = {
         {
           // Track A: shell renderer (src/renderer/shell/shell.html)
           name: 'shell',
-          config: 'vite.renderer.config.ts',
+          config: 'vite.renderer.config.mts',
         },
         {
           // Track B: pill renderer (src/renderer/pill/pill.html)
           name: 'pill',
-          config: 'vite.pill.config.ts',
+          config: 'vite.pill.config.mts',
         },
         {
           // Track C: onboarding renderer (src/renderer/onboarding/onboarding.html)
           name: 'onboarding',
-          config: 'vite.onboarding.config.ts',
+          config: 'vite.onboarding.config.mts',
         },
         {
           // Track 5: settings renderer (src/renderer/settings/settings.html)
           name: 'settings',
-          config: 'vite.settings.config.ts',
+          config: 'vite.settings.config.mts',
         },
         {
           // Issue #45: profile picker renderer
           name: 'profile_picker',
-          config: 'vite.profilePicker.config.ts',
+          config: 'vite.profilePicker.config.mts',
         },
         {
           // Issue #71: extensions renderer
           name: 'extensions',
-          config: 'vite.extensions.config.ts',
+          config: 'vite.extensions.config.mts',
         },
         {
           // Issue #40: history internal page renderer
           name: 'history',
-          config: 'vite.history.config.ts',
+          config: 'vite.history.config.mts',
         },
         {
           // Issue #31: bookmarks manager renderer
           name: 'bookmarks',
-          config: 'vite.bookmarks.config.ts',
+          config: 'vite.bookmarks.config.mts',
         },
         // Issue #37: downloads internal page renderer — disabled in CI until
         // the missing vite.downloads.config.ts + src/renderer/downloads/
@@ -278,28 +278,28 @@ const config: ForgeConfig = {
         // production build. Restore once the files exist.
         // {
         //   name: 'downloads',
-        //   config: 'vite.downloads.config.ts',
+        //   config: 'vite.downloads.config.mts',
         // },
         {
           // Issue #26: chrome:// internal pages renderer
           name: 'chrome_pages',
-          config: 'vite.chrome.config.ts',
+          config: 'vite.chrome.config.mts',
         },
         {
           // Issue #97: print preview renderer
           name: 'print_preview',
-          config: 'vite.printPreview.config.ts',
+          config: 'vite.printPreview.config.mts',
         },
         // Issue #105: new tab page renderer — disabled until
         // vite.newtab.config.ts lands.
         {
           name: 'newtab',
-          config: 'vite.newtab.config.ts',
+          config: 'vite.newtab.config.mts',
         },
         {
           // Issue #77: devtools panel renderer
           name: 'devtools_panel',
-          config: 'vite.devtools.config.ts',
+          config: 'vite.devtools.config.mts',
         },
       ],
     }),
