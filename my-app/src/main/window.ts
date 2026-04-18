@@ -114,12 +114,15 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     });
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    // Forge VitePlugin outputs shell.html (matching the input filename).
-    // __dirname = .vite/build; renderer is at .vite/renderer/shell/shell.html
-    // so the path is one level up: ../renderer/shell/shell.html
+    // Forge VitePlugin preserves the HTML's location relative to Vite's `root`
+    // (which defaults to the project root when not overridden). The HTML is
+    // declared as src/renderer/shell/shell.html, so the built asset lands at
+    //   .vite/renderer/shell/src/renderer/shell/shell.html
+    // __dirname = .vite/build, so the path is:
+    //   ../renderer/shell/src/renderer/shell/shell.html
     const htmlPath = path.join(
       __dirname,
-      `../renderer/shell/shell.html`,
+      `../renderer/shell/src/renderer/shell/shell.html`,
     );
     mainLogger.debug('window.loadFile', { filePath: htmlPath });
     win.loadFile(htmlPath);

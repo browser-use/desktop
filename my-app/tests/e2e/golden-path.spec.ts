@@ -103,8 +103,14 @@ async function launchFresh(): Promise<LaunchResult> {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'golden-path-'));
   log(`Launching fresh (no account.json), userDataDir=${userDataDir}`);
 
+  // NOTE: Do NOT pass executablePath here. When executablePath is set,
+  // Playwright skips injecting its `-r <loader>` arg into Electron, which
+  // is what hijacks app.whenReady() and signals __playwright_run back to
+  // the test harness. Without the loader, electron.launch() hangs for the
+  // full 30s even though the Electron process starts correctly.
+  // Omitting executablePath makes Playwright use require('electron') to
+  // resolve the same binary that ./node_modules/.bin/electron points at.
   const electronApp = await electron.launch({
-    executablePath: ELECTRON_BIN,
     args: [
       MAIN_JS,
       `--user-data-dir=${userDataDir}`,
@@ -130,8 +136,8 @@ async function launchFresh(): Promise<LaunchResult> {
 async function launchReturning(userDataDir: string): Promise<LaunchResult> {
   log(`Launching returning user, userDataDir=${userDataDir}`);
 
+  // See launchFresh above for why executablePath is intentionally omitted.
   const electronApp = await electron.launch({
-    executablePath: ELECTRON_BIN,
     args: [
       MAIN_JS,
       `--user-data-dir=${userDataDir}`,

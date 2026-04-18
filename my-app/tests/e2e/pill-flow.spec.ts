@@ -114,8 +114,14 @@ async function launchWithMockDaemon(): Promise<TestHandle> {
 
   log(`Launching with mock daemon, userDataDir=${userDataDir}`);
 
+  // NOTE: Do NOT pass executablePath here. When executablePath is set,
+  // Playwright skips injecting its `-r <loader>` arg into Electron, which
+  // is what hijacks app.whenReady() and signals __playwright_run back to
+  // the test harness. Without the loader, electron.launch() hangs for the
+  // full 30s even though the Electron process starts correctly.
+  // Omitting executablePath makes Playwright use require('electron') to
+  // resolve the same binary that ./node_modules/.bin/electron points at.
   const electronApp = await electron.launch({
-    executablePath: ELECTRON_BIN,
     args: [
       MAIN_JS,
       `--user-data-dir=${userDataDir}`,
