@@ -301,7 +301,7 @@ export function TabStrip({
   const [iconOnlySet, setIconOnlySet] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedTabIds, setSelectedTabIds] = useState<Set<string>>(new Set());
-  const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null);
+  const [lastClickedTabId, setLastClickedTabId] = useState<string | null>(null);
   const dragTabId = useRef<string | null>(null);
   const tabRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -322,9 +322,9 @@ export function TabStrip({
       const next = new Set([...prev].filter((id) => currentIds.has(id)));
       return next.size === prev.size ? prev : next;
     });
-    setLastClickedIdx((prev) => {
+    setLastClickedTabId((prev) => {
       if (prev === null) return null;
-      return tabs[prev] ? prev : null;
+      return tabs.some((t) => t.id === prev) ? prev : null;
     });
   }, [tabs]);
 
@@ -376,7 +376,7 @@ export function TabStrip({
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && selectedTabIds.size > 0) {
         setSelectedTabIds(new Set());
-        setLastClickedIdx(null);
+        setLastClickedTabId(null);
       }
     };
     window.addEventListener('keydown', handler);
@@ -411,31 +411,34 @@ export function TabStrip({
           }
           return next;
         });
-        setLastClickedIdx(index);
-      } else if (e.shiftKey && lastClickedIdx !== null) {
-        // Select range from lastClickedIdx to current index
+        setLastClickedTabId(tab.id);
+      } else if (e.shiftKey && lastClickedTabId !== null) {
+        // Select range from anchor tab to current tab
         e.stopPropagation();
-        const start = Math.min(lastClickedIdx, index);
-        const end = Math.max(lastClickedIdx, index);
-        const rangeIds = new Set<string>();
-        for (let i = start; i <= end; i++) {
-          if (tabs[i]) rangeIds.add(tabs[i].id);
+        const anchorIndex = tabs.findIndex((t) => t.id === lastClickedTabId);
+        if (anchorIndex !== -1) {
+          const start = Math.min(anchorIndex, index);
+          const end = Math.max(anchorIndex, index);
+          const rangeIds = new Set<string>();
+          for (let i = start; i <= end; i++) {
+            if (tabs[i]) rangeIds.add(tabs[i].id);
+          }
+          setSelectedTabIds(rangeIds);
         }
-        setSelectedTabIds(rangeIds);
       } else {
         // Normal click: clear selection and activate
         setSelectedTabIds(new Set());
-        setLastClickedIdx(index);
+        setLastClickedTabId(tab.id);
         onActivate(tab.id);
       }
     },
-    [tabs, lastClickedIdx, onActivate],
+    [tabs, lastClickedTabId, onActivate],
   );
 
   const handleCloseSelected = useCallback(() => {
     selectedTabIds.forEach((id) => onClose(id));
     setSelectedTabIds(new Set());
-    setLastClickedIdx(null);
+    setLastClickedTabId(null);
   }, [selectedTabIds, onClose]);
 
   const handleTabKeyDown = useCallback(
