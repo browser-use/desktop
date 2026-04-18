@@ -78,7 +78,12 @@ export function registerPermissionHandlers(opts: RegisterPermissionHandlersOptio
       return protocolHandlerStore.getForOrigin(origin);
     });
 
-    ipcMain.handle('protocol-handlers:register', (_e, protocol: string, origin: string, url: string) => {
+    ipcMain.handle('protocol-handlers:register', (e, protocol: string, origin: string, url: string) => {
+      const senderOrigin = e.senderFrame?.origin;
+      if (senderOrigin && senderOrigin !== origin) {
+        mainLogger.warn('protocol-handlers:register.origin-mismatch', { senderOrigin, claimedOrigin: origin });
+        throw new Error('Origin mismatch: caller origin does not match claimed origin');
+      }
       mainLogger.info('protocol-handlers:register', { protocol, origin, url });
       protocolHandlerStore.register(protocol, origin, url);
     });
