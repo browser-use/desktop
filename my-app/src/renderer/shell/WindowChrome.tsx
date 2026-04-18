@@ -161,6 +161,9 @@ declare const electronAPI: {
     nameWindowDialog: (cb: () => void) => () => void;
     liveCaptionStateChanged: (cb: (state: { enabled: boolean; language: string }) => void) => () => void;
   };
+  liveCaption: {
+    getState: () => Promise<{ enabled: boolean; language: string }>;
+  };
   permissions: {
     respond: (promptId: string, decision: string) => Promise<void>;
     dismiss: (promptId: string) => Promise<void>;
@@ -203,7 +206,7 @@ export function WindowChrome(): React.ReactElement {
   // PiP state
   const [pipActive, setPipActive] = useState(false);
 
-  // Live Caption state
+  // Live Caption state — hydrated from prefs on mount
   const [liveCaptionEnabled, setLiveCaptionEnabled] = useState(false);
   const [liveCaptionLanguage, setLiveCaptionLanguage] = useState('en-US');
   const [captionText, setCaptionText] = useState('');
@@ -400,6 +403,16 @@ export function WindowChrome(): React.ReactElement {
   }, [bookmarksTree?.visibility]);
 
   // ---------------------------------------------------------------------------
+  // Live Caption — hydrate from persisted prefs on mount
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    electronAPI.liveCaption.getState().then(({ enabled, language }) => {
+      setLiveCaptionEnabled(enabled);
+      setLiveCaptionLanguage(language);
+    }).catch(() => {});
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Live Caption — Web Speech API
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -422,9 +435,13 @@ export function WindowChrome(): React.ReactElement {
       }
       setCaptionText(text);
     };
-    rec.onerror = () => { /* ignore */ };
+    let fatalError = false;
+    rec.onerror = (ev: any) => {
+      const fatal = ['not-allowed', 'service-not-available', 'audio-capture'];
+      if (fatal.includes(ev.error)) fatalError = true;
+    };
     rec.onend = () => {
-      if (liveCaptionEnabled) rec.start();
+      if (liveCaptionEnabled && !fatalError) rec.start();
     };
     rec.start();
     recognitionRef.current = rec;
