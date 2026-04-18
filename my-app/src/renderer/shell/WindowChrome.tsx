@@ -18,6 +18,7 @@ import { ProfileMenu } from './ProfileMenu';
 import { DownloadButton } from './DownloadButton';
 import { DownloadBubble } from './DownloadBubble';
 import { AppMenuButton } from './AppMenuButton';
+import { ExtensionToolbar } from './ExtensionToolbar';
 import { ShareButton, ShareMenu } from './ShareMenu';
 import { SidePanel, SidePanelToggleButton } from './SidePanel';
 import type { SidePanelId, SidePanelPosition } from './SidePanel';
@@ -150,6 +151,13 @@ declare const electronAPI: {
     isNeverSave: (origin: string) => Promise<boolean>;
     addNeverSave: (origin: string) => Promise<void>;
     findForOrigin: (origin: string) => Promise<Array<{ id: string; origin: string; username: string }>>;
+  };
+  extensions: {
+    list: () => Promise<Array<{ id: string; name: string; version: string; description: string; path: string; enabled: boolean; permissions: string[]; hostPermissions: string[]; hostAccess: string; icons: Record<string, string>; manifestVersion: number; pinned: boolean }>>;
+    pin: (id: string) => Promise<void>;
+    unpin: (id: string) => Promise<void>;
+    reorderPinned: (orderedIds: string[]) => Promise<void>;
+    openManage: () => Promise<void>;
   };
 };
 
@@ -572,6 +580,8 @@ export function WindowChrome(): React.ReactElement {
             />
           )}
         </div>
+
+        <ExtensionToolbar />
 
         <ShareButton onClick={handleShareClick} />
         <ShareMenu

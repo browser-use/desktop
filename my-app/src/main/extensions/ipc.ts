@@ -1,5 +1,5 @@
 /**
- * extensions/ipc.ts — IPC handlers for the Extensions window.
+ * extensions/ipc.ts — IPC handlers for the Extensions window and toolbar.
  *
  * Registers all extensions:* channels via ipcMain.handle / ipcMain.on.
  * Call registerExtensionsHandlers() once after app.whenReady().
@@ -28,6 +28,13 @@ const CH_GET_DEV_MODE      = 'extensions:get-dev-mode';
 const CH_SET_DEV_MODE      = 'extensions:set-dev-mode';
 const CH_PICK_DIRECTORY    = 'extensions:pick-directory';
 const CH_CLOSE_WINDOW      = 'extensions:close-window';
+
+// Toolbar-specific channels
+const CH_TOOLBAR_LIST      = 'extensions:toolbar-list';
+const CH_PIN               = 'extensions:pin';
+const CH_UNPIN             = 'extensions:unpin';
+const CH_REORDER_PINNED    = 'extensions:reorder-pinned';
+const CH_OPEN_MANAGE       = 'extensions:open-manage';
 
 const ALLOWED_HOST_ACCESS = ['all-sites', 'specific-sites', 'on-click'] as const;
 
@@ -164,6 +171,51 @@ function handleCloseWindow(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Toolbar handlers
+// ---------------------------------------------------------------------------
+
+function handleToolbarList(): ExtensionRecord[] {
+  mainLogger.info(CH_TOOLBAR_LIST);
+  if (!_manager) throw new Error('ExtensionManager not initialised');
+  return _manager.listExtensions();
+}
+
+function handlePin(
+  _event: Electron.IpcMainInvokeEvent,
+  id: string,
+): void {
+  const validId = assertString(id, 'id', 200);
+  mainLogger.info(CH_PIN, { id: validId });
+  if (!_manager) throw new Error('ExtensionManager not initialised');
+  _manager.pinExtension(validId);
+}
+
+function handleUnpin(
+  _event: Electron.IpcMainInvokeEvent,
+  id: string,
+): void {
+  const validId = assertString(id, 'id', 200);
+  mainLogger.info(CH_UNPIN, { id: validId });
+  if (!_manager) throw new Error('ExtensionManager not initialised');
+  _manager.unpinExtension(validId);
+}
+
+function handleReorderPinned(
+  _event: Electron.IpcMainInvokeEvent,
+  orderedIds: string[],
+): void {
+  mainLogger.info(CH_REORDER_PINNED, { count: orderedIds?.length });
+  if (!_manager) throw new Error('ExtensionManager not initialised');
+  if (!Array.isArray(orderedIds)) throw new Error('orderedIds must be an array');
+  _manager.reorderPinned(orderedIds);
+}
+
+function handleOpenManage(): void {
+  mainLogger.info(CH_OPEN_MANAGE);
+  openExtensionsWindow();
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -184,7 +236,14 @@ export function registerExtensionsHandlers(manager: ExtensionManager): void {
   ipcMain.handle(CH_PICK_DIRECTORY, handlePickDirectory);
   ipcMain.on(CH_CLOSE_WINDOW, handleCloseWindow);
 
-  mainLogger.info('extensions.ipc.register.ok', { channelCount: 12 });
+  // Toolbar channels
+  ipcMain.handle(CH_TOOLBAR_LIST, handleToolbarList);
+  ipcMain.handle(CH_PIN, handlePin);
+  ipcMain.handle(CH_UNPIN, handleUnpin);
+  ipcMain.handle(CH_REORDER_PINNED, handleReorderPinned);
+  ipcMain.handle(CH_OPEN_MANAGE, handleOpenManage);
+
+  mainLogger.info('extensions.ipc.register.ok', { channelCount: 17 });
 }
 
 export function unregisterExtensionsHandlers(): void {
@@ -202,6 +261,13 @@ export function unregisterExtensionsHandlers(): void {
   ipcMain.removeHandler(CH_SET_DEV_MODE);
   ipcMain.removeHandler(CH_PICK_DIRECTORY);
   ipcMain.removeAllListeners(CH_CLOSE_WINDOW);
+
+  // Toolbar channels
+  ipcMain.removeHandler(CH_TOOLBAR_LIST);
+  ipcMain.removeHandler(CH_PIN);
+  ipcMain.removeHandler(CH_UNPIN);
+  ipcMain.removeHandler(CH_REORDER_PINNED);
+  ipcMain.removeHandler(CH_OPEN_MANAGE);
 
   _manager = null;
   mainLogger.info('extensions.ipc.unregister.ok');

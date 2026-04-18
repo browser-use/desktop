@@ -2,7 +2,7 @@
  * ExtensionManager.ts — manages Chrome extensions via Electron's session API.
  *
  * Handles loading, enabling, disabling, and removing extensions.
- * Persists extension state (enabled/disabled, paths) to a JSON file in userData.
+ * Persists extension state (enabled/disabled, paths, pinnedOrder) to a JSON file in userData.
  * Uses session.defaultSession.loadExtension / removeExtension under the hood.
  * Delegates MV3-specific lifecycle to ManifestV3Runtime.
  */
@@ -30,6 +30,7 @@ export interface ExtensionRecord {
   hostAccess: 'all-sites' | 'specific-sites' | 'on-click';
   icons: Record<string, string>;
   manifestVersion: number;
+  pinned: boolean;
 }
 
 interface PersistedState {
@@ -40,6 +41,8 @@ interface PersistedState {
     hostAccess: string;
   }>;
   developerMode: boolean;
+  /** Ordered list of pinned extension IDs — order matches toolbar display order. */
+  pinnedOrder: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +69,7 @@ export class ExtensionManager {
       statePath: this.statePath,
       extensionCount: this.state.extensions.length,
       developerMode: this.state.developerMode,
+      pinnedCount: this.state.pinnedOrder.length,
     });
   }
 
@@ -80,10 +84,12 @@ export class ExtensionManager {
         const parsed = JSON.parse(raw) as PersistedState;
         mainLogger.info(`${LOG_PREFIX}.loadState.ok`, {
           extensionCount: parsed.extensions?.length ?? 0,
+          pinnedCount: parsed.pinnedOrder?.length ?? 0,
         });
         return {
           extensions: Array.isArray(parsed.extensions) ? parsed.extensions : [],
           developerMode: parsed.developerMode === true,
+          pinnedOrder: Array.isArray(parsed.pinnedOrder) ? parsed.pinnedOrder : [],
         };
       }
     } catch (err) {
@@ -91,7 +97,7 @@ export class ExtensionManager {
         error: (err as Error).message,
       });
     }
-    return { extensions: [], developerMode: false };
+    return { extensions: [], developerMode: false, pinnedOrder: [] };
   }
 
   private saveState(): void {
@@ -100,6 +106,7 @@ export class ExtensionManager {
       fs.writeFileSync(this.statePath, JSON.stringify(this.state, null, 2), 'utf-8');
       mainLogger.info(`${LOG_PREFIX}.saveState.ok`, {
         extensionCount: this.state.extensions.length,
+        pinnedCount: this.state.pinnedOrder.length,
       });
     } catch (err) {
       mainLogger.error(`${LOG_PREFIX}.saveState.failed`, {
@@ -209,6 +216,7 @@ export class ExtensionManager {
         hostAccess: (record.hostAccess as ExtensionRecord['hostAccess']) ?? 'on-click',
         icons: this.extractIcons(manifest, record.path),
         manifestVersion,
+        pinned: this.state.pinnedOrder.includes(record.id),
       });
     }
 
@@ -262,6 +270,7 @@ export class ExtensionManager {
       hostAccess: 'on-click',
       icons: this.extractIcons(manifest, resolvedPath),
       manifestVersion: (manifest?.manifest_version as number) ?? 2,
+      pinned: this.state.pinnedOrder.includes(ext.id),
     };
 
     mainLogger.info(`${LOG_PREFIX}.loadUnpacked.ok`, {
@@ -329,6 +338,8 @@ export class ExtensionManager {
     }
 
     this.state.extensions = this.state.extensions.filter((e) => e.id !== id);
+    // Also remove from pinnedOrder if present
+    this.state.pinnedOrder = this.state.pinnedOrder.filter((pid) => pid !== id);
     this.saveState();
     mainLogger.info(`${LOG_PREFIX}.removeExtension.ok`, { id });
   }
@@ -379,6 +390,58 @@ export class ExtensionManager {
   getExtensionDetails(id: string): ExtensionRecord | null {
     const all = this.listExtensions();
     return all.find((e) => e.id === id) ?? null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Toolbar pin / unpin / reorder
+  // -------------------------------------------------------------------------
+
+  pinExtension(id: string): void {
+    mainLogger.info(`${LOG_PREFIX}.pinExtension`, { id });
+    const record = this.state.extensions.find((e) => e.id === id);
+    if (!record) throw new Error(`Extension not found: ${id}`);
+
+    if (!this.state.pinnedOrder.includes(id)) {
+      this.state.pinnedOrder.push(id);
+      this.saveState();
+      mainLogger.info(`${LOG_PREFIX}.pinExtension.ok`, { id, pinnedCount: this.state.pinnedOrder.length });
+    }
+  }
+
+  unpinExtension(id: string): void {
+    mainLogger.info(`${LOG_PREFIX}.unpinExtension`, { id });
+    const record = this.state.extensions.find((e) => e.id === id);
+    if (!record) throw new Error(`Extension not found: ${id}`);
+
+    this.state.pinnedOrder = this.state.pinnedOrder.filter((pid) => pid !== id);
+    this.saveState();
+    mainLogger.info(`${LOG_PREFIX}.unpinExtension.ok`, { id, pinnedCount: this.state.pinnedOrder.length });
+  }
+
+  /**
+   * Persist a drag-reordered pinnedOrder from the toolbar.
+   * All IDs in the provided array must correspond to pinned extensions.
+   */
+  reorderPinned(orderedIds: string[]): void {
+    mainLogger.info(`${LOG_PREFIX}.reorderPinned`, { orderedIds });
+
+    // Validate: every supplied ID must currently be pinned
+    const currentPinned = new Set(this.state.pinnedOrder);
+    const valid = orderedIds.filter((id) => currentPinned.has(id));
+
+    // Add back any pinned IDs that were not included (defensive)
+    const supplied = new Set(valid);
+    for (const existing of this.state.pinnedOrder) {
+      if (!supplied.has(existing)) valid.push(existing);
+    }
+
+    this.state.pinnedOrder = valid;
+    this.saveState();
+    mainLogger.info(`${LOG_PREFIX}.reorderPinned.ok`, { count: valid.length });
+  }
+
+  getPinnedOrder(): string[] {
+    return [...this.state.pinnedOrder];
   }
 
   // -------------------------------------------------------------------------

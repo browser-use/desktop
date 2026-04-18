@@ -127,6 +127,8 @@ function makeFakeManager(initial: ExtensionRecord[] = []) {
         hostPermissions: [],
         hostAccess: 'on-click',
         icons: {},
+        manifestVersion: 2,
+        pinned: false,
       };
       records.push(newRec);
       return newRec;
@@ -242,6 +244,8 @@ describe('extensions-ipc — list / details / toggles', () => {
         hostPermissions: [],
         hostAccess: 'on-click',
         icons: {},
+        manifestVersion: 2,
+        pinned: false,
       },
     ];
   }

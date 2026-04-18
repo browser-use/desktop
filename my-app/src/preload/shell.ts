@@ -613,4 +613,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     autofill: (id: string): Promise<string | null> =>
       ipcRenderer.invoke('passwords:autofill', id),
   },
+
+  // Extension toolbar — pin/unpin/reorder + manage window
+  extensions: {
+    list: (): Promise<import('../main/extensions/ExtensionManager').ExtensionRecord[]> =>
+      ipcRenderer.invoke('extensions:toolbar-list'),
+
+    pin: (id: string): Promise<void> =>
+      ipcRenderer.invoke('extensions:pin', id),
+
+    unpin: (id: string): Promise<void> =>
+      ipcRenderer.invoke('extensions:unpin', id),
+
+    reorderPinned: (orderedIds: string[]): Promise<void> =>
+      ipcRenderer.invoke('extensions:reorder-pinned', orderedIds),
+
+    openManage: (): Promise<void> =>
+      ipcRenderer.invoke('extensions:open-manage'),
+  },
 });
