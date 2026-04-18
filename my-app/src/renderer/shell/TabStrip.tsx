@@ -580,9 +580,9 @@ export function TabStrip({
             className="tab-strip__multiselect-btn tab-strip__multiselect-btn--secondary"
             onClick={() => {
               const selected = tabs.filter((t) => selectedTabIds.has(t.id));
-              const anyAudible = selected.some((t) => t.audible && !t.muted);
+              const anyUnmuted = selected.some((t) => !t.muted);
               selected.forEach((t) => {
-                if (anyAudible ? !t.muted : t.muted) {
+                if (anyUnmuted ? !t.muted : t.muted) {
                   electronAPI.tabs.muteTab(t.id).catch(() => {});
                 }
               });
@@ -590,7 +590,7 @@ export function TabStrip({
             }}
             title="Mute/unmute selected tabs"
           >
-            Mute
+            {tabs.filter((t) => selectedTabIds.has(t.id)).some((t) => !t.muted) ? 'Mute' : 'Unmute'}
           </button>
           <button
             type="button"
