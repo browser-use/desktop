@@ -165,7 +165,7 @@ async function revokeTokens(
 
   // Also clean up keytar entries across all known service names
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const keytar = require('keytar') as {
       findCredentials(s: string): Promise<Array<{ account: string }>>;
       deletePassword(s: string, a: string): Promise<boolean>;

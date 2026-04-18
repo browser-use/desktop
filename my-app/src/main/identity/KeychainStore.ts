@@ -80,7 +80,7 @@ export class KeychainStore {
 
     // Attempt to load keytar at construction time; fail gracefully
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       this.keytarModule = require('keytar') as KeytarLike;
       this.keytarAvailable = true;
       mainLogger.info('KeychainStore.init', {

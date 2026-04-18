@@ -192,7 +192,7 @@ async function handleSaveApiKey(_event: Electron.IpcMainInvokeEvent, key: string
   // Also store under the dedicated anthropic service via keytar directly.
   // We replicate into the anthropic service name for agentApiKey.ts compatibility.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const keytar = require('keytar') as {
       setPassword(s: string, a: string, p: string): Promise<void>;
     };
@@ -218,7 +218,7 @@ async function handleLoadApiKey(): Promise<string | null> {
   const accountKey = account?.email ?? 'default';
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const keytar = require('keytar') as {
       getPassword(s: string, a: string): Promise<string | null>;
     };
@@ -447,7 +447,7 @@ async function handleFactoryReset(): Promise<void> {
     'com.agenticbrowser.refresh',
   ];
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const keytar = require('keytar') as {
       findCredentials(s: string): Promise<Array<{ account: string }>>;
       deletePassword(s: string, a: string): Promise<boolean>;
