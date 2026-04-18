@@ -128,6 +128,7 @@ export function URLBar({
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestGenRef = useRef(0);
   // Track the input text used when the user started editing (for recordSelection)
   const editInputRef = useRef('');
 
@@ -158,15 +159,17 @@ export function URLBar({
   useEffect(() => {
     if (!isEditing) return;
     if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    const gen = ++suggestGenRef.current;
     suggestTimerRef.current = setTimeout(async () => {
       try {
         const results = await electronAPI.omnibox.suggest({ input: inputValue.trim() });
+        if (gen !== suggestGenRef.current) return; // stale response — newer request is in-flight
         const limited = (results ?? []).slice(0, inputValue.trim() ? 8 : 6);
         setSuggestions(limited);
         setDropdownOpen(limited.length > 0);
         setSelectedIdx(-1);
       } catch {
-        setSuggestions([]);
+        if (gen === suggestGenRef.current) setSuggestions([]);
       }
     }, inputValue.trim() ? 80 : 0);
     return () => {
