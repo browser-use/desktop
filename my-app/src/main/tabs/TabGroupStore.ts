@@ -1,3 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { app } from 'electron';
+
+export const TAB_GROUPS_FILE_NAME = 'tab-groups.json';
+
 export interface TabGroup {
   id: string;
   name: string;
@@ -8,6 +14,29 @@ export interface TabGroup {
 
 export class TabGroupStore {
   private groups: Map<string, TabGroup> = new Map();
+  private filePath: string;
+
+  constructor(dataDir?: string) {
+    this.filePath = path.join(dataDir ?? app.getPath('userData'), TAB_GROUPS_FILE_NAME);
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk(): void {
+    try {
+      const raw = fs.readFileSync(this.filePath, 'utf-8');
+      this.deserialize(raw);
+    } catch {
+      // No file yet or parse error — start fresh (deserialize handles resets)
+    }
+  }
+
+  flushSync(): void {
+    try {
+      fs.writeFileSync(this.filePath, this.serialize(), 'utf-8');
+    } catch {
+      // Best-effort; ignore write failures on shutdown
+    }
+  }
 
   createGroup(name: string, color: TabGroup['color'], tabIds: string[]): TabGroup {
     let id: string;

@@ -53,8 +53,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (url?: string): Promise<string> =>
       ipcRenderer.invoke('tabs:create', url),
 
-    close: (tabId: string): Promise<void> =>
-      ipcRenderer.invoke('tabs:close', tabId),
+    close: (tabId: string, force = false): Promise<void> =>
+      ipcRenderer.invoke('tabs:close', tabId, force),
 
     activate: (tabId: string): Promise<void> =>
       ipcRenderer.invoke('tabs:activate', tabId),

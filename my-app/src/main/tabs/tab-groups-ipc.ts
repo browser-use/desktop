@@ -10,12 +10,14 @@ function isValidColor(c: unknown): c is TabGroup['color'] {
 
 export function registerTabGroupHandlers(
   store: TabGroupStore,
-  getShellWindow: () => BrowserWindow | null,
+  _getShellWindow: () => BrowserWindow | null,
 ): void {
   const broadcast = () => {
-    const win = getShellWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('tab-groups:updated', store.listGroups());
+    const groups = store.listGroups();
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('tab-groups:updated', groups);
+      }
     }
   };
 

@@ -777,6 +777,7 @@ app.whenReady().then(async () => {
       deviceStore?.flushSync();
       contentCategoryStore?.flushSync();
       autofillStore?.flushSync();
+      tabGroupStore.flushSync();
     }
     await teardownHl();
   });

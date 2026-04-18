@@ -2322,8 +2322,8 @@ export class TabManager {
       return this.createTab(url);
     });
 
-    ipcMain.handle('tabs:close', (_e, tabId: string) => {
-      this.closeTab(tabId);
+    ipcMain.handle('tabs:close', (_e, tabId: string, force = false) => {
+      this.closeTab(tabId, force);
     });
 
     ipcMain.handle('tabs:activate', (_e, tabId: string) => {

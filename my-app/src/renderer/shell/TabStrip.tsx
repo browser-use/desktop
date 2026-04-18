@@ -19,6 +19,7 @@ import { TabHoverCard } from './TabHoverCard';
 declare const electronAPI: {
   tabs: {
     create: (url?: string) => Promise<string>;
+    close: (tabId: string, force?: boolean) => Promise<void>;
     showContextMenu: (tabId: string) => Promise<void>;
     muteTab: (tabId: string) => Promise<void>;
     captureThumbnail: (tabId: string) => Promise<string | null>;
@@ -599,7 +600,7 @@ export function TabStrip({
         action: () => {
           const tabIdsToClose = [...group.tabIds];
           electronAPI.tabGroups.delete({ id: group.id });
-          tabIdsToClose.forEach((tid) => onClose(tid));
+          tabIdsToClose.forEach((tid) => electronAPI.tabs.close(tid, true));
         },
       },
     ];
@@ -670,7 +671,7 @@ export function TabStrip({
                   />,
                 );
               }
-              if (collapsedGroupIds.has(group.id)) return;
+              if (collapsedGroupIds.has(group.id) && tab.id !== activeTabId) return;
             }
 
             const groupColor = group ? GROUP_COLOR_MAP[group.color] : undefined;
