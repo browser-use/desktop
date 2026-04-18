@@ -13,11 +13,13 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { TabState } from '../../main/tabs/TabManager';
+import { TabHoverCard } from './TabHoverCard';
 
 declare const electronAPI: {
   tabs: {
     showContextMenu: (tabId: string) => Promise<void>;
     muteTab: (tabId: string) => Promise<void>;
+    captureThumbnail: (tabId: string) => Promise<string | null>;
   };
 };
 
@@ -57,6 +59,8 @@ interface TabStripProps {
 // ---------------------------------------------------------------------------
 // Individual tab
 // ---------------------------------------------------------------------------
+const HOVER_DELAY_MS = 500;
+
 interface TabItemProps {
   tab: TabState;
   index: number;
@@ -72,6 +76,8 @@ interface TabItemProps {
   onKeyDown: (e: React.KeyboardEvent) => void;
   tabRef: (el: HTMLDivElement | null) => void;
   onMuteToggle: (e: React.MouseEvent) => void;
+  onHoverStart: (tab: TabState, rect: DOMRect) => void;
+  onHoverEnd: () => void;
 }
 
 function TabItem({
@@ -89,12 +95,29 @@ function TabItem({
   onKeyDown,
   tabRef,
   onMuteToggle,
+  onHoverStart,
+  onHoverEnd,
 }: TabItemProps): React.ReactElement {
   const isPinned = tab.pinned;
   const favicon = faviconSrc(tab);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const elemRef = useRef<HTMLDivElement | null>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    hoverTimer.current = setTimeout(() => {
+      const rect = elemRef.current?.getBoundingClientRect();
+      if (rect) onHoverStart(tab, rect);
+    }, HOVER_DELAY_MS);
+  }, [tab, onHoverStart]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+    onHoverEnd();
+  }, [onHoverEnd]);
+
   return (
     <div
-      ref={tabRef}
+      ref={(el) => { elemRef.current = el; tabRef(el); }}
       className={[
         'tab-item',
         isActive ? 'tab-item--active' : '',
@@ -114,6 +137,8 @@ function TabItem({
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={(e) => onDrop(e, index)}
       onContextMenu={onContextMenu}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       title={isPinned || isIconOnly ? tab.title : undefined}
     >
       {/* Favicon / loading spinner / audio indicator */}
@@ -282,6 +307,11 @@ function TabSearchDropdown({
 // ---------------------------------------------------------------------------
 // TabStrip
 // ---------------------------------------------------------------------------
+interface HoverState {
+  tab: TabState;
+  rect: DOMRect;
+}
+
 export function TabStrip({
   tabs,
   activeTabId,
@@ -294,6 +324,7 @@ export function TabStrip({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [iconOnlySet, setIconOnlySet] = useState<Set<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
+  const [hoverState, setHoverState] = useState<HoverState | null>(null);
   const dragTabId = useRef<string | null>(null);
   const tabRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -478,6 +509,8 @@ export function TabStrip({
               e.stopPropagation();
               onMuteToggle(tab.id);
             }}
+            onHoverStart={(t, rect) => setHoverState({ tab: t, rect })}
+            onHoverEnd={() => setHoverState(null)}
           />
         ))}
         {/* + button sits right after the last tab (Chrome-style), not pinned right */}
@@ -523,6 +556,15 @@ export function TabStrip({
           activeTabId={activeTabId}
           onActivate={onActivate}
           onClose={() => setSearchOpen(false)}
+        />
+      )}
+
+      {hoverState && (
+        <TabHoverCard
+          tabId={hoverState.tab.id}
+          title={hoverState.tab.title}
+          url={hoverState.tab.url}
+          anchorRect={hoverState.rect}
         />
       )}
     </div>

@@ -2296,6 +2296,19 @@ export class TabManager {
       this.unpinTab(tabId);
     });
 
+    // Issue #8 — Tab hover card thumbnail
+    ipcMain.handle('tabs:capture-thumbnail', async (_e, tabId: string) => {
+      const view = this.tabs.get(tabId);
+      if (!view || view.webContents.isDestroyed()) return null;
+      try {
+        const image = await view.webContents.capturePage({ x: 0, y: 0, width: 560, height: 350 });
+        const resized = image.resize({ width: 280, height: 175 });
+        return resized.toDataURL();
+      } catch {
+        return null;
+      }
+    });
+
     // Issue #19 — back/forward long-press history menu
     ipcMain.handle('tabs:show-back-history', (_e, tabId: string) => {
       this.showBackHistoryMenu(tabId);

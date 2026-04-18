@@ -2367,3 +2367,60 @@
     transition: none;
   }
 }
+
+/* Tab hover card (issue #8) */
+.tab-hover-card {
+  position: fixed;
+  z-index: 600;
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  animation: tab-hover-card-in 0.1s var(--ease-out) forwards;
+}
+
+@keyframes tab-hover-card-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tab-hover-card__thumbnail {
+  display: block;
+  width: 100%;
+  height: 175px;
+  object-fit: cover;
+  background: var(--color-bg-base);
+}
+
+.tab-hover-card__thumbnail-placeholder {
+  display: block;
+  width: 100%;
+  height: 175px;
+  background: var(--color-bg-base);
+}
+
+.tab-hover-card__body {
+  padding: 8px 10px;
+}
+
+.tab-hover-card__title {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-hover-card__url {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
