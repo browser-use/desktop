@@ -36,6 +36,15 @@ declare const electronAPI: {
     delete: (p: { id: string }) => Promise<void>;
     onUpdated: (cb: (groups: TabGroup[]) => void) => () => void;
   };
+  tabGroups: {
+    list: () => Promise<TabGroup[]>;
+    create: (p: { name: string; color: string; tabIds: string[] }) => Promise<TabGroup>;
+    update: (p: { id: string; patch: object }) => Promise<void>;
+    addTab: (p: { groupId: string; tabId: string }) => Promise<void>;
+    removeTab: (p: { tabId: string }) => Promise<void>;
+    delete: (p: { id: string }) => Promise<void>;
+    onUpdated: (cb: (groups: TabGroup[]) => void) => () => void;
+  };
 };
 
 // ---------------------------------------------------------------------------
