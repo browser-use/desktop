@@ -699,6 +699,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     removeHistory: (id: string): Promise<boolean> =>
       ipcRenderer.invoke('omnibox:remove-history', id),
+
+    getKeywordEngines: (): Promise<Array<{ keyword: string; name: string; template: string }>> =>
+      ipcRenderer.invoke('omnibox:get-keyword-engines'),
   },
 
   // Passwords

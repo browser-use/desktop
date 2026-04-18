@@ -19,11 +19,13 @@ import { ShortcutsStore } from './ShortcutsStore';
 import type { OmniboxSuggestion } from './providers';
 import { assertString } from '../ipc-validators';
 import { mainLogger } from '../logger';
+import { getKeywordEngines } from '../navigation';
 
 const CHANNELS = [
   'omnibox:suggest',
   'omnibox:record-selection',
   'omnibox:remove-history',
+  'omnibox:get-keyword-engines',
 ] as const;
 
 export interface OmniboxIpcOptions {
@@ -151,6 +153,27 @@ export function registerOmniboxHandlers(opts: OmniboxIpcOptions): void {
         }
       }
 
+      // 5. Keyword-search: when input matches "keyword" exactly (no space yet),
+      //    show a "Search with [Engine] — press Tab" suggestion.
+      if (input.length > 0 && !input.includes(' ')) {
+        const engines = getKeywordEngines();
+        const template = engines.get(lower);
+        if (template) {
+          const engineNames: Record<string, string> = {
+            g: 'Google', b: 'Bing', d: 'DuckDuckGo', y: 'Yahoo', e: 'Ecosia', br: 'Brave Search',
+          };
+          const name = engineNames[lower] ?? lower;
+          results.unshift({
+            id: `keyword-search:${lower}`,
+            type: 'keyword-search',
+            title: `Search with ${name}`,
+            url: `keyword:${lower}`,
+            description: 'Press Tab to enter keyword search mode',
+            relevance: 1000,
+          });
+        }
+      }
+
       // Sort by relevance descending, cap at 10
       results.sort((a, b) => b.relevance - a.relevance);
       return results.slice(0, 10);
@@ -181,6 +204,21 @@ export function registerOmniboxHandlers(opts: OmniboxIpcOptions): void {
     mainLogger.debug('omnibox:remove-history', { id });
     if (!historyStore) return false;
     return historyStore.removeEntry(id);
+  });
+
+  // -------------------------------------------------------------------------
+  // omnibox:get-keyword-engines — returns keyword→name map for Tab-to-search UI.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('omnibox:get-keyword-engines', (): Array<{ keyword: string; name: string; template: string }> => {
+    const engines = getKeywordEngines();
+    const engineNames: Record<string, string> = {
+      g: 'Google', b: 'Bing', d: 'DuckDuckGo', y: 'Yahoo', e: 'Ecosia', br: 'Brave Search',
+    };
+    return Array.from(engines.entries()).map(([keyword, template]) => ({
+      keyword,
+      name: engineNames[keyword] ?? keyword,
+      template,
+    }));
   });
 }
 
