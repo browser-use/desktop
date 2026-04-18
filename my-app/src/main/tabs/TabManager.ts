@@ -112,6 +112,8 @@ export class TabManager {
   // for a visible bookmarks bar). The page-hosting WebContentsView is then
   // positioned at CHROME_HEIGHT + chromeOffset.
   private chromeOffset = 0;
+  private sidePanelWidth = 0;
+  private sidePanelPosition: 'left' | 'right' = 'right';
   // Per-tab last find query — lets Cmd+F re-open with the previous query
   // pre-filled (Chrome parity). Session-only; cleared on tab close.
   private lastFindQuery: Map<string, string> = new Map();
@@ -173,6 +175,22 @@ export class TabManager {
     if (next === this.chromeOffset) return;
     this.chromeOffset = next;
     mainLogger.debug('TabManager.setChromeOffset', { offset: next });
+    this.relayout();
+  }
+
+  setSidePanelWidth(width: number): void {
+    const next = Math.max(0, Math.min(600, Math.round(width)));
+    if (next === this.sidePanelWidth) return;
+    this.sidePanelWidth = next;
+    mainLogger.debug('TabManager.setSidePanelWidth', { width: next });
+    this.relayout();
+  }
+
+  setSidePanelPosition(position: 'left' | 'right'): void {
+    if (position !== 'left' && position !== 'right') return;
+    if (position === this.sidePanelPosition) return;
+    this.sidePanelPosition = position;
+    mainLogger.debug('TabManager.setSidePanelPosition', { position });
     this.relayout();
   }
 
@@ -1156,10 +1174,12 @@ export class TabManager {
   private positionView(view: WebContentsView): void {
     const [winWidth, winHeight] = this.win.getContentSize();
     const top = CHROME_HEIGHT + this.chromeOffset;
+    const contentWidth = Math.max(0, winWidth - this.sidePanelWidth);
+    const x = this.sidePanelPosition === 'left' ? this.sidePanelWidth : 0;
     view.setBounds({
-      x: 0,
+      x,
       y: top,
-      width: winWidth,
+      width: contentWidth,
       height: Math.max(0, winHeight - top),
     });
   }

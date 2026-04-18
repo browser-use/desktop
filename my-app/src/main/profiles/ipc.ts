@@ -6,7 +6,7 @@
  * Call unregisterProfileHandlers() on will-quit.
  */
 
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import { mainLogger } from '../logger';
 import type { ProfileStore, Profile } from './ProfileStore';
 import { PROFILE_COLORS } from './ProfileStore';
@@ -25,6 +25,8 @@ const CH_BROWSE_AS_GUEST       = 'profiles:browse-as-guest';
 const CH_GET_SHOW_PICKER       = 'profiles:get-show-picker';
 const CH_SET_SHOW_PICKER       = 'profiles:set-show-picker';
 const CH_GET_PROFILE_COLORS    = 'profiles:get-colors';
+const CH_SWITCH_TO             = 'profiles:switch-to';
+const CH_GET_CURRENT           = 'profiles:get-current';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -32,6 +34,8 @@ const CH_GET_PROFILE_COLORS    = 'profiles:get-colors';
 
 let _profileStore: ProfileStore | null = null;
 let _onProfileSelected: ((profileId: string | null) => void) | null = null;
+let _activeProfileId: string = 'default';
+let _onSwitchProfile: ((profileId: string) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Handler implementations
@@ -113,6 +117,32 @@ function handleGetProfileColors(): readonly string[] {
   return PROFILE_COLORS;
 }
 
+function handleSwitchTo(
+  _event: Electron.IpcMainInvokeEvent,
+  payload: { id: string },
+): void {
+  mainLogger.info(CH_SWITCH_TO, { id: payload?.id });
+  if (!_profileStore) throw new Error('ProfileStore not initialised');
+  const id = assertString(payload?.id, 'id', 100);
+  _profileStore.setLastSelectedProfileId(id);
+
+  mainLogger.info(`${CH_SWITCH_TO}.launching`, { id });
+  // Launch a new app instance for the target profile
+  const args = process.argv.slice(1).filter((a) => !a.startsWith('--profile-id='));
+  args.push(`--profile-id=${id}`);
+  app.relaunch({ args });
+  mainLogger.info(`${CH_SWITCH_TO}.ok`, { id, args });
+}
+
+function handleGetCurrent(): { profileId: string; profile: Profile | null } {
+  mainLogger.info(CH_GET_CURRENT, { activeProfileId: _activeProfileId });
+  if (!_profileStore) return { profileId: _activeProfileId, profile: null };
+  const profiles = _profileStore.getProfiles();
+  const profile = profiles.find((p) => p.id === _activeProfileId) ?? null;
+  mainLogger.info(`${CH_GET_CURRENT}.ok`, { profileId: _activeProfileId, name: profile?.name });
+  return { profileId: _activeProfileId, profile };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -120,6 +150,8 @@ function handleGetProfileColors(): readonly string[] {
 export interface RegisterProfileHandlersOptions {
   profileStore: ProfileStore;
   onProfileSelected: (profileId: string | null) => void;
+  activeProfileId?: string;
+  onSwitchProfile?: (profileId: string) => void;
 }
 
 export function registerProfileHandlers(opts: RegisterProfileHandlersOptions): void {
@@ -127,6 +159,8 @@ export function registerProfileHandlers(opts: RegisterProfileHandlersOptions): v
 
   _profileStore = opts.profileStore;
   _onProfileSelected = opts.onProfileSelected;
+  _activeProfileId = opts.activeProfileId ?? 'default';
+  _onSwitchProfile = opts.onSwitchProfile ?? null;
 
   ipcMain.handle(CH_GET_PROFILES,       handleGetProfiles);
   ipcMain.handle(CH_ADD_PROFILE,        handleAddProfile);
@@ -136,8 +170,10 @@ export function registerProfileHandlers(opts: RegisterProfileHandlersOptions): v
   ipcMain.handle(CH_GET_SHOW_PICKER,    handleGetShowPicker);
   ipcMain.handle(CH_SET_SHOW_PICKER,    handleSetShowPicker);
   ipcMain.handle(CH_GET_PROFILE_COLORS, handleGetProfileColors);
+  ipcMain.handle(CH_SWITCH_TO,          handleSwitchTo);
+  ipcMain.handle(CH_GET_CURRENT,        handleGetCurrent);
 
-  mainLogger.info('profiles.ipc.register.ok', { channelCount: 8 });
+  mainLogger.info('profiles.ipc.register.ok', { channelCount: 10, activeProfileId: _activeProfileId });
 }
 
 export function unregisterProfileHandlers(): void {
@@ -151,9 +187,12 @@ export function unregisterProfileHandlers(): void {
   ipcMain.removeHandler(CH_GET_SHOW_PICKER);
   ipcMain.removeHandler(CH_SET_SHOW_PICKER);
   ipcMain.removeHandler(CH_GET_PROFILE_COLORS);
+  ipcMain.removeHandler(CH_SWITCH_TO);
+  ipcMain.removeHandler(CH_GET_CURRENT);
 
   _profileStore = null;
   _onProfileSelected = null;
+  _onSwitchProfile = null;
 
   mainLogger.info('profiles.ipc.unregister.ok');
 }

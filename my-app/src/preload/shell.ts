@@ -234,6 +234,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
     setChromeHeight: (height: number): Promise<void> =>
       ipcRenderer.invoke('shell:set-chrome-height', height),
+    getPlatform: (): Promise<string> =>
+      ipcRenderer.invoke('shell:get-platform'),
+  },
+
+  // Issue #81 — Three-dot app menu (non-macOS)
+  menu: {
+    showAppMenu: (bounds: { x: number; y: number }): Promise<void> =>
+      ipcRenderer.invoke('menu:show-app-menu', bounds),
   },
 
   // Event listeners
@@ -442,6 +450,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('downloads-state', handler);
       return () => ipcRenderer.removeListener('downloads-state', handler);
     },
+  },
+
+  // Profiles — current profile info + switch
+  profiles: {
+    getAll: (): Promise<{ profiles: Array<{ id: string; name: string; color: string; createdAt: string }>; lastSelectedId: string | null }> =>
+      ipcRenderer.invoke('profiles:get-all'),
+
+    getCurrent: (): Promise<{ profileId: string; profile: { id: string; name: string; color: string } | null }> =>
+      ipcRenderer.invoke('profiles:get-current'),
+
+    add: (payload: { name: string; color: string }): Promise<{ id: string; name: string; color: string }> =>
+      ipcRenderer.invoke('profiles:add', payload),
+
+    switchTo: (id: string): Promise<void> =>
+      ipcRenderer.invoke('profiles:switch-to', { id }),
+
+    getColors: (): Promise<readonly string[]> =>
+      ipcRenderer.invoke('profiles:get-colors'),
   },
 
   // Passwords

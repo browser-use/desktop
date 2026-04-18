@@ -578,6 +578,7 @@ app.whenReady().then(async () => {
     unregisterProfileHandlers();
     unregisterPermissionHandlers();
     unregisterExtensionsHandlers();
+    extensionManager?.dispose();
     downloadManager?.destroy();
     downloadManager = null;
   });

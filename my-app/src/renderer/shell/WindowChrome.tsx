@@ -17,6 +17,9 @@ import { ZoomBadge } from './ZoomBadge';
 import { ProfileMenu } from './ProfileMenu';
 import { DownloadButton } from './DownloadButton';
 import { DownloadBubble } from './DownloadBubble';
+import { AppMenuButton } from './AppMenuButton';
+import { SidePanel, SidePanelToggleButton } from './SidePanel';
+import type { SidePanelId, SidePanelPosition } from './SidePanel';
 import type {
   TabManagerState,
   TabState,
@@ -32,6 +35,7 @@ import type { DownloadItemDTO } from '../../main/downloads/DownloadManager';
 // Layout constants — keep in sync with shell.css.
 const BASE_CHROME_HEIGHT = 82;
 const BOOKMARKS_BAR_HEIGHT = 32;
+const DEFAULT_SIDE_PANEL_WIDTH = 340;
 // Any tab URL starting with this scheme is a new-tab placeholder; the
 // bookmarks bar treats those as "NTP" for the 'ntp-only' visibility mode.
 const NTP_URL_RE = /^(data:|about:blank$)/i;
@@ -92,6 +96,12 @@ declare const electronAPI: {
   };
   shell: {
     setChromeHeight: (height: number) => Promise<void>;
+    setSidePanelWidth: (width: number) => Promise<void>;
+    setSidePanelPosition: (position: 'left' | 'right') => Promise<void>;
+    getPlatform: () => Promise<string>;
+  };
+  menu: {
+    showAppMenu: (bounds: { x: number; y: number }) => Promise<void>;
   };
   on: {
     tabsState: (cb: (state: TabManagerState) => void) => () => void;
@@ -154,6 +164,12 @@ export function WindowChrome(): React.ReactElement {
   const [bubbleOpen, setBubbleOpen] = useState(false);
   const [showOnComplete, setShowOnComplete] = useState(true);
   const autoDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Side panel state
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [sidePanelActiveId, setSidePanelActiveId] = useState<SidePanelId>('bookmarks');
+  const [sidePanelPosition, setSidePanelPosition] = useState<SidePanelPosition>('right');
+  const [sidePanelWidth, setSidePanelWidth] = useState(DEFAULT_SIDE_PANEL_WIDTH);
 
   // Derived active tab
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
@@ -222,6 +238,14 @@ export function WindowChrome(): React.ReactElement {
     electronAPI.shell.setChromeHeight(total);
   }, [barVisible]);
 
+  // Push side panel width to main whenever panel open state or width changes
+  useEffect(() => {
+    const effectiveWidth = sidePanelOpen ? sidePanelWidth : 0;
+    console.log('[WindowChrome] Side panel width changed:', effectiveWidth, 'position:', sidePanelPosition);
+    electronAPI.shell.setSidePanelWidth(effectiveWidth);
+    electronAPI.shell.setSidePanelPosition(sidePanelPosition);
+  }, [sidePanelOpen, sidePanelWidth, sidePanelPosition]);
+
   // ---------------------------------------------------------------------------
   // IPC event subscriptions
   // ---------------------------------------------------------------------------
@@ -270,9 +294,6 @@ export function WindowChrome(): React.ReactElement {
     });
 
     const unsubToggleBar = electronAPI.on.toggleBookmarksBar(() => {
-      // Cmd+Shift+B flips "always" ↔ "never" from whatever the current state
-      // is. When in ntp-only, flip to "always" so the user gets a concrete
-      // change they can see.
       const current = bookmarksTree?.visibility ?? 'always';
       const next: Visibility = current === 'always' ? 'never' : 'always';
       void electronAPI.bookmarks.setVisibility(next);
@@ -322,7 +343,6 @@ export function WindowChrome(): React.ReactElement {
       if (dl.status === 'completed' && showOnComplete) {
         setBubbleOpen(true);
       }
-      // Auto-dismiss after all downloads complete
       scheduleAutoDismiss();
     });
 
@@ -389,8 +409,6 @@ export function WindowChrome(): React.ReactElement {
     if (activeTabId) electronAPI.tabs.showForwardHistory(activeTabId);
   }, [activeTabId]);
 
-  // Issue #25 — Shift-click on the reload button performs a hard reload
-  // (bypasses the HTTP cache). Plain click keeps normal reload behaviour.
   const handleReload = useCallback(
     (hard: boolean) => {
       if (!activeTabId) return;
@@ -433,13 +451,37 @@ export function WindowChrome(): React.ReactElement {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Side panel actions
+  // ---------------------------------------------------------------------------
+  const handleSidePanelToggle = useCallback(() => {
+    setSidePanelOpen((prev) => {
+      const next = !prev;
+      console.log('[WindowChrome] Side panel toggled:', next ? 'open' : 'closed');
+      return next;
+    });
+  }, []);
+
+  const handleSidePanelClose = useCallback(() => {
+    console.log('[WindowChrome] Side panel closed');
+    setSidePanelOpen(false);
+  }, []);
+
+  const handleSidePanelSelect = useCallback((id: SidePanelId) => {
+    console.log('[WindowChrome] Side panel selected:', id);
+    setSidePanelActiveId(id);
+  }, []);
+
+  const handleSidePanelWidthChange = useCallback((width: number) => {
+    setSidePanelWidth(width);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
     <div className="window-chrome">
       {/* Tab strip row */}
       <div className="window-chrome__tab-row">
-        {/* Traffic light spacer (macOS titlebar hidden) */}
         <div className="window-chrome__traffic-light-spacer" aria-hidden="true" />
 
         <TabStrip
@@ -452,7 +494,7 @@ export function WindowChrome(): React.ReactElement {
         />
       </div>
 
-      {/* Toolbar row: history + nav + URL bar */}
+      {/* Toolbar row */}
       <div className="window-chrome__toolbar">
         <NavButtons
           canGoBack={activeTab?.canGoBack ?? false}
@@ -475,7 +517,6 @@ export function WindowChrome(): React.ReactElement {
           onToggleBookmark={handleStarClick}
         />
 
-
         {zoomPercent !== 100 && (
           <ZoomBadge
             percent={zoomPercent}
@@ -485,7 +526,6 @@ export function WindowChrome(): React.ReactElement {
           />
         )}
 
-        {/* Download button + bubble */}
         <div className="download-bubble-anchor">
           <DownloadButton
             hasActiveDownloads={hasActiveDownloads}
@@ -510,10 +550,15 @@ export function WindowChrome(): React.ReactElement {
           )}
         </div>
 
+        <SidePanelToggleButton
+          isOpen={sidePanelOpen}
+          onClick={handleSidePanelToggle}
+        />
+
         <ProfileMenu />
+        <AppMenuButton />
       </div>
 
-      {/* Bookmarks bar (always / ntp-only on NTP) */}
       {barVisible && bookmarksTree && (
         <BookmarksBar
           tree={bookmarksTree}
@@ -527,7 +572,6 @@ export function WindowChrome(): React.ReactElement {
         />
       )}
 
-      {/* Save/Edit dialog */}
       {bookmarkDialogOpen && activeUrl && (
         <BookmarkDialog
           url={activeUrl}
@@ -538,16 +582,20 @@ export function WindowChrome(): React.ReactElement {
         />
       )}
 
-      {/* Permission prompt infobar */}
       <PermissionBar activeTabId={activeTabId} />
-
-      {/* Password save prompt bar */}
       <PasswordPromptBar activeTabId={activeTabId} />
-
-      {/* Find-in-page overlay. Renders null unless Cmd+F was pressed. The
-          overlay is absolutely positioned by CSS so it floats over content
-          without shifting the chrome layout. */}
       <FindBar activeTabId={activeTabId} />
+
+      <SidePanel
+        open={sidePanelOpen}
+        activePanel={sidePanelActiveId}
+        position={sidePanelPosition}
+        width={sidePanelWidth}
+        activeTabId={activeTabId}
+        onClose={handleSidePanelClose}
+        onSelectPanel={handleSidePanelSelect}
+        onWidthChange={handleSidePanelWidthChange}
+      />
     </div>
   );
 }

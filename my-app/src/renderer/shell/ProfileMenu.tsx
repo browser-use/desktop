@@ -1,36 +1,33 @@
 /**
  * ProfileMenu: Chrome-style avatar button + dropdown in the top-right toolbar.
- * Shows current profile, sign-in chip, profile list, and management actions.
+ * Shows current profile, profile list for switching, and add profile action.
+ * Wired to real ProfileStore via IPC (profiles:get-all, profiles:get-current,
+ * profiles:switch-to, profiles:add).
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+declare const electronAPI: {
+  profiles: {
+    getAll: () => Promise<{
+      profiles: Array<{ id: string; name: string; color: string; createdAt: string }>;
+      lastSelectedId: string | null;
+    }>;
+    getCurrent: () => Promise<{
+      profileId: string;
+      profile: { id: string; name: string; color: string } | null;
+    }>;
+    add: (payload: { name: string; color: string }) => Promise<{ id: string; name: string; color: string }>;
+    switchTo: (id: string) => Promise<void>;
+    getColors: () => Promise<readonly string[]>;
+  };
+};
+
 interface Profile {
   id: string;
   name: string;
-  email: string | null;
-  avatarColor: string;
-  isActive: boolean;
+  color: string;
 }
-
-const DEFAULT_PROFILE: Profile = {
-  id: 'default',
-  name: 'Default',
-  email: null,
-  avatarColor: '#5B8DEF',
-  isActive: true,
-};
-
-const AVATAR_COLORS = [
-  '#5B8DEF',
-  '#EF6B6B',
-  '#4ECB71',
-  '#F0A030',
-  '#B07CD8',
-  '#E06090',
-  '#40C0C0',
-  '#8B8B8B',
-];
 
 function getInitial(name: string): string {
   return (name[0] ?? '?').toUpperCase();
@@ -38,18 +35,35 @@ function getInitial(name: string): string {
 
 export function ProfileMenu(): React.ReactElement {
   const [open, setOpen] = useState(false);
-  const [profiles, setProfiles] = useState<Profile[]>([DEFAULT_PROFILE]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [currentProfileId, setCurrentProfileId] = useState<string>('default');
+  const [colors, setColors] = useState<readonly string[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const activeProfile = profiles.find((p) => p.isActive) ?? profiles[0];
+  const currentProfile = profiles.find((p) => p.id === currentProfileId) ?? profiles[0];
+
+  useEffect(() => {
+    console.log('[ProfileMenu] Loading profiles from store');
+    Promise.all([
+      electronAPI.profiles.getAll(),
+      electronAPI.profiles.getCurrent(),
+      electronAPI.profiles.getColors(),
+    ]).then(([allData, currentData, colorsData]) => {
+      console.log('[ProfileMenu] Loaded profiles:', allData.profiles.length, 'current:', currentData.profileId);
+      setProfiles(allData.profiles);
+      setCurrentProfileId(currentData.profileId);
+      setColors(colorsData);
+    }).catch((err) => {
+      console.error('[ProfileMenu] Failed to load profiles:', err);
+    });
+  }, []);
 
   const toggle = useCallback(() => {
     console.log('[ProfileMenu] Toggle dropdown, currently:', open ? 'open' : 'closed');
     setOpen((prev) => !prev);
   }, [open]);
 
-  // Close on outside click or Escape
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
@@ -77,44 +91,37 @@ export function ProfileMenu(): React.ReactElement {
 
   const handleSwitchProfile = useCallback((id: string) => {
     console.log('[ProfileMenu] Switch to profile:', id);
-    setProfiles((prev) =>
-      prev.map((p) => ({ ...p, isActive: p.id === id })),
-    );
     setOpen(false);
+    electronAPI.profiles.switchTo(id).catch((err) => {
+      console.error('[ProfileMenu] Switch failed:', err);
+    });
   }, []);
 
   const handleAddProfile = useCallback(() => {
-    const newId = `profile-${Date.now()}`;
-    const colorIndex = profiles.length % AVATAR_COLORS.length;
+    const colorIndex = profiles.length % (colors.length || 10);
     const name = `Person ${profiles.length + 1}`;
-    console.log('[ProfileMenu] Adding new profile:', name);
-    setProfiles((prev) => [
-      ...prev.map((p) => ({ ...p, isActive: false })),
-      {
-        id: newId,
-        name,
-        email: null,
-        avatarColor: AVATAR_COLORS[colorIndex],
-        isActive: true,
-      },
-    ]);
+    const color = colors[colorIndex] ?? '#6366f1';
+    console.log('[ProfileMenu] Adding new profile:', name, color);
     setOpen(false);
-  }, [profiles.length]);
+    electronAPI.profiles.add({ name, color }).then((newProfile) => {
+      console.log('[ProfileMenu] Profile created:', newProfile.id);
+      setProfiles((prev) => [...prev, newProfile]);
+      electronAPI.profiles.switchTo(newProfile.id).catch((err) => {
+        console.error('[ProfileMenu] Switch to new profile failed:', err);
+      });
+    }).catch((err) => {
+      console.error('[ProfileMenu] Add profile failed:', err);
+    });
+  }, [profiles.length, colors]);
 
   const handleOpenGuest = useCallback(() => {
     console.log('[ProfileMenu] Opening guest window');
     setOpen(false);
   }, []);
 
-  const handleManageProfiles = useCallback(() => {
-    console.log('[ProfileMenu] Opening profile manager');
-    setOpen(false);
-  }, []);
-
-  const handleManageAccount = useCallback(() => {
-    console.log('[ProfileMenu] Opening Google Account management');
-    setOpen(false);
-  }, []);
+  if (!currentProfile) {
+    return <div className="profile-menu" />;
+  }
 
   return (
     <div className="profile-menu">
@@ -126,13 +133,13 @@ export function ProfileMenu(): React.ReactElement {
         aria-expanded={open}
         aria-haspopup="true"
         onClick={toggle}
-        title={activeProfile.name}
+        title={currentProfile.name}
       >
         <span
           className="profile-menu__avatar"
-          style={{ background: activeProfile.avatarColor }}
+          style={{ background: currentProfile.color }}
         >
-          {getInitial(activeProfile.name)}
+          {getInitial(currentProfile.name)}
         </span>
       </button>
 
@@ -147,45 +154,16 @@ export function ProfileMenu(): React.ReactElement {
           <div className="profile-menu__current">
             <span
               className="profile-menu__current-avatar"
-              style={{ background: activeProfile.avatarColor }}
+              style={{ background: currentProfile.color }}
             >
-              {getInitial(activeProfile.name)}
+              {getInitial(currentProfile.name)}
             </span>
             <div className="profile-menu__current-info">
               <span className="profile-menu__current-name">
-                {activeProfile.name}
+                {currentProfile.name}
               </span>
-              {activeProfile.email ? (
-                <span className="profile-menu__current-email">
-                  {activeProfile.email}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="profile-menu__sign-in-chip"
-                  role="menuitem"
-                  onClick={() => {
-                    console.log('[ProfileMenu] Sign in clicked');
-                    setOpen(false);
-                  }}
-                >
-                  Sign in
-                </button>
-              )}
             </div>
           </div>
-
-          {/* Manage Google Account link (only if signed in) */}
-          {activeProfile.email && (
-            <button
-              type="button"
-              className="profile-menu__manage-account"
-              role="menuitem"
-              onClick={handleManageAccount}
-            >
-              Manage your Google Account
-            </button>
-          )}
 
           <div className="profile-menu__divider" />
 
@@ -194,7 +172,7 @@ export function ProfileMenu(): React.ReactElement {
             <>
               <div className="profile-menu__section-label">Other profiles</div>
               {profiles
-                .filter((p) => !p.isActive)
+                .filter((p) => p.id !== currentProfileId)
                 .map((profile) => (
                   <button
                     key={profile.id}
@@ -205,7 +183,7 @@ export function ProfileMenu(): React.ReactElement {
                   >
                     <span
                       className="profile-menu__item-avatar"
-                      style={{ background: profile.avatarColor }}
+                      style={{ background: profile.color }}
                     >
                       {getInitial(profile.name)}
                     </span>
@@ -262,33 +240,6 @@ export function ProfileMenu(): React.ReactElement {
               </svg>
             </span>
             <span className="profile-menu__item-name">Open Guest</span>
-          </button>
-
-          <div className="profile-menu__divider" />
-
-          {/* Manage profiles */}
-          <button
-            type="button"
-            className="profile-menu__item"
-            role="menuitem"
-            onClick={handleManageProfiles}
-          >
-            <span className="profile-menu__item-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M8 10a3 3 0 100-6 3 3 0 000 6z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.1 3.1l.7.7M12.2 12.2l.7.7M3.1 12.9l.7-.7M12.2 3.8l.7-.7"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </span>
-            <span className="profile-menu__item-name">Manage profiles</span>
           </button>
         </div>
       )}

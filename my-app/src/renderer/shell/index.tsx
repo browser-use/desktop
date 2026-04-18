@@ -18,6 +18,7 @@ import '../design/theme.global.css';
 import './shell.css';
 import './components.css';
 import './downloads.css';
+import './sidepanel.css';
 
 window.addEventListener('error', (e) => {
   console.error('renderer.error', { message: e.message, file: e.filename, line: e.lineno });
