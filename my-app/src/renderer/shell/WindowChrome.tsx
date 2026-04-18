@@ -136,6 +136,7 @@ declare const electronAPI: {
     openBookmarkDialog: (cb: () => void) => () => void;
     toggleBookmarksBar: (cb: () => void) => () => void;
     focusBookmarksBar: (cb: () => void) => () => void;
+    fullscreenChanged: (cb: (payload: { isFullscreen: boolean }) => void) => () => void;
     zoomChanged: (cb: (payload: { percent: number }) => void) => () => void;
     permissionPrompt: (
       cb: (data: { id: string; tabId: string | null; origin: string; permissionType: string; isMainFrame: boolean }) => void,
@@ -180,6 +181,10 @@ export function WindowChrome(): React.ReactElement {
   const [bookmarksTree, setBookmarksTree] = useState<PersistedBookmarks | null>(null);
   const [bookmarkDialogOpen, setBookmarkDialogOpen] = useState(false);
   const [focusBookmarksBarTick, setFocusBookmarksBarTick] = useState(0);
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [chromeRevealed, setChromeRevealed] = useState(false);
 
   // Downloads state
   const [downloads, setDownloads] = useState<DownloadItemDTO[]>([]);
@@ -333,6 +338,11 @@ export function WindowChrome(): React.ReactElement {
       setFocusBookmarksBarTick((n) => n + 1);
     });
 
+    const unsubFullscreen = electronAPI.on.fullscreenChanged(({ isFullscreen: fs }) => {
+      setIsFullscreen(fs);
+      setChromeRevealed(false);
+    });
+
     return () => {
       unsubTabsState();
       unsubTabUpdated();
@@ -347,6 +357,7 @@ export function WindowChrome(): React.ReactElement {
       unsubOpenDialog();
       unsubToggleBar();
       unsubFocusBar();
+      unsubFullscreen();
     };
   }, [bookmarksTree?.visibility]);
 
@@ -555,7 +566,7 @@ export function WindowChrome(): React.ReactElement {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="window-chrome">
+    <div className={['window-chrome', isFullscreen ? 'window-chrome--fullscreen' : ''].filter(Boolean).join(' ')}>
       {/* Tab strip row */}
       <div className="window-chrome__tab-row">
         <div className="window-chrome__traffic-light-spacer" aria-hidden="true" />
