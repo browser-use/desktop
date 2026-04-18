@@ -78,7 +78,7 @@ export function parseNavigationInput(input: string, findMatchingUrl?: UrlMatchFn
     const keyword = trimmed.slice(0, firstSpaceIdx).toLowerCase();
     const query = trimmed.slice(firstSpaceIdx + 1);
     const template = keywordEngines.get(keyword);
-    if (template && query.trim()) {
+    if (template && template.includes('%s') && query.trim()) {
       const url = template.replace('%s', encodeURIComponent(query.trim()));
       mainLogger.info('navigation.parse.keywordSearch', { keyword, query, url });
       return url;
