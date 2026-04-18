@@ -273,7 +273,8 @@ export function DownloadsPage(): React.ReactElement {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // React 19's useRef signature requires an explicit initial value.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const fetchDownloads = useCallback(async () => {
