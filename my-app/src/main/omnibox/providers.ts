@@ -33,6 +33,7 @@ export type SuggestionType =
   | 'shortcut'
   | 'featured'
   | 'keyword'
+  | 'keyword-search'
   | 'zero-suggest'
   | 'url';
 
@@ -52,6 +53,12 @@ export interface OmniboxSuggestion {
   favicon?: string | null;
   /** Whether pressing → fills the input rather than navigating */
   allowTabCompletion?: boolean;
+  /**
+   * For keyword mode-enter suggestions (type === 'keyword' with allowTabCompletion):
+   * the keyword string (e.g. "@bing") so the URLBar can enter keyword mode
+   * by filling "<keyword> " into the input instead of navigating.
+   */
+  keywordTrigger?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -420,16 +427,18 @@ export function keywordProvider(input: string): OmniboxSuggestion[] {
   const trimmed = input.trim();
   for (const [keyword, engine] of Object.entries(SEARCH_ENGINES)) {
     if (trimmed === keyword) {
-      // Show mode-enter hint
+      // Mode-enter hint: selecting this suggestion fills "<keyword> " into the
+      // input so the user can type a query, rather than navigating immediately.
       return [
         {
           id: `keyword-mode-${keyword}`,
           type: 'keyword',
           title: `Search ${engine.name}`,
           url: engine.template.replace('%s', ''),
-          description: `Press Tab to search ${engine.name}`,
+          description: `Type a search query for ${engine.name}`,
           relevance: 1000,
           allowTabCompletion: true,
+          keywordTrigger: keyword,
         },
       ];
     }
@@ -458,6 +467,7 @@ export function keywordProvider(input: string): OmniboxSuggestion[] {
           description: `Keyword: ${keyword}`,
           relevance: 800,
           allowTabCompletion: true,
+          keywordTrigger: keyword,
         },
       ];
     }

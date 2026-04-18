@@ -14,11 +14,13 @@ import type { ShortcutsStore } from './ShortcutsStore';
 import type { HistoryStore } from '../history/HistoryStore';
 import type { BookmarkStore } from '../bookmarks/BookmarkStore';
 import { mainLogger } from '../logger';
+import { getKeywordEngines } from '../navigation';
 
 const CHANNELS = [
   'omnibox:suggest',
   'omnibox:record-selection',
   'omnibox:remove-history',
+  'omnibox:get-keyword-engines',
 ] as const;
 
 export interface OmniboxIpcOptions {
@@ -74,6 +76,21 @@ export function registerOmniboxHandlers(opts: OmniboxIpcOptions): void {
     assertString(id, 'id', 128);
     mainLogger.debug('omnibox:remove-history', { id });
     return historyStore.removeEntry(id);
+  });
+
+  // -------------------------------------------------------------------------
+  // omnibox:get-keyword-engines — returns keyword→name map for Tab-to-search UI.
+  // -------------------------------------------------------------------------
+  ipcMain.handle('omnibox:get-keyword-engines', (): Array<{ keyword: string; name: string; template: string }> => {
+    const engines = getKeywordEngines();
+    const engineNames: Record<string, string> = {
+      g: 'Google', b: 'Bing', d: 'DuckDuckGo', y: 'Yahoo', e: 'Ecosia', br: 'Brave Search',
+    };
+    return Array.from(engines.entries()).map(([keyword, template]) => ({
+      keyword,
+      name: engineNames[keyword] ?? keyword,
+      template,
+    }));
   });
 }
 
