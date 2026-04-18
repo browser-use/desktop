@@ -2,8 +2,6 @@
 // Migrated from .eslintrc.json for eslint v10 + @typescript-eslint v8
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const tsParser = require('@typescript-eslint/parser');
-const { fixupPluginRules } = require('@eslint/compat');
-const importPlugin = require('eslint-plugin-import');
 const importXPlugin = require('eslint-plugin-import-x');
 const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const js = require('@eslint/js');
@@ -46,14 +44,10 @@ module.exports = [
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
-      'import': fixupPluginRules(importPlugin),
       'import-x': importXPlugin,
       'react-hooks': reactHooksPlugin,
     },
     settings: {
-      'import/resolver': {
-        node: true,
-      },
       'import-x/resolver': {
         node: true,
       },
@@ -76,7 +70,6 @@ module.exports = [
       '@typescript-eslint/no-unsafe-function-type': 'warn',
 
       // Import rules
-      'import/no-duplicates': 'warn',
       'import-x/no-duplicates': 'warn',
 
       // React hooks rules
@@ -100,7 +93,6 @@ module.exports = [
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/ban-types': 'off',
       '@typescript-eslint/ban-ts-comment': 'off',
-      'import/no-unresolved': 'off',
       'import-x/no-unresolved': 'off',
     },
   },
@@ -109,7 +101,6 @@ module.exports = [
   {
     files: ['vitest*.config.ts', 'vite*.config.ts', 'scripts/**/*.ts'],
     rules: {
-      'import/no-unresolved': 'off',
       'import-x/no-unresolved': 'off',
     },
   },
