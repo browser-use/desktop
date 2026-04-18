@@ -45,6 +45,10 @@ export default defineConfig({
       'tests/unit/settings/**/*.spec.ts',
       // Issue #222 — content-category policies actually enforced at runtime
       'tests/unit/content-categories/**/*.spec.ts',
+      // Profile-scoped stores (Issue #208 — bookmarks/history/passwords/autofill
+      // must each persist under <userData>/profiles/<id>/ not the shared root).
+      'tests/unit/bookmarks/**/*.spec.ts',
+      'tests/unit/autofill/**/*.spec.ts',
     ],
     exclude: ['tests/e2e/**', 'tests/parity/**'],
     // Renderer .spec.tsx files declare jsdom via the per-file

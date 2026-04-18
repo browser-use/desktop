@@ -1,13 +1,17 @@
 /**
  * PasswordStore — encrypted credential storage.
  *
- * Stores saved website credentials in userData/passwords.json, encrypted
- * via Electron's safeStorage API. Each entry contains origin, username,
+ * Stores saved website credentials in passwords.json, encrypted via
+ * Electron's safeStorage API. Each entry contains origin, username,
  * and an encrypted password buffer (base64-encoded).
  *
  * Also maintains a "never save" list of origins the user has opted out of.
  *
  * Follows the BookmarkStore pattern: debounced atomic writes, in-memory state.
+ *
+ * Issue #208: persistence is scoped to a caller-supplied data dir so each
+ * profile has its own saved passwords. The default profile uses `<userData>/`
+ * directly (see ProfileContext.getProfileDataDir).
  */
 
 import { app, safeStorage } from 'electron';
@@ -42,21 +46,31 @@ function makeEmpty(): PersistedPasswords {
   };
 }
 
-function getPasswordsPath(): string {
-  return path.join(app.getPath('userData'), PASSWORDS_FILE_NAME);
-}
-
 export class PasswordStore {
+  private readonly filePath: string;
   private state: PersistedPasswords;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  /**
+   * @param dataDir Absolute directory for passwords.json. Defaults to
+   *   `app.getPath('userData')` for back-compat with tests and the default
+   *   profile.
+   */
+  constructor(dataDir?: string) {
+    const dir = dataDir ?? app.getPath('userData');
+    this.filePath = path.join(dir, PASSWORDS_FILE_NAME);
     this.state = this.load();
     mainLogger.info('PasswordStore.init', {
+      filePath: this.filePath,
       credentialCount: this.state.credentials.length,
       neverSaveCount: this.state.neverSaveOrigins.length,
     });
+  }
+
+  /** @internal — test helper; returns the resolved passwords.json path. */
+  getFilePath(): string {
+    return this.filePath;
   }
 
   // ---------------------------------------------------------------------------
@@ -65,7 +79,7 @@ export class PasswordStore {
 
   private load(): PersistedPasswords {
     try {
-      const raw = fs.readFileSync(getPasswordsPath(), 'utf-8');
+      const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as PersistedPasswords;
       if (parsed.version !== 1 || !Array.isArray(parsed.credentials)) {
         mainLogger.warn('PasswordStore.load.invalid', { msg: 'Resetting passwords store' });
@@ -91,8 +105,9 @@ export class PasswordStore {
   flushSync(): void {
     if (!this.dirty) return;
     try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
       fs.writeFileSync(
-        getPasswordsPath(),
+        this.filePath,
         JSON.stringify(this.state, null, 2),
         'utf-8',
       );
@@ -107,6 +122,18 @@ export class PasswordStore {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+  }
+
+  /**
+   * Cancel any pending debounced write and flush what's in memory. Use before
+   * disposing this store on a profile switch.
+   */
+  dispose(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.flushSync();
   }
 
   // ---------------------------------------------------------------------------

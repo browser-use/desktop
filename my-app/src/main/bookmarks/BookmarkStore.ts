@@ -1,9 +1,14 @@
 /**
  * BookmarkStore — persistent bookmark tree.
  *
- * Reuses the SessionStore pattern: debounced atomic writes to userData/bookmarks.json
+ * Reuses the SessionStore pattern: debounced atomic writes to bookmarks.json
  * (300ms). Two fixed top-level folders: "Bookmarks bar" and "Other bookmarks".
  * Never deletable, ids are stable.
+ *
+ * Issue #208: storage is scoped to a caller-supplied data dir so each profile
+ * keeps its own bookmarks. The default profile uses `<userData>/` directly
+ * (see ProfileContext.getProfileDataDir), so a fresh install keeps reading
+ * legacy `<userData>/bookmarks.json` with no migration needed.
  */
 
 import { app } from 'electron';
@@ -62,17 +67,26 @@ function makeEmpty(): PersistedBookmarks {
   };
 }
 
-function getBookmarksPath(): string {
-  return path.join(app.getPath('userData'), BOOKMARKS_FILE_NAME);
-}
-
 export class BookmarkStore {
+  private readonly filePath: string;
   private state: PersistedBookmarks;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  /**
+   * @param dataDir Absolute directory for bookmarks.json. Defaults to
+   *   `app.getPath('userData')` for back-compat with tests and the default
+   *   profile.
+   */
+  constructor(dataDir?: string) {
+    const dir = dataDir ?? app.getPath('userData');
+    this.filePath = path.join(dir, BOOKMARKS_FILE_NAME);
     this.state = this.load();
+  }
+
+  /** @internal — test helper; returns the resolved bookmarks.json path. */
+  getFilePath(): string {
+    return this.filePath;
   }
 
   // ---------------------------------------------------------------------------
@@ -81,7 +95,7 @@ export class BookmarkStore {
 
   private load(): PersistedBookmarks {
     try {
-      const raw = fs.readFileSync(getBookmarksPath(), 'utf-8');
+      const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as PersistedBookmarks;
       if (
         parsed.version !== 1 ||
@@ -92,12 +106,16 @@ export class BookmarkStore {
         return makeEmpty();
       }
       mainLogger.info('BookmarkStore.load.ok', {
+        filePath: this.filePath,
         visibility: parsed.visibility,
         barChildren: parsed.roots[0].children?.length ?? 0,
       });
       return parsed;
     } catch {
-      mainLogger.info('BookmarkStore.load.fresh', { msg: 'No bookmarks.json — starting fresh' });
+      mainLogger.info('BookmarkStore.load.fresh', {
+        msg: 'No bookmarks.json — starting fresh',
+        filePath: this.filePath,
+      });
       return makeEmpty();
     }
   }
@@ -111,13 +129,14 @@ export class BookmarkStore {
   flushSync(): void {
     if (!this.dirty) return;
     try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
       fs.writeFileSync(
-        getBookmarksPath(),
+        this.filePath,
         JSON.stringify(this.state, null, 2),
         'utf-8',
       );
       mainLogger.info('BookmarkStore.flushSync.ok', {
-        path: getBookmarksPath(),
+        path: this.filePath,
       });
     } catch (err) {
       mainLogger.error('BookmarkStore.flushSync.failed', {
@@ -129,6 +148,19 @@ export class BookmarkStore {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+  }
+
+  /**
+   * Cancel any pending debounced write and flush what's in memory. Use before
+   * disposing this store on a profile switch so nothing gets written back to
+   * the previous profile's file after the next store takes over.
+   */
+  dispose(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.flushSync();
   }
 
   // ---------------------------------------------------------------------------

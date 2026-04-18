@@ -141,6 +141,23 @@ type FlushableFactoryResetStores = FactoryResetStores & {
 
 let _resetStores: FlushableFactoryResetStores | null = null;
 
+/**
+ * Swap in a fresh set of factory-reset stores at runtime. Used by main when a
+ * profile switch disposes + recreates profile-scoped stores (bookmarks,
+ * history, passwords, autofill) — the settings IPC keeps the direct refs, so
+ * we have to refresh them or factory reset would operate on the wrong (or
+ * flushed-and-discarded) stores.
+ */
+export function updateFactoryResetStores(stores: FlushableFactoryResetStores): void {
+  _resetStores = stores;
+  mainLogger.info('settings.ipc.updateFactoryResetStores', {
+    hasBookmarkStore: !!stores.bookmarkStore,
+    hasHistoryStore: !!stores.historyStore,
+    hasPasswordStore: !!stores.passwordStore,
+    hasAutofillStore: !!stores.autofillStore,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

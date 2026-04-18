@@ -48,7 +48,7 @@ import { handleHlSubmit, handleHlCancel, teardown as teardownHl } from './hlPill
 import { getEngine, setEngine, type EngineId } from './hl/engine';
 // Track 5 — Settings
 import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
-import { registerSettingsHandlers, unregisterSettingsHandlers, openClearDataDialogFromMenu } from './settings/ipc';
+import { registerSettingsHandlers, unregisterSettingsHandlers, openClearDataDialogFromMenu, updateFactoryResetStores } from './settings/ipc';
 // Issue #200 — ClearDataController needs the password store + download manager
 // wired in so the passwords/downloads checkboxes actually wipe app-local data.
 import { setPrivacyStoreDeps } from './privacy/ClearDataController';
@@ -668,6 +668,122 @@ function openGuestWindow(partition: string, initialUrl?: string): BrowserWindow 
 }
 
 // ---------------------------------------------------------------------------
+// Issue #208 — Profile-scoped stores.
+//
+// Bookmarks, history, passwords, and autofill now persist under the active
+// profile's data dir. `--profile-id=<id>` (passed on relaunch by
+// handleSwitchTo) takes precedence over the last-selected preference so the
+// relaunched process lands on the requested profile. Falls back to the
+// stored lastSelected, then to 'default'.
+// ---------------------------------------------------------------------------
+function resolveInitialProfileId(
+  argv: readonly string[],
+  store: ProfileStore,
+): string {
+  const flagged = argv.find((a) => a.startsWith('--profile-id='));
+  const cliId = flagged?.slice('--profile-id='.length).trim();
+  if (cliId) {
+    const match = store.getProfiles().some((p) => p.id === cliId);
+    if (match) {
+      mainLogger.info('main.resolveInitialProfileId.cli', { profileId: cliId });
+      return cliId;
+    }
+    mainLogger.warn('main.resolveInitialProfileId.cliUnknown', {
+      profileId: cliId,
+      msg: 'Unknown profile id from --profile-id=, falling back to lastSelected',
+    });
+  }
+  const last = store.getLastSelectedProfileId();
+  if (last && store.getProfiles().some((p) => p.id === last)) {
+    return last;
+  }
+  return 'default';
+}
+
+/**
+ * Construct bookmark / history / password / autofill stores bound to the
+ * given profile's data dir and register their IPC handlers. Called once at
+ * startup and again inside resetProfileScopedStores on in-process switch.
+ */
+function initProfileScopedStores(profileId: string): void {
+  const dataDir = getProfileDataDir(profileId);
+  mainLogger.info('main.initProfileScopedStores', { profileId, dataDir });
+
+  bookmarkStore = new BookmarkStore(dataDir);
+  historyStore = new HistoryStore(dataDir);
+  passwordStore = new PasswordStore(dataDir);
+  autofillStore = new AutofillStore(dataDir);
+
+  registerBookmarkHandlers({
+    store: bookmarkStore,
+    getShellWindow: () => shellWindow,
+    getAllTabs: () =>
+      tabManager ? tabManager.getAllTabSummaries() : [],
+  });
+  registerHistoryHandlers({ store: historyStore });
+  registerPasswordHandlers({ store: passwordStore });
+  registerAutofillHandlers({ store: autofillStore });
+
+  if (tabManager) tabManager.setPasswordStore(passwordStore);
+  if (tabManager) tabManager.setHistoryStore(historyStore);
+}
+
+/**
+ * Dispose the existing profile-scoped stores + tear down their IPC handlers,
+ * then reconstruct them against the new profile's data dir and re-register
+ * every consumer that holds direct refs to the old instances (omnibox,
+ * privacy clear-data, factory reset).
+ *
+ * Called when a profile is selected in-process from the picker (the relaunch
+ * path via handleSwitchTo doesn't need this — it spins up a fresh process).
+ */
+function resetProfileScopedStores(newProfileId: string): void {
+  mainLogger.info('main.resetProfileScopedStores', { newProfileId });
+
+  // Flush + stop the old stores before we forget them.
+  bookmarkStore?.dispose();
+  historyStore?.dispose();
+  passwordStore?.dispose();
+  autofillStore?.dispose();
+
+  // Tear down IPC handlers that close over the old instances.
+  unregisterBookmarkHandlers();
+  unregisterHistoryHandlers();
+  unregisterPasswordHandlers();
+  unregisterAutofillHandlers();
+  unregisterOmniboxHandlers();
+
+  initProfileScopedStores(newProfileId);
+
+  // Re-wire every consumer that holds a direct ref to the stores.
+  if (shortcutsStore && historyStore && bookmarkStore) {
+    registerOmniboxHandlers({
+      shortcutsStore,
+      historyStore,
+      bookmarkStore,
+      getOpenTabs: () =>
+        tabManager
+          ? tabManager.getAllTabSummaries().map((s) => ({ title: s.name, url: s.url }))
+          : [],
+    });
+  }
+  // ClearDataController holds a direct ref to the password store.
+  setPrivacyStoreDeps({ passwordStore });
+  // Settings factory-reset holds direct refs to all four.
+  updateFactoryResetStores({
+    bookmarkStore: bookmarkStore ?? undefined,
+    historyStore: historyStore ?? undefined,
+    passwordStore: passwordStore ?? undefined,
+    autofillStore: autofillStore ?? undefined,
+    permissionStore: permissionStore ?? undefined,
+    deviceStore: deviceStore ?? undefined,
+    contentCategoryStore: contentCategoryStore ?? undefined,
+  });
+
+  mainLogger.info('main.resetProfileScopedStores.ok', { newProfileId });
+}
+
+// ---------------------------------------------------------------------------
 // App ready
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
@@ -685,12 +801,18 @@ app.whenReady().then(async () => {
     },
   });
 
-  // Wave1 P3 — Bookmarks: init store + register IPC before the shell loads.
-  // NOTE: BookmarkStore/PasswordStore/HistoryStore currently key off
-  // `app.getPath('userData')` internally and ignore the active profile.
-  // Profile-scoped persistence for those stores is tracked as a follow-up;
-  // only PermissionStore accepts a data dir today.
-  bookmarkStore = new BookmarkStore();
+  // Issue #45 — Profile picker store must exist BEFORE the profile-scoped
+  // stores so we can resolve `activeProfileId` from the last-selected entry
+  // (or the --profile-id= CLI arg passed by relaunch).
+  profileStore = new ProfileStore();
+  activeProfileId = resolveInitialProfileId(process.argv, profileStore);
+  mainLogger.info('main.initialProfile', { activeProfileId });
+
+  // Issue #208: construct profile-scoped stores with the active profile's
+  // data dir so switching profiles actually isolates bookmarks / history /
+  // passwords / autofill. Re-runs on in-process profile switch.
+  initProfileScopedStores(activeProfileId);
+
   permissionStore = new PermissionStore(getProfileDataDir(activeProfileId));
   protocolHandlerStore = new ProtocolHandlerStore(getProfileDataDir(activeProfileId));
   deviceStore = new DeviceStore(getProfileDataDir(activeProfileId));
@@ -707,25 +829,10 @@ app.whenReady().then(async () => {
   } catch (err) {
     mainLogger.error('main.contentPolicyEnforcer.installFailed', { error: (err as Error).message });
   }
-  registerBookmarkHandlers({
-    store: bookmarkStore,
-    getShellWindow: () => shellWindow,
-    getAllTabs: () =>
-      tabManager ? tabManager.getAllTabSummaries() : [],
-  });
+  // Note: BookmarkStore's IPC handlers are registered inside
+  // initProfileScopedStores (above) so they bind to the profile-scoped
+  // instance.
 
-  // Password Manager: init store + register IPC.
-  // See comment above re: profile-scoped persistence follow-up.
-  passwordStore = new PasswordStore();
-  registerPasswordHandlers({ store: passwordStore });
-  if (tabManager) tabManager.setPasswordStore(passwordStore);
-
-  // Issue #70 — Autofill: init store + register IPC.
-  autofillStore = new AutofillStore();
-  registerAutofillHandlers({ store: autofillStore });
-
-  // Issue #45 — Profile picker: init store + register IPC
-  profileStore = new ProfileStore();
   registerProfileHandlers({
     activeProfileId,
     profileStore,
@@ -734,22 +841,28 @@ app.whenReady().then(async () => {
       if (profileId === null) {
         openGuestShell();
       } else {
-        activeProfileId = profileId ?? 'default';
+        const newId = profileId ?? 'default';
+        // Re-scope persistent stores to the newly-selected profile before
+        // opening its shell. Without this, bookmarks/history/passwords/
+        // autofill would stay bound to the previous profile's files.
+        if (newId !== activeProfileId) {
+          mainLogger.info('main.profileSelected.swap', { from: activeProfileId, to: newId });
+          activeProfileId = newId;
+          resetProfileScopedStores(activeProfileId);
+        } else {
+          activeProfileId = newId;
+        }
         openShellAndWire();
       }
     },
   });
 
-  // Issue #40 — History: init store + register IPC.
-  // See comment above re: profile-scoped persistence follow-up.
-  historyStore = new HistoryStore();
-  registerHistoryHandlers({ store: historyStore });
-
-  // Issue #17 — Omnibox autocomplete providers
+  // Issue #17 — Omnibox autocomplete providers.
+  // `historyStore` / `bookmarkStore` were set by initProfileScopedStores above.
   shortcutsStore = new ShortcutsStore();
   registerOmniboxHandlers({
     shortcutsStore,
-    historyStore,
+    historyStore: historyStore!,
     bookmarkStore: bookmarkStore!,
     getOpenTabs: () => tabManager ? tabManager.getAllTabSummaries().map((s) => ({ title: s.name, url: s.url })) : [],
   });
@@ -988,12 +1101,14 @@ app.whenReady().then(async () => {
     });
 
   } else {
-    // Returning user — check if profile picker should be shown
+    // Returning user — check if profile picker should be shown.
+    // `activeProfileId` was already resolved up top from --profile-id= (if a
+    // relaunch passed it) or the last-selected profile.
     const showProfilePicker = profileStore?.getShowPickerOnLaunch() ?? false;
-    activeProfileId = profileStore?.getLastSelectedProfileId() ?? 'default';
     mainLogger.info('main.onboardingGate.returning', {
       msg: 'Returning user',
       showProfilePicker,
+      activeProfileId,
     });
 
     if (showProfilePicker) {

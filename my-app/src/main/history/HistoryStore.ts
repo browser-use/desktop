@@ -2,8 +2,12 @@
  * HistoryStore — persistent browsing history.
  *
  * Follows the BookmarkStore pattern: debounced atomic writes to
- * userData/history.json (300ms). Entries are stored reverse-chronologically.
+ * history.json (300ms). Entries are stored reverse-chronologically.
  * Supports full-text search across title + URL and date-grouped queries.
+ *
+ * Issue #208: persistence is scoped to a caller-supplied data dir so each
+ * profile has its own history. The default profile uses `<userData>/`
+ * directly (see ProfileContext.getProfileDataDir).
  */
 
 import { app } from 'electron';
@@ -39,10 +43,6 @@ export interface HistoryQueryResult {
   totalCount: number;
 }
 
-function getHistoryPath(): string {
-  return path.join(app.getPath('userData'), HISTORY_FILE_NAME);
-}
-
 let nextId = 1;
 
 function generateId(): string {
@@ -50,17 +50,30 @@ function generateId(): string {
 }
 
 export class HistoryStore {
+  private readonly filePath: string;
   private entries: HistoryEntry[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  /**
+   * @param dataDir Absolute directory for history.json. Defaults to
+   *   `app.getPath('userData')` for back-compat with tests and the default
+   *   profile.
+   */
+  constructor(dataDir?: string) {
+    const dir = dataDir ?? app.getPath('userData');
+    this.filePath = path.join(dir, HISTORY_FILE_NAME);
     this.load();
+  }
+
+  /** @internal — test helper; returns the resolved history.json path. */
+  getFilePath(): string {
+    return this.filePath;
   }
 
   private load(): void {
     try {
-      const raw = fs.readFileSync(getHistoryPath(), 'utf-8');
+      const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as PersistedHistory;
       if (parsed.version === 1 && Array.isArray(parsed.entries)) {
         this.entries = parsed.entries;
@@ -95,13 +108,26 @@ export class HistoryStore {
     }
     try {
       const data: PersistedHistory = { version: 1, entries: this.entries };
-      fs.writeFileSync(getHistoryPath(), JSON.stringify(data), 'utf-8');
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.writeFileSync(this.filePath, JSON.stringify(data), 'utf-8');
       mainLogger.debug('HistoryStore.flush.ok', { count: this.entries.length });
     } catch (err) {
       mainLogger.error('HistoryStore.flush.failed', {
         error: (err as Error).message,
       });
     }
+  }
+
+  /**
+   * Cancel any pending debounced write and flush what's in memory. Use before
+   * disposing this store on a profile switch.
+   */
+  dispose(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.flushSync();
   }
 
   addVisit(url: string, title: string, favicon: string | null = null): HistoryEntry {

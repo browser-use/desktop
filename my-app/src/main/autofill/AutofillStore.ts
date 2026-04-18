@@ -1,11 +1,15 @@
 /**
  * AutofillStore — encrypted storage for addresses and payment cards.
  *
- * Stores addresses and cards in userData/autofill.json.
+ * Stores addresses and cards in autofill.json.
  * Card numbers are encrypted via Electron's safeStorage API (same as PasswordStore).
  * CVC is NEVER stored — it is collected at fill-time and discarded immediately.
  *
  * Follows the PasswordStore pattern: debounced atomic writes, in-memory state.
+ *
+ * Issue #208: persistence is scoped to a caller-supplied data dir so each
+ * profile has its own addresses/cards. The default profile uses `<userData>/`
+ * directly (see ProfileContext.getProfileDataDir).
  */
 
 import { app, safeStorage } from 'electron';
@@ -75,10 +79,6 @@ function makeEmpty(): PersistedAutofill {
   return { version: 1, addresses: [], cards: [] };
 }
 
-function getAutofillPath(): string {
-  return path.join(app.getPath('userData'), AUTOFILL_FILE_NAME);
-}
-
 // ---------------------------------------------------------------------------
 // Card network detection
 // ---------------------------------------------------------------------------
@@ -111,16 +111,30 @@ export function extractLastFour(number: string): string {
 // ---------------------------------------------------------------------------
 
 export class AutofillStore {
+  private readonly filePath: string;
   private state: PersistedAutofill;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  /**
+   * @param dataDir Absolute directory for autofill.json. Defaults to
+   *   `app.getPath('userData')` for back-compat with tests and the default
+   *   profile.
+   */
+  constructor(dataDir?: string) {
+    const dir = dataDir ?? app.getPath('userData');
+    this.filePath = path.join(dir, AUTOFILL_FILE_NAME);
     this.state = this.load();
     mainLogger.info('AutofillStore.init', {
+      filePath: this.filePath,
       addressCount: this.state.addresses.length,
       cardCount: this.state.cards.length,
     });
+  }
+
+  /** @internal — test helper; returns the resolved autofill.json path. */
+  getFilePath(): string {
+    return this.filePath;
   }
 
   // -------------------------------------------------------------------------
@@ -129,7 +143,7 @@ export class AutofillStore {
 
   private load(): PersistedAutofill {
     try {
-      const raw = fs.readFileSync(getAutofillPath(), 'utf-8');
+      const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw) as PersistedAutofill;
       if (parsed.version !== 1) {
         mainLogger.warn('AutofillStore.load.invalid', { msg: 'Resetting autofill store' });
@@ -159,7 +173,8 @@ export class AutofillStore {
   flushSync(): void {
     if (!this.dirty) return;
     try {
-      fs.writeFileSync(getAutofillPath(), JSON.stringify(this.state, null, 2), 'utf-8');
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf-8');
       mainLogger.info('AutofillStore.flushSync.ok');
     } catch (err) {
       mainLogger.error('AutofillStore.flushSync.failed', { error: (err as Error).message });
@@ -169,6 +184,18 @@ export class AutofillStore {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+  }
+
+  /**
+   * Cancel any pending debounced write and flush what's in memory. Use before
+   * disposing this store on a profile switch.
+   */
+  dispose(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.flushSync();
   }
 
   // -------------------------------------------------------------------------
