@@ -229,7 +229,7 @@ export class DeclarativeNetRequestEngine {
     initiatorDomain?: string;
     tabId?: number;
   }): DnrMatchResult {
-    let bestMatch: { rule: DnrRule; ruleset: DnrRuleset; priority: number } | null = null;
+    const bestMatch: { rule: DnrRule; ruleset: DnrRuleset; priority: number } | null = null;
 
     for (const [extensionId, rulesets] of this.rulesets) {
       for (const ruleset of rulesets) {
@@ -371,7 +371,7 @@ export class DeclarativeNetRequestEngine {
     const testUrl = caseSensitive ? url : url.toLowerCase();
     const testFilter = caseSensitive ? filter : filter.toLowerCase();
 
-    let pattern = testFilter;
+    const pattern = testFilter;
 
     if (pattern.startsWith('||')) {
       const domain = this.extractDomain(testUrl);

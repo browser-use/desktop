@@ -28,8 +28,8 @@ declare const PRINT_PREVIEW_VITE_NAME: string | undefined;
 
 let printPreviewWindow: BrowserWindow | null = null;
 let sourceTabWebContentsId: number | null = null;
-let sourceTabTitle: string = '';
-let sourceTabUrl: string = '';
+let sourceTabTitle = '';
+let sourceTabUrl = '';
 
 // ---------------------------------------------------------------------------
 // IPC Handlers
@@ -57,6 +57,7 @@ function registerIpcHandlers(): void {
         return null;
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { webContents } = require('electron');
       const sourceWc = webContents.fromId(sourceTabWebContentsId);
       if (!sourceWc || sourceWc.isDestroyed()) {
@@ -138,6 +139,7 @@ function registerIpcHandlers(): void {
         return { success: false, error: 'No source tab' };
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { webContents } = require('electron');
       const sourceWc = webContents.fromId(sourceTabWebContentsId);
       if (!sourceWc || sourceWc.isDestroyed()) {
@@ -166,6 +168,7 @@ function registerIpcHandlers(): void {
           };
 
           const pdfBuffer = await sourceWc.printToPDF(pdfOptions);
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
           const fs = require('node:fs');
           fs.writeFileSync(result.filePath, pdfBuffer);
 

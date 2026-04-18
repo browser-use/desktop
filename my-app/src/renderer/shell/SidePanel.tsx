@@ -96,7 +96,7 @@ function BookmarksPanel({ onNavigate }: { onNavigate: (url: string) => void }): 
     });
   }, []);
 
-  const renderNode = (node: BookmarkNode, depth: number = 0): React.ReactNode => {
+  const renderNode = (node: BookmarkNode, depth = 0): React.ReactNode => {
     if (node.type === 'folder') {
       const isExpanded = expandedFolders.has(node.id);
       return (

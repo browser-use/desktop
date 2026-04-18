@@ -136,7 +136,7 @@ let permissionManager: PermissionManager | null = null;
 let extensionManager: ExtensionManager | null = null;
 let historyStore: HistoryStore | null = null;
 let downloadManager: DownloadManager | null = null;
-let activeProfileId: string = 'default';
+let activeProfileId = 'default';
 let isGuestSession = false;
 let guestPartitionName: string | null = null;
 

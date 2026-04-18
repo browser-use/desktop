@@ -34,7 +34,7 @@ const CH_GET_CURRENT           = 'profiles:get-current';
 
 let _profileStore: ProfileStore | null = null;
 let _onProfileSelected: ((profileId: string | null) => void) | null = null;
-let _activeProfileId: string = 'default';
+let _activeProfileId = 'default';
 let _onSwitchProfile: ((profileId: string) => void) | null = null;
 
 // ---------------------------------------------------------------------------
