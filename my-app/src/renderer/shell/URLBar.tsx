@@ -34,7 +34,7 @@ const SECURE_RE = /^https:\/\//i;
 const INSECURE_RE = /^http:\/\//i;
 // New-tab data: URLs and about:blank are internal placeholders; the omnibox
 // renders them as empty so the "Search or enter address" placeholder shows.
-const BLANK_RE = /^(data:|about:blank$)/i;
+const BLANK_RE = /^(data:|about:blank$|.*newtab\.html$)/i;
 
 // Subdomains that Chrome elides from display (trivial/redundant prefixes).
 const TRIVIAL_SUBDOMAIN_RE = /^(www|m)\./i;
