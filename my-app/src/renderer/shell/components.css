@@ -1602,3 +1602,37 @@
   font-size: 11px;
   color: var(--color-fg-tertiary);
 }
+
+/* ---------------------------------------------------------------------------
+   AppMenuButton — Issue #81: Three-dot menu (non-macOS)
+   --------------------------------------------------------------------------- */
+.app-menu-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 150ms ease-out, color 150ms ease-out;
+}
+
+.app-menu-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.app-menu-btn:active {
+  background: var(--color-bg-pressed);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-menu-btn {
+    transition: none;
+  }
+}
