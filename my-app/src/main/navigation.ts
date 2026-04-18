@@ -40,6 +40,11 @@ const DEFAULT_KEYWORD_ENGINES: Map<string, string> = new Map([
   ['y', 'https://search.yahoo.com/search?p=%s'],
   ['e', 'https://www.ecosia.org/search?q=%s'],
   ['br', 'https://search.brave.com/search?q=%s'],
+  // @-prefixed entries mirror SEARCH_ENGINES in omnibox/providers.ts so that
+  // keyword-mode inputs like "@bing cats" are resolved correctly.
+  ['@bing', 'https://www.bing.com/search?q=%s'],
+  ['@duckduckgo', 'https://duckduckgo.com/?q=%s'],
+  ['@yahoo', 'https://search.yahoo.com/search?p=%s'],
 ]);
 
 let keywordEngines: Map<string, string> = new Map(DEFAULT_KEYWORD_ENGINES);
@@ -73,17 +78,23 @@ export function parseNavigationInput(input: string, findMatchingUrl?: UrlMatchFn
   }
 
   // 1.5. Keyword search: "keyword query" pattern (e.g. "g react hooks" → Google search)
+  // Also handles "@keyword query" mode-enter inputs (e.g. "@bing cats" → Bing search).
   const firstSpaceIdx = trimmed.indexOf(' ');
   if (firstSpaceIdx > 0 && !HAS_WHITESPACE_RE.test(trimmed.slice(0, firstSpaceIdx))) {
-    const keyword = trimmed.slice(0, firstSpaceIdx).toLowerCase();
+    const rawKeyword = trimmed.slice(0, firstSpaceIdx);
     const query = trimmed.slice(firstSpaceIdx + 1);
-    const template = keywordEngines.get(keyword);
+    // Try exact key first (handles both short keys like "g" and @-prefixed keys like "@bing").
+    const keyLower = rawKeyword.toLowerCase();
+    const template = keywordEngines.get(keyLower) ?? keywordEngines.get(keyLower.replace(/^@/, ''));
     if (template && template.includes('%s') && query.trim()) {
       const url = template.replace('%s', encodeURIComponent(query.trim()));
-      mainLogger.info('navigation.parse.keywordSearch', { keyword, query, url });
+      mainLogger.info('navigation.parse.keywordSearch', { keyword: keyLower, query, url });
       return url;
     }
   }
+
+  // 1.6. @keyword prefix without a query (e.g. "@bing" alone) — treat as regular search/URL.
+  // Handled by fall-through to steps 3–8 below.
 
   // 2. Bookmark / history exact match — try common URL expansions of the raw input
   if (findMatchingUrl) {

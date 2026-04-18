@@ -354,6 +354,12 @@ export function URLBar({
   }, [url, inputValue]);
 
   const closeDropdown = useCallback(() => {
+    // Cancel any pending debounced suggestion request so stale results don't
+    // reopen the dropdown after it has been explicitly closed.
+    if (suggestTimerRef.current) {
+      clearTimeout(suggestTimerRef.current);
+      suggestTimerRef.current = null;
+    }
     setDropdownOpen(false);
     setSuggestions([]);
     setSelectedIndex(-1);
