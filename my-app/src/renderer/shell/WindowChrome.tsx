@@ -538,6 +538,7 @@ export function WindowChrome(): React.ReactElement {
           onFocusClear={handleUrlFocusClear}
           isBookmarked={!!existingBookmark}
           onToggleBookmark={handleStarClick}
+          mixedContent={activeTab?.mixedContent ?? 'none'}
         />
 
         {zoomPercent !== 100 && (

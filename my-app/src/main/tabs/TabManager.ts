@@ -44,6 +44,12 @@ import {
   type ThreatType,
 } from '../safebrowsing/SafeBrowsingController';
 
+import {
+  classifyMixedContentMessage,
+  hasMixedContentException,
+  type MixedContentLevel,
+} from '../mixed-content/MixedContentController';
+
 // Forge VitePlugin globals for the new-tab page (injected at build time)
 declare const NEWTAB_VITE_DEV_SERVER_URL: string | undefined;
 declare const NEWTAB_VITE_NAME: string | undefined;
@@ -76,6 +82,9 @@ export interface TabState {
   zoomLevel: number;
   pinned: boolean;
   audible: boolean;
+  /** 'none' = fully secure, 'passive' = passive mixed content (images/video/audio),
+   *  'active' = active mixed content (scripts/iframes/XHR) — Chromium blocks active. */
+  mixedContent: MixedContentLevel;
 }
 
 export interface TabManagerState {
@@ -1459,6 +1468,8 @@ export class TabManager {
 
     wc.on('did-navigate', (_e, url) => {
       mainLogger.info('TabManager.tab.navigate', { tabId, url });
+      // Reset mixed-content status on full navigation.
+      this.mixedContentLevels.delete(tabId);
       if (url.startsWith('https://')) {
         clearPendingUpgrade(tabId);
       }
@@ -1544,6 +1555,25 @@ export class TabManager {
         mainLogger.info('TabManager.tab.safeBrowsingBack', { tabId });
         return;
       }
+      // Mixed content detection: Chromium emits well-known console messages for
+      // both passive (image/video/audio) and active (script/iframe/XHR) mixed content.
+      const mcLevel = classifyMixedContentMessage(message);
+      if (mcLevel !== 'none') {
+        const currentLevel = this.mixedContentLevels.get(tabId) ?? 'none';
+        // Upgrade level: active > passive > none
+        if (mcLevel === 'active' || currentLevel === 'none') {
+          this.mixedContentLevels.set(tabId, mcLevel);
+          mainLogger.info('TabManager.tab.mixedContent', { tabId, level: mcLevel });
+          this.sendTabUpdate(tabId);
+        }
+        // Emit developer console warning (separate from Chromium's own warning).
+        mainLogger.debug('TabManager.tab.mixedContent.warn', {
+          tabId,
+          level: mcLevel,
+          url: wc.getURL(),
+        });
+      }
+
       if (!message.startsWith(FORM_DETECTOR_PREFIX)) return;
       try {
         const json = message.slice(FORM_DETECTOR_PREFIX.length);
@@ -1596,6 +1626,7 @@ export class TabManager {
     // Handle target_lost for active tab agent enforcement
     wc.on('destroyed', () => {
       mainLogger.info('TabManager.tab.destroyed', { tabId });
+      this.mixedContentLevels.delete(tabId);
       if (!this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
         this.win.webContents.send('target-lost', { tabId });
       }
@@ -1674,6 +1705,7 @@ export class TabManager {
       zoomLevel: view.webContents.getZoomLevel(),
       pinned: this.pinnedTabs.has(tabId),
       audible: view.webContents.isCurrentlyAudible(),
+      mixedContent: this.mixedContentLevels.get(tabId) ?? 'none',
     };
     this.safeSend('tab-updated', state);
   }

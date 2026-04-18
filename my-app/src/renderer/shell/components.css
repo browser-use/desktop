@@ -362,6 +362,29 @@
   color: var(--color-fg-tertiary);
 }
 
+.url-bar--mixed-passive .url-bar__security {
+  color: var(--color-status-warning, #e8a020);
+}
+
+/* "Not secure" chip shown for passive mixed content */
+.url-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.url-bar__chip--warn {
+  background: rgba(232, 160, 32, 0.14);
+  color: var(--color-status-warning, #e8a020);
+  border: 1px solid rgba(232, 160, 32, 0.28);
+}
+
 .url-bar__security {
   display: flex;
   align-items: center;

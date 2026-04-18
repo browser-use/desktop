@@ -223,6 +223,14 @@ export interface SettingsAPI {
 
   /** Reset all per-site overrides */
   resetAllContentCategoryOverrides: () => Promise<void>;
+
+  // Mixed content exceptions
+  /** List all origins that have a mixed-content exception */
+  getMixedContentExceptions: () => Promise<string[]>;
+  /** Grant or revoke a mixed-content exception for an origin */
+  setMixedContentException: (origin: string, allow: boolean) => Promise<void>;
+  /** Remove a mixed-content exception for an origin; returns true if it existed */
+  removeMixedContentException: (origin: string) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +481,21 @@ const api: SettingsAPI = {
   resetAllContentCategoryOverrides: async (): Promise<void> => {
     console.debug('[settings-preload] resetAllContentCategoryOverrides');
     await ipcRenderer.invoke('content-categories:reset-all');
+  },
+
+  getMixedContentExceptions: async (): Promise<string[]> => {
+    console.debug('[settings-preload] getMixedContentExceptions');
+    return ipcRenderer.invoke('settings:get-mixed-content-exceptions') as Promise<string[]>;
+  },
+
+  setMixedContentException: async (origin: string, allow: boolean): Promise<void> => {
+    console.debug('[settings-preload] setMixedContentException', { origin, allow });
+    await ipcRenderer.invoke('settings:set-mixed-content-exception', origin, allow);
+  },
+
+  removeMixedContentException: async (origin: string): Promise<boolean> => {
+    console.debug('[settings-preload] removeMixedContentException', { origin });
+    return ipcRenderer.invoke('settings:remove-mixed-content-exception', origin) as Promise<boolean>;
   },
 
 };

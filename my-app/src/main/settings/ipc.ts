@@ -25,6 +25,12 @@ import {
   type ClearDataResult,
 } from '../privacy/ClearDataController';
 import { isBiometricAvailable } from '../passwords/BiometricAuth';
+import {
+  allowMixedContentForOrigin,
+  revokeMixedContentException,
+  hasMixedContentException,
+  getAllMixedContentExceptions,
+} from '../mixed-content/MixedContentController';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -93,6 +99,9 @@ const CH_GET_DNT_ENABLED     = 'settings:get-dnt-enabled';
 const CH_SET_DNT_ENABLED     = 'settings:set-dnt-enabled';
 const CH_GET_GPC_ENABLED     = 'settings:get-gpc-enabled';
 const CH_SET_GPC_ENABLED     = 'settings:set-gpc-enabled';
+const CH_GET_MIXED_CONTENT_EXCEPTIONS = 'settings:get-mixed-content-exceptions';
+const CH_SET_MIXED_CONTENT_EXCEPTION  = 'settings:set-mixed-content-exception';
+const CH_REMOVE_MIXED_CONTENT_EXCEPTION = 'settings:remove-mixed-content-exception';
 
 // ---------------------------------------------------------------------------
 // Module-level deps (set by registerSettingsHandlers)
@@ -145,7 +154,7 @@ export function readPrefs(): Preferences {
   }
 }
 
-function mergePrefs(patch: Partial<Preferences>): void {
+export function mergePrefs(patch: Partial<Preferences>): void {
   const prefsPath = getPrefsPath();
   const existing = readPrefs();
   const merged = { ...existing, ...patch };
@@ -683,6 +692,39 @@ function handleCloseWindow(): void {
 // Public API
 // ---------------------------------------------------------------------------
 
+function handleGetMixedContentExceptions(): string[] {
+  mainLogger.info(CH_GET_MIXED_CONTENT_EXCEPTIONS);
+  const origins = getAllMixedContentExceptions();
+  mainLogger.info(`${CH_GET_MIXED_CONTENT_EXCEPTIONS}.ok`, { count: origins.length });
+  return origins;
+}
+
+function handleSetMixedContentException(
+  _event: Electron.IpcMainInvokeEvent,
+  origin: string,
+  allow: boolean,
+): void {
+  const validated = assertString(origin, 'origin', 512);
+  mainLogger.info(CH_SET_MIXED_CONTENT_EXCEPTION, { origin: validated, allow });
+  if (allow) {
+    allowMixedContentForOrigin(validated);
+  } else {
+    revokeMixedContentException(validated);
+  }
+  mainLogger.info(`${CH_SET_MIXED_CONTENT_EXCEPTION}.ok`, { origin: validated, allow });
+}
+
+function handleRemoveMixedContentException(
+  _event: Electron.IpcMainInvokeEvent,
+  origin: string,
+): boolean {
+  const validated = assertString(origin, 'origin', 512);
+  mainLogger.info(CH_REMOVE_MIXED_CONTENT_EXCEPTION, { origin: validated });
+  const removed = revokeMixedContentException(validated);
+  mainLogger.info(`${CH_REMOVE_MIXED_CONTENT_EXCEPTION}.ok`, { origin: validated, removed });
+  return removed;
+}
+
 export interface RegisterSettingsHandlersOptions {
   accountStore:  AccountStore;
   keychainStore: KeychainStore;
@@ -719,6 +761,9 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
   ipcMain.handle(CH_SET_DNT_ENABLED,    handleSetDntEnabled);
   ipcMain.handle(CH_GET_GPC_ENABLED,    handleGetGpcEnabled);
   ipcMain.handle(CH_SET_GPC_ENABLED,    handleSetGpcEnabled);
+  ipcMain.handle(CH_GET_MIXED_CONTENT_EXCEPTIONS,  handleGetMixedContentExceptions);
+  ipcMain.handle(CH_SET_MIXED_CONTENT_EXCEPTION,   handleSetMixedContentException);
+  ipcMain.handle(CH_REMOVE_MIXED_CONTENT_EXCEPTION, handleRemoveMixedContentException);
 
   refreshPrivacyHeaders();
 
@@ -753,6 +798,9 @@ export function unregisterSettingsHandlers(): void {
   ipcMain.removeHandler(CH_SET_DNT_ENABLED);
   ipcMain.removeHandler(CH_GET_GPC_ENABLED);
   ipcMain.removeHandler(CH_SET_GPC_ENABLED);
+  ipcMain.removeHandler(CH_GET_MIXED_CONTENT_EXCEPTIONS);
+  ipcMain.removeHandler(CH_SET_MIXED_CONTENT_EXCEPTION);
+  ipcMain.removeHandler(CH_REMOVE_MIXED_CONTENT_EXCEPTION);
 
   _accountStore  = null;
   _keychainStore = null;

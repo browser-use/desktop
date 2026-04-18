@@ -166,6 +166,9 @@ declare global {
       getAllContentCategoryOverrides: () => Promise<Array<{ origin: string; category: string; state: string; updatedAt: number }>>;
       clearContentCategoryOrigin: (origin: string) => Promise<void>;
       resetAllContentCategoryOverrides: () => Promise<void>;
+      getMixedContentExceptions: () => Promise<string[]>;
+      setMixedContentException: (origin: string, allow: boolean) => Promise<void>;
+      removeMixedContentException: (origin: string) => Promise<boolean>;
       scanAutoRevokePermissions: () => Promise<{
         candidates: Array<{
           origin: string;
@@ -764,6 +767,81 @@ function ProfilesTab(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// Mixed content exceptions sub-section (used inside PrivacyTab)
+// ---------------------------------------------------------------------------
+
+function MixedContentSection(): React.ReactElement {
+  const toast = useToast();
+  const [exceptions, setExceptions] = React.useState<string[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const loadExceptions = React.useCallback(async () => {
+    try {
+      const origins = await window.settingsAPI.getMixedContentExceptions();
+      setExceptions(origins);
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Failed to load mixed content exceptions', message: (err as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { void loadExceptions(); }, [loadExceptions]);
+
+  async function handleRemove(origin: string): Promise<void> {
+    try {
+      await window.settingsAPI.removeMixedContentException(origin);
+      setExceptions((prev) => prev.filter((o) => o !== origin));
+      toast.show({ variant: 'success', title: 'Exception removed', message: origin });
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Failed to remove exception', message: (err as Error).message });
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card variant="default" padding="md" className="settings-card">
+        <div className="settings-loading"><Spinner size="md" /></div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card variant="default" padding="none" className="settings-card">
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border-subtle)' }}>
+        <p style={{ fontWeight: 600, marginBottom: 4 }}>Mixed content exceptions</p>
+        <p style={{ fontSize: 13, color: 'var(--color-fg-secondary)' }}>
+          Sites below are allowed to load passive mixed content (images, video, audio over HTTP)
+          without a security warning. Active mixed content (scripts, iframes, XHR) is always blocked.
+        </p>
+      </div>
+      {exceptions.length === 0 ? (
+        <div style={{ padding: 16, color: 'var(--color-fg-tertiary)', fontSize: 13 }}>
+          No exceptions. Sites that load passive mixed content will show a "Not secure" chip in the address bar.
+        </div>
+      ) : (
+        exceptions.map((origin, idx) => (
+          <div
+            key={origin}
+            className={`settings-scope-row ${idx < exceptions.length - 1 ? 'settings-scope-row--bordered' : ''}`}
+          >
+            <div className="settings-scope-info">
+              <span className="settings-scope-label">{origin}</span>
+              <span className="settings-scope-name">Allowed to load passive mixed content</span>
+            </div>
+            <div className="settings-scope-actions">
+              <Button variant="ghost" size="sm" onClick={() => void handleRemove(origin)}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        ))
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Privacy and security tab
 // ---------------------------------------------------------------------------
 
@@ -953,6 +1031,11 @@ function PrivacyTab({ openDialog, onDialogChange }: PrivacyTabProps): React.Reac
           </Button>
         </div>
       </Card>
+
+      <h3 className="settings-section-title" style={{ marginTop: 24, fontSize: 14 }}>
+        Site settings
+      </h3>
+      <MixedContentSection />
 
       <ClearDataDialog
         open={openDialog}

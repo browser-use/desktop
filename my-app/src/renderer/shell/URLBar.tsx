@@ -19,6 +19,8 @@ const INSECURE_RE = /^http:\/\//i;
 // renders them as empty so the "Search or enter address" placeholder shows.
 const BLANK_RE = /^(data:|about:blank$)/i;
 
+type MixedContentLevel = 'none' | 'passive' | 'active';
+
 interface URLBarProps {
   url: string;
   isLoading: boolean;
@@ -27,6 +29,8 @@ interface URLBarProps {
   onFocusClear: () => void;
   isBookmarked: boolean;
   onToggleBookmark: () => void;
+  /** Mixed-content status for the active tab. 'passive' shows 'Not secure' chip. */
+  mixedContent?: MixedContentLevel;
 }
 
 function getSecurityStatus(url: string): 'secure' | 'insecure' | 'none' {
@@ -58,6 +62,7 @@ export function URLBar({
   onFocusClear,
   isBookmarked,
   onToggleBookmark,
+  mixedContent = 'none',
 }: URLBarProps): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState(() => displayUrl(url));
@@ -119,14 +124,28 @@ export function URLBar({
   );
 
   const security = getSecurityStatus(url);
+  // Show 'Not secure' chip for passive mixed content on HTTPS pages.
+  // Active mixed content is blocked by Chromium so no extra UI is needed beyond
+  // the existing insecure indicator (though we still downgrade the visual).
+  const effectiveSecurity: 'secure' | 'insecure' | 'none' | 'mixed-passive' =
+    security === 'secure' && mixedContent === 'passive'
+      ? 'mixed-passive'
+      : security === 'secure' && mixedContent === 'active'
+        ? 'insecure'
+        : security;
   // Hide the star on blank/new-tab URLs — nothing meaningful to bookmark.
   const starVisible = !!url && !BLANK_RE.test(url);
 
   return (
-    <div className={`url-bar url-bar--${security}`}>
+    <div className={`url-bar url-bar--${effectiveSecurity}`}>
       {/* Security icon */}
-      <span className="url-bar__security" aria-label={security}>
-        {security === 'secure' && (
+      <span className="url-bar__security" aria-label={effectiveSecurity}>
+        {effectiveSecurity === 'mixed-passive' && (
+          <span className="url-bar__chip url-bar__chip--warn" title="This page contains insecure content (images, video, or audio loaded over HTTP)">
+            Not secure
+          </span>
+        )}
+        {effectiveSecurity === 'secure' && (
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <rect x="2" y="5" width="8" height="6" rx="1.5" fill="currentColor" opacity="0.6" />
             <path
@@ -137,7 +156,7 @@ export function URLBar({
             />
           </svg>
         )}
-        {security === 'insecure' && (
+        {(effectiveSecurity === 'insecure') && (
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path
               d="M6 2L10.5 10H1.5L6 2Z"
