@@ -151,6 +151,7 @@ declare const electronAPI: {
     downloadDone: (cb: (dl: DownloadItemDTO) => void) => () => void;
     downloadsState: (cb: (downloads: DownloadItemDTO[]) => void) => () => void;
     linkHover: (cb: (payload: { url: string }) => void) => () => void;
+    liveCaptionStateChanged: (cb: (enabled: boolean) => void) => () => void;
   };
   permissions: {
     respond: (promptId: string, decision: string) => Promise<void>;
@@ -189,6 +190,10 @@ export function WindowChrome(): React.ReactElement {
 
   // PiP state
   const [pipActive, setPipActive] = useState(false);
+
+  // Live Caption state
+  const [liveCaptionEnabled, setLiveCaptionEnabled] = useState(false);
+  const [captionText, setCaptionText] = useState('');
 
   // Side panel state
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
@@ -333,6 +338,11 @@ export function WindowChrome(): React.ReactElement {
       setFocusBookmarksBarTick((n) => n + 1);
     });
 
+    const unsubLiveCaptionState = electronAPI.on.liveCaptionStateChanged((enabled) => {
+      setLiveCaptionEnabled(enabled);
+      if (!enabled) setCaptionText('');
+    });
+
     return () => {
       unsubTabsState();
       unsubTabUpdated();
@@ -347,6 +357,7 @@ export function WindowChrome(): React.ReactElement {
       unsubOpenDialog();
       unsubToggleBar();
       unsubFocusBar();
+      unsubLiveCaptionState();
     };
   }, [bookmarksTree?.visibility]);
 
@@ -691,6 +702,12 @@ export function WindowChrome(): React.ReactElement {
       )}
       <FindBar activeTabId={activeTabId} />
       <StatusBar url={hoveredUrl} />
+
+      {liveCaptionEnabled && (
+        <div className="caption-overlay" aria-live="polite" aria-label="Live captions">
+          <span className="caption-overlay__text">{captionText || '\u00a0'}</span>
+        </div>
+      )}
     </div>
   );
 }

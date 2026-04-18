@@ -93,6 +93,8 @@ const CH_GET_DNT_ENABLED     = 'settings:get-dnt-enabled';
 const CH_SET_DNT_ENABLED     = 'settings:set-dnt-enabled';
 const CH_GET_GPC_ENABLED     = 'settings:get-gpc-enabled';
 const CH_SET_GPC_ENABLED     = 'settings:set-gpc-enabled';
+const CH_GET_LIVE_CAPTION    = 'settings:get-live-caption';
+const CH_SET_LIVE_CAPTION    = 'settings:set-live-caption';
 
 // ---------------------------------------------------------------------------
 // Module-level deps (set by registerSettingsHandlers)
@@ -133,6 +135,8 @@ interface Preferences {
   theme?: string;
   fontSize?: number;
   defaultPageZoom?: number;
+  liveCaptionEnabled?: boolean;
+  liveCaptionLanguage?: string;
   [key: string]: unknown;
 }
 
@@ -671,6 +675,29 @@ export function refreshPrivacyHeaders(): void {
   mainLogger.info('privacy.refreshHeaders.installed');
 }
 
+function handleGetLiveCaption(): { enabled: boolean; language: string } {
+  mainLogger.info(CH_GET_LIVE_CAPTION);
+  const prefs = readPrefs();
+  const result = {
+    enabled: prefs.liveCaptionEnabled === true,
+    language: typeof prefs.liveCaptionLanguage === 'string' ? prefs.liveCaptionLanguage : 'en-US',
+  };
+  mainLogger.info(`${CH_GET_LIVE_CAPTION}.ok`, result);
+  return result;
+}
+
+function handleSetLiveCaption(
+  _event: Electron.IpcMainInvokeEvent,
+  patch: { enabled?: boolean; language?: string },
+): boolean {
+  if (typeof patch !== 'object' || patch === null) return false;
+  mainLogger.info(CH_SET_LIVE_CAPTION, { patch });
+  if (patch.enabled !== undefined) mergePrefs({ liveCaptionEnabled: Boolean(patch.enabled) });
+  if (typeof patch.language === 'string') mergePrefs({ liveCaptionLanguage: patch.language });
+  mainLogger.info(`${CH_SET_LIVE_CAPTION}.ok`);
+  return true;
+}
+
 function handleCloseWindow(): void {
   mainLogger.info(CH_CLOSE_WINDOW);
   const win = getSettingsWindow();
@@ -719,10 +746,12 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
   ipcMain.handle(CH_SET_DNT_ENABLED,    handleSetDntEnabled);
   ipcMain.handle(CH_GET_GPC_ENABLED,    handleGetGpcEnabled);
   ipcMain.handle(CH_SET_GPC_ENABLED,    handleSetGpcEnabled);
+  ipcMain.handle(CH_GET_LIVE_CAPTION,   handleGetLiveCaption);
+  ipcMain.handle(CH_SET_LIVE_CAPTION,   handleSetLiveCaption);
 
   refreshPrivacyHeaders();
 
-  mainLogger.info('settings.ipc.register.ok', { channelCount: 25 });
+  mainLogger.info('settings.ipc.register.ok', { channelCount: 27 });
 }
 
 export function unregisterSettingsHandlers(): void {
@@ -753,6 +782,8 @@ export function unregisterSettingsHandlers(): void {
   ipcMain.removeHandler(CH_SET_DNT_ENABLED);
   ipcMain.removeHandler(CH_GET_GPC_ENABLED);
   ipcMain.removeHandler(CH_SET_GPC_ENABLED);
+  ipcMain.removeHandler(CH_GET_LIVE_CAPTION);
+  ipcMain.removeHandler(CH_SET_LIVE_CAPTION);
 
   _accountStore  = null;
   _keychainStore = null;

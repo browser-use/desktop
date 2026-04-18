@@ -1697,6 +1697,14 @@ function switchTabRelative(delta: number): void {
 // ---------------------------------------------------------------------------
 ipcMain.handle('shell:get-platform', () => process.platform);
 
+// Issue #104 — Live Caption: toggle caption overlay in the shell window.
+ipcMain.handle('live-caption:toggle', (_e, enabled: boolean) => {
+  if (shellWindow && !shellWindow.isDestroyed()) {
+    shellWindow.webContents.send('live-caption:state-changed', enabled);
+  }
+  return true;
+});
+
 // Issue #81 — Three-dot app menu for non-macOS platforms.
 ipcMain.handle('menu:show-app-menu', (_event, bounds: { x: number; y: number }) => {
   if (!shellWindow || !tabManager) {
