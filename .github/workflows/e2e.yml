@@ -56,15 +56,9 @@ jobs:
           if-no-files-found: error
 
   regression:
-    name: Playwright regression [soft-fail]
+    name: Playwright regression
     runs-on: macos-latest
-    needs: build
     timeout-minutes: 20
-    # The `preload-path` regression spec hits the same Electron launch
-    # hang that e2e-smoke does (electron.launch never resolves within
-    # 30s on CI macOS runners — also reproduces locally). Soft-fail
-    # until the launch-hang root cause is fixed. See docs/CI.md.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -78,24 +72,17 @@ jobs:
         working-directory: my-app
         run: npm ci --no-audit --no-fund
 
-      - name: Download built app
-        uses: actions/download-artifact@v4
-        with:
-          name: electron-app-${{ github.sha }}
-          path: my-app/out/
-
-      - name: Restore permissions on Electron binary
+      - name: Build main + preload + renderer bundles
         working-directory: my-app
-        run: |
-          APP_DIR=$(ls -d out/my-app-darwin-* | head -n 1)
-          chmod +x "${APP_DIR}/my-app.app/Contents/MacOS/my-app"
+        # preload-path.spec.ts launches ./node_modules/.bin/electron against
+        # .vite/build/main.js directly (dev-mode style). It does NOT use the
+        # packaged out/my-app.app bundle — it needs the .vite/ output tree.
+        env:
+          SKIP_SIGNING: '1'
+        run: npm run package
 
       - name: Playwright regression tests
         working-directory: my-app
-        # Regression specs live outside the testDir in the shared
-        # playwright.config.ts (which targets tests/e2e). Use the default
-        # playwright config resolver + an inline testDir override so the
-        # positional arg actually matches.
         run: npx playwright test --config=tests/regression/playwright.regression.config.ts
 
       - name: Upload Playwright report
