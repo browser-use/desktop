@@ -149,6 +149,10 @@ export function registerBookmarkHandlers(opts: BookmarksIpcOptions): void {
       properties: ['openFile'],
     });
     if (canceled || !filePaths[0]) return { ok: false, imported: 0, skipped: 0 };
+    const MAX_IMPORT_BYTES = 50 * 1024 * 1024; // 50 MB guard against memory exhaustion
+    if (fs.statSync(filePaths[0]).size > MAX_IMPORT_BYTES) {
+      return { ok: false, imported: 0, skipped: 0 };
+    }
     const html = fs.readFileSync(filePaths[0], 'utf-8');
     const result = store.importNetscapeHtml(html);
     broadcast();
