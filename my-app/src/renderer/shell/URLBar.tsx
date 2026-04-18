@@ -13,8 +13,6 @@ import { OmniboxDropdown } from './OmniboxDropdown';
 import type { OmniboxSuggestion } from '../../main/omnibox/providers';
 import { decode as punyDecode, toASCII } from 'punycode';
 
-const GOOGLE_FAVICON_API = 'https://www.google.com/s2/favicons?sz=32&domain_url=';
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -290,15 +288,16 @@ export function URLBar({
   onToggleBookmark,
 }: URLBarProps): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
+  const securityRef = useRef<HTMLButtonElement>(null);
   const [inputValue, setInputValue] = useState(() => displayUrl(url));
   const [isEditing, setIsEditing] = useState(false);
   const [suggestions, setSuggestions] = useState<OmniboxSuggestion[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [pageInfoOpen, setPageInfoOpen] = useState(false);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestGenRef = useRef(0);
-  // Track the input text used when the user started editing (for recordSelection)
-  const editInputRef = useRef('');
 
   // Sync display when URL changes externally (not while editing)
   useEffect(() => {
@@ -347,7 +346,6 @@ export function URLBar({
 
   const handleFocus = useCallback(() => {
     setIsEditing(true);
-    editInputRef.current = inputValue;
     // On focus, show the full URL so the user can edit it — except for blank
     // new-tab placeholders, where the input stays empty so typing is fresh.
     setInputValue((BLANK_RE.test(url) || NEWTAB_RE.test(url)) ? '' : url);
@@ -449,10 +447,6 @@ export function URLBar({
   const security = getSecurityStatus(url);
   // Hide the star on blank/new-tab URLs — nothing meaningful to bookmark.
   const starVisible = !!url && !BLANK_RE.test(url) && !NEWTAB_RE.test(url);
-
-  const [pageInfoOpen, setPageInfoOpen] = useState(false);
-  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
-  const securityRef = useRef<HTMLButtonElement>(null);
 
   const handleSecurityClick = useCallback(async () => {
     if (!pageInfoOpen) {
