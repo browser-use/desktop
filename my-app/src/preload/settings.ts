@@ -112,6 +112,18 @@ export interface SettingsAPI {
   listNeverSave: () => Promise<string[]>;
   removeNeverSave: (origin: string) => Promise<void>;
 
+  /** Get the current default font size (px) */
+  getFontSize: () => Promise<number>;
+
+  /** Set the default font size (px) */
+  setFontSize: (size: number) => Promise<void>;
+
+  /** Get the default page zoom (percent) */
+  getDefaultPageZoom: () => Promise<number>;
+
+  /** Set the default page zoom (percent) */
+  setDefaultPageZoom: (percent: number) => Promise<void>;
+
   /** Check if biometric (Touch ID) is available on this device */
   isBiometricAvailable: () => Promise<boolean>;
 
@@ -260,6 +272,26 @@ const api: SettingsAPI = {
   removeNeverSave: async (origin: string) => {
     console.debug('[settings-preload] removeNeverSave', { origin });
     return ipcRenderer.invoke('passwords:remove-never-save', origin);
+  },
+
+  getFontSize: async (): Promise<number> => {
+    console.debug('[settings-preload] getFontSize');
+    return ipcRenderer.invoke('settings:get-font-size') as Promise<number>;
+  },
+
+  setFontSize: async (size: number): Promise<void> => {
+    console.debug('[settings-preload] setFontSize', { size });
+    await ipcRenderer.invoke('settings:set-font-size', size);
+  },
+
+  getDefaultPageZoom: async (): Promise<number> => {
+    console.debug('[settings-preload] getDefaultPageZoom');
+    return ipcRenderer.invoke('settings:get-default-page-zoom') as Promise<number>;
+  },
+
+  setDefaultPageZoom: async (percent: number): Promise<void> => {
+    console.debug('[settings-preload] setDefaultPageZoom', { percent });
+    await ipcRenderer.invoke('settings:set-default-page-zoom', percent);
   },
 
   isBiometricAvailable: async (): Promise<boolean> => {

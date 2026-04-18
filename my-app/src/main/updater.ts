@@ -40,12 +40,17 @@ export async function initUpdater(): Promise<void> {
   }
 
   // Lazy-import electron-updater so dev builds don't fail if it's not installed yet.
-  // TODO: remove the dynamic import once electron-updater is added to package.json.
+  // The module isn't in package.json (see initUpdater TODO), so the specifier
+  // is built as a dynamic expression and typed as `any` — tsc will otherwise
+  // fail to resolve `electron-updater`. Remove this workaround once the dep
+  // is added to package.json.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let autoUpdater: any;
   try {
-    // eslint-disable-next-line import/no-unresolved
-    const module = await import('electron-updater');
-    autoUpdater = module.autoUpdater;
+    const specifier = 'electron-updater';
+    // eslint-disable-next-line import/no-unresolved, @typescript-eslint/no-explicit-any
+    const mod: any = await import(/* @vite-ignore */ specifier);
+    autoUpdater = mod.autoUpdater;
   } catch (err) {
     console.warn('[updater] electron-updater not installed — auto-update disabled');
     console.warn('[updater] Run: npm install electron-updater');

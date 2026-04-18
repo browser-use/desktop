@@ -5,7 +5,7 @@
  * Tests run outside Electron context via electron-mock.ts.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mock electron before importing pill
@@ -69,9 +69,34 @@ vi.mock('electron', () => {
 import type { BrowserWindow as BW } from 'electron';
 import { BrowserWindow, screen } from 'electron';
 
+// Shape of the mock BrowserWindow instance assigned inside vi.mock().
+// Typed here so call-site assertions (.isVisible, .show, .webContents, etc.)
+// resolve to real Mock instances rather than a single opaque Mock.
+interface MockBrowserWindow {
+  loadURL: Mock;
+  loadFile: Mock;
+  show: Mock;
+  hide: Mock;
+  focus: Mock;
+  isVisible: Mock;
+  isDestroyed: Mock;
+  setVisibleOnAllWorkspaces: Mock;
+  setAlwaysOnTop: Mock;
+  setBounds: Mock;
+  getBounds: Mock;
+  webContents: {
+    send: Mock;
+    once: Mock;
+    openDevTools: Mock;
+  };
+  on: Mock;
+  once: Mock;
+  removeAllListeners: Mock;
+}
+
 // Resolve mock window for assertions
-const getMockWin = () =>
-  (BrowserWindow as unknown as { _mockWin: ReturnType<typeof vi.fn> })._mockWin;
+const getMockWin = (): MockBrowserWindow =>
+  (BrowserWindow as unknown as { _mockWin: MockBrowserWindow })._mockWin;
 
 describe('PillWindowManager', () => {
   beforeEach(() => {

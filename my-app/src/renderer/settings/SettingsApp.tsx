@@ -39,6 +39,7 @@ type TabId =
   | typeof TAB_AGENT
   | typeof TAB_APPEARANCE
   | typeof TAB_SCOPES
+  | typeof TAB_PASSWORDS
   | typeof TAB_PROFILES
   | typeof TAB_PRIVACY
   | typeof TAB_ZOOM
@@ -86,6 +87,25 @@ interface ApiKeyTestResult {
   error?: string;
 }
 
+// Shape of a password list entry, mirrored from the preload bridge.
+interface PasswordListEntry {
+  id: string;
+  origin: string;
+  username: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+type ClearDataTypeId =
+  | 'history' | 'cookies' | 'cache' | 'downloads'
+  | 'passwords' | 'autofill' | 'siteSettings' | 'hostedApp';
+
+interface ClearBrowsingDataResult {
+  cleared: ClearDataTypeId[];
+  errors: Partial<Record<ClearDataTypeId, string>>;
+  notes: Partial<Record<ClearDataTypeId, string>>;
+}
+
 // Extend Window for TypeScript
 declare global {
   interface Window {
@@ -97,20 +117,17 @@ declare global {
       setAgentName: (name: string) => Promise<void>;
       getTheme: () => Promise<string>;
       setTheme: (theme: string) => Promise<void>;
+      getFontSize: () => Promise<number>;
+      setFontSize: (size: number) => Promise<void>;
+      getDefaultPageZoom: () => Promise<number>;
+      setDefaultPageZoom: (percent: number) => Promise<void>;
       getOAuthScopes: () => Promise<OAuthScopeStatus[]>;
       reConsentScope: (scope: string) => Promise<void>;
       factoryReset: () => Promise<void>;
       clearBrowsingData: (req: {
-        types: Array<
-          | 'history' | 'cookies' | 'cache' | 'downloads'
-          | 'passwords' | 'autofill' | 'siteSettings' | 'hostedApp'
-        >;
+        types: ClearDataTypeId[];
         timeRangeMs: number;
-      }) => Promise<{
-        cleared: string[];
-        errors: Record<string, string>;
-        notes: Record<string, string>;
-      }>;
+      }) => Promise<ClearBrowsingDataResult>;
       onOpenClearDataDialog: (handler: () => void) => () => void;
       getZoomOverrides: () => Promise<Array<{ origin: string; zoomLevel: number }>>;
       removeZoomOverride: (origin: string) => Promise<boolean>;
@@ -118,6 +135,13 @@ declare global {
       getShowProfilePicker: () => Promise<boolean>;
       setShowProfilePicker: (show: boolean) => Promise<void>;
       closeWindow: () => void;
+      // Password manager bridge (see src/preload/settings.ts)
+      listPasswords: () => Promise<PasswordListEntry[]>;
+      revealPassword: (id: string) => Promise<string | null>;
+      updatePassword: (payload: { id: string; username?: string; password?: string }) => Promise<boolean>;
+      deletePassword: (id: string) => Promise<boolean>;
+      listNeverSave: () => Promise<string[]>;
+      removeNeverSave: (origin: string) => Promise<void>;
       isBiometricAvailable: () => Promise<boolean>;
       getBiometricLock: () => Promise<boolean>;
       setBiometricLock: (enabled: boolean) => Promise<void>;

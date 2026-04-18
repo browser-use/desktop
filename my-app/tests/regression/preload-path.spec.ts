@@ -24,6 +24,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import type { ElectronApplication } from '@playwright/test';
 
+// Surface-level augmentation so page.evaluate() bodies that read
+// window.electronAPI type-check without narrowing inside every callback.
+// The preload bridge is richly typed in src/preload/*; we only need a
+// presence check here, so `unknown` is sufficient.
+declare global {
+  interface Window {
+    electronAPI?: unknown;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------

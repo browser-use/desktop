@@ -250,7 +250,11 @@ async function injectMockAgentEvents(
 ): Promise<void> {
   await electronApp.evaluate(async (_, tid) => {
     try {
-      const { forwardAgentEvent } = await import('./daemonLifecycle');
+      // Runtime path is relative to the packaged main.js inside the app bundle,
+      // not to this spec. Built as a dynamic expression so tsc doesn't try to
+      // resolve it against the test tree.
+      const mod = await import(/* @vite-ignore */ './daemonLifecycle' as string);
+      const forwardAgentEvent = (mod as { forwardAgentEvent: (ev: unknown) => void }).forwardAgentEvent;
       // Step 1
       forwardAgentEvent({ event: 'agent_step', task_id: tid, step: 'Analyzing the page…' } as any);
       await new Promise((r) => setTimeout(r, 80));

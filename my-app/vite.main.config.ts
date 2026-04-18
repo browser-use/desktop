@@ -6,8 +6,10 @@ import { defineConfig } from 'vite';
 // file name (index.ts, main.ts, etc.) via rollupOptions.output.entryFileNames.
 export default defineConfig({
   resolve: {
-    // Ensure correct resolution of node built-ins
-    browserField: false,
+    // Ensure correct resolution of node built-ins.
+    // The old `browserField: false` option was removed in Vite 5; the
+    // explicit `mainFields` list below already excludes `browser`, which
+    // is the effective behaviour we want in the main process bundle.
     conditions: ['node'],
     mainFields: ['module', 'jsnext:main', 'jsnext'],
   },
