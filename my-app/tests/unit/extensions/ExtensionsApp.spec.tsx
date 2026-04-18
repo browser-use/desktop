@@ -167,18 +167,46 @@ describe('ExtensionsApp', () => {
     expect(api.closeWindow).toHaveBeenCalled();
   });
 
-  it('opens the host-access dropdown and persists a new selection', async () => {
-    const api = makeAPI([makeExt({ id: 'a', name: 'Alpha', hostAccess: 'on-click' })]);
+  it('opens the host-access dropdown and persists a supported selection', async () => {
+    // Default for new extensions is now 'all-sites' (issue #234). Start from
+    // that state and verify the menu still opens and re-persists the choice.
+    const api = makeAPI([makeExt({ id: 'a', name: 'Alpha', hostAccess: 'all-sites' })]);
     (window as unknown as { extensionsAPI: typeof api }).extensionsAPI = api;
     render(<ExtensionsApp />);
 
-    // The button label is the current value: "On click"
-    const btn = await screen.findByRole('button', { name: /on click/i });
+    // The trigger button shows the current label; find it by testable role.
+    const btn = await screen.findByRole('button', { name: /on all sites/i });
     fireEvent.click(btn);
     const allSitesOpt = await screen.findByRole('option', { name: /on all sites/i });
     await act(async () => {
       fireEvent.click(allSitesOpt);
     });
     await waitFor(() => expect(api.setHostAccess).toHaveBeenCalledWith('a', 'all-sites'));
+  });
+
+  // Issue #234: the selector used to let users pick modes the app never
+  // enforced. Those options are now rendered but disabled with honest copy.
+  it('disables unsupported host-access modes and shows a "coming soon" hint', async () => {
+    const api = makeAPI([makeExt({ id: 'a', name: 'Alpha', hostAccess: 'all-sites' })]);
+    (window as unknown as { extensionsAPI: typeof api }).extensionsAPI = api;
+    render(<ExtensionsApp />);
+
+    const btn = await screen.findByRole('button', { name: /on all sites/i });
+    fireEvent.click(btn);
+
+    const specificSitesOpt = await screen.findByRole('option', { name: /on specific sites/i });
+    const onClickOpt = await screen.findByRole('option', { name: /on click/i });
+    const allSitesOpt = await screen.findByRole('option', { name: /on all sites/i });
+
+    expect((specificSitesOpt as HTMLButtonElement).disabled).toBe(true);
+    expect((onClickOpt as HTMLButtonElement).disabled).toBe(true);
+    expect((allSitesOpt as HTMLButtonElement).disabled).toBe(false);
+
+    // Clicking a disabled option must not call the IPC — we refuse to
+    // persist a mode we can't actually enforce.
+    await act(async () => {
+      fireEvent.click(specificSitesOpt);
+    });
+    expect(api.setHostAccess).not.toHaveBeenCalled();
   });
 });

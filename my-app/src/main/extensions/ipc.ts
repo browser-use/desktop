@@ -8,7 +8,7 @@
 import { dialog, ipcMain } from 'electron';
 import { mainLogger } from '../logger';
 import { assertString, assertOneOf } from '../ipc-validators';
-import { ExtensionManager } from './ExtensionManager';
+import { ExtensionManager, SUPPORTED_HOST_ACCESS_MODES } from './ExtensionManager';
 import type { ExtensionRecord, ExtensionCommandEntry } from './ExtensionManager';
 import { getExtensionsWindow, openExtensionsWindow } from './ExtensionsWindow';
 
@@ -31,7 +31,12 @@ const CH_CLOSE_WINDOW        = 'extensions:close-window';
 const CH_LIST_COMMANDS       = 'extensions:list-commands';
 const CH_SET_SHORTCUT        = 'extensions:set-shortcut';
 
-const ALLOWED_HOST_ACCESS = ['all-sites', 'specific-sites', 'on-click'] as const;
+// Only modes that are actually enforced at runtime are accepted here.
+// `specific-sites` and `on-click` were previously accepted and silently
+// persisted as an enum that nothing consumed — see issue #234. The UI
+// hides the unsupported options and the IPC layer rejects them so callers
+// that hand-craft IPC messages can't smuggle them into persisted state.
+const ALLOWED_HOST_ACCESS = SUPPORTED_HOST_ACCESS_MODES;
 
 // Max shortcut string length — e.g. "Ctrl+Shift+F12"
 const MAX_SHORTCUT_LEN = 64;

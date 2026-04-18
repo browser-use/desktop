@@ -298,7 +298,8 @@ describe('ExtensionManager — loadUnpacked', () => {
     expect(record.permissions).toEqual(['storage']);
     expect(record.hostPermissions).toEqual(['https://*/*']);
     expect(record.enabled).toBe(true);
-    expect(record.hostAccess).toBe('on-click');
+    // Default is all-sites (the only mode actually enforced today). See #234.
+    expect(record.hostAccess).toBe('all-sites');
     // State file written
     expect(fsStore.has(STATE_PATH)).toBe(true);
     const parsed = JSON.parse(fsStore.get(STATE_PATH)!);
@@ -403,6 +404,89 @@ describe('ExtensionManager — updateExtension / setHostAccess', () => {
 
   it('setHostAccess throws for unknown id', () => {
     expect(() => mgr.setHostAccess('nope', 'all-sites')).toThrow(/not found/);
+  });
+
+  // Issue #234: the selector used to accept `specific-sites` and `on-click`
+  // and persist them as an enum that nothing enforced. Those values are now
+  // rejected at the manager boundary so the IPC and UI can't silently lie.
+  it('setHostAccess rejects specific-sites (enforcement not implemented)', () => {
+    const id = mgr.listExtensions()[0].id;
+    expect(() => mgr.setHostAccess(id, 'specific-sites' as 'all-sites'))
+      .toThrow(/not supported/);
+    expect(mgr.listExtensions()[0].hostAccess).toBe('all-sites');
+  });
+
+  it('setHostAccess rejects on-click (enforcement not implemented)', () => {
+    const id = mgr.listExtensions()[0].id;
+    expect(() => mgr.setHostAccess(id, 'on-click' as 'all-sites'))
+      .toThrow(/not supported/);
+    expect(mgr.listExtensions()[0].hostAccess).toBe('all-sites');
+  });
+
+  it('setHostAccess rejects arbitrary junk values', () => {
+    const id = mgr.listExtensions()[0].id;
+    expect(() => mgr.setHostAccess(id, 'pwned' as 'all-sites'))
+      .toThrow(/not supported/);
+  });
+});
+
+// Issue #234: legacy state files may contain the removed `on-click` /
+// `specific-sites` enum values. On load we coerce them to the only mode
+// we actually enforce so the UI reflects reality rather than a lie.
+describe('ExtensionManager — legacy hostAccess coercion (issue #234)', () => {
+  beforeEach(() => {
+    fsStore.clear();
+    dirSet.clear();
+    resetSessionMockState();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('coerces persisted on-click to all-sites on listExtensions', () => {
+    fsStore.set(
+      STATE_PATH,
+      JSON.stringify({
+        extensions: [
+          { id: 'legacy-1', path: '/ext/legacy-1', enabled: true, hostAccess: 'on-click' },
+        ],
+        developerMode: false,
+      }),
+    );
+    const mgr = new ExtensionManager();
+    const [rec] = mgr.listExtensions();
+    expect(rec.hostAccess).toBe('all-sites');
+  });
+
+  it('coerces persisted specific-sites to all-sites on listExtensions', () => {
+    fsStore.set(
+      STATE_PATH,
+      JSON.stringify({
+        extensions: [
+          { id: 'legacy-2', path: '/ext/legacy-2', enabled: true, hostAccess: 'specific-sites' },
+        ],
+        developerMode: false,
+      }),
+    );
+    const mgr = new ExtensionManager();
+    const [rec] = mgr.listExtensions();
+    expect(rec.hostAccess).toBe('all-sites');
+  });
+
+  it('coerces an unknown/garbage hostAccess value to all-sites', () => {
+    fsStore.set(
+      STATE_PATH,
+      JSON.stringify({
+        extensions: [
+          { id: 'legacy-3', path: '/ext/legacy-3', enabled: true, hostAccess: 'bogus' },
+        ],
+        developerMode: false,
+      }),
+    );
+    const mgr = new ExtensionManager();
+    const [rec] = mgr.listExtensions();
+    expect(rec.hostAccess).toBe('all-sites');
   });
 });
 

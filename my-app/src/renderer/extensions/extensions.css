@@ -342,6 +342,30 @@
   font-weight: var(--font-weight-medium);
 }
 
+.ext-host-access-option--disabled {
+  cursor: not-allowed;
+  color: var(--color-fg-disabled, var(--color-fg-tertiary));
+  opacity: 0.6;
+}
+
+.ext-host-access-option--disabled:hover {
+  /* Don't light up on hover — the option is intentionally inert. */
+  background-color: transparent;
+  color: var(--color-fg-disabled, var(--color-fg-tertiary));
+}
+
+.ext-host-access-option-label {
+  display: block;
+}
+
+.ext-host-access-option-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--color-fg-tertiary);
+}
+
 /* ---------------------------------------------------------------------------
    Empty state
 --------------------------------------------------------------------------- */

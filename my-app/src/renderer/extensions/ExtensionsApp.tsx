@@ -76,6 +76,19 @@ const HOST_ACCESS_LABELS: Record<HostAccessLevel, string> = {
   'on-click': 'On click',
 };
 
+/**
+ * Which host-access modes we actually enforce at runtime today.
+ *
+ * Only `all-sites` is enforced — that matches Electron's default
+ * `session.loadExtension` behaviour. `specific-sites` and `on-click`
+ * would need per-origin request filtering and activation gating that
+ * Electron does not expose, so the UI keeps them visible but disabled
+ * rather than pretending they work. See issue #234.
+ */
+const SUPPORTED_HOST_ACCESS: ReadonlySet<HostAccessLevel> = new Set(['all-sites']);
+
+const HOST_ACCESS_UNSUPPORTED_HINT = 'Coming soon — not enforced yet';
+
 // Chrome built-in shortcuts that should be flagged as conflicts.
 // Uses the same format as Electron accelerators but lowercased for comparison.
 const CHROME_RESERVED_SHORTCUTS = new Set([
@@ -304,21 +317,41 @@ function ExtensionCard({
             </button>
             {hostMenuOpen && (
               <div className="ext-host-access-menu" role="listbox">
-                {(Object.keys(HOST_ACCESS_LABELS) as HostAccessLevel[]).map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    role="option"
-                    aria-selected={ext.hostAccess === level}
-                    className={`ext-host-access-option ${ext.hostAccess === level ? 'ext-host-access-option--active' : ''}`}
-                    onClick={() => {
-                      onHostAccessChange(ext.id, level);
-                      setHostMenuOpen(false);
-                    }}
-                  >
-                    {HOST_ACCESS_LABELS[level]}
-                  </button>
-                ))}
+                {(Object.keys(HOST_ACCESS_LABELS) as HostAccessLevel[]).map((level) => {
+                  const supported = SUPPORTED_HOST_ACCESS.has(level);
+                  const selected = ext.hostAccess === level;
+                  const classNames = [
+                    'ext-host-access-option',
+                    selected ? 'ext-host-access-option--active' : '',
+                    supported ? '' : 'ext-host-access-option--disabled',
+                  ].filter(Boolean).join(' ');
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      aria-disabled={!supported}
+                      disabled={!supported}
+                      title={supported ? undefined : HOST_ACCESS_UNSUPPORTED_HINT}
+                      className={classNames}
+                      onClick={() => {
+                        if (!supported) return;
+                        onHostAccessChange(ext.id, level);
+                        setHostMenuOpen(false);
+                      }}
+                    >
+                      <span className="ext-host-access-option-label">
+                        {HOST_ACCESS_LABELS[level]}
+                      </span>
+                      {!supported && (
+                        <span className="ext-host-access-option-hint">
+                          {HOST_ACCESS_UNSUPPORTED_HINT}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
