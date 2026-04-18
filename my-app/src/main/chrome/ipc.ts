@@ -6,6 +6,7 @@
 import { app, ipcMain } from 'electron';
 import http from 'node:http';
 import { mainLogger } from '../logger';
+import { getAnnouncedCdpPort, DEFAULT_CDP_PORT } from '../startup/cli';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,9 +33,26 @@ export interface NetworkTarget {
 // Network targets persistence (in-memory for session lifetime)
 // ---------------------------------------------------------------------------
 
-const networkTargets: NetworkTarget[] = [
-  { host: 'localhost', port: 9222 },
-];
+// Populated lazily on first access so the CLI-supplied
+// `--remote-debugging-port` (announced from index.ts after this module is
+// imported) is picked up. When `--remote-debugging-port=0` was passed we
+// fall back to the compile-time default so the UI has a sensible starting
+// row that the user can edit.
+let networkTargets: NetworkTarget[] | null = null;
+
+function ensureNetworkTargets(): NetworkTarget[] {
+  if (networkTargets === null) {
+    const announced = getAnnouncedCdpPort();
+    const port = announced > 0 ? announced : DEFAULT_CDP_PORT;
+    networkTargets = [{ host: 'localhost', port }];
+  }
+  return networkTargets;
+}
+
+/** Test-only hook: reset the lazy cache so each spec starts clean. */
+export function __resetNetworkTargetsForTests(): void {
+  networkTargets = null;
+}
 
 // ---------------------------------------------------------------------------
 // HTTP helper: fetch JSON from a remote debugging endpoint
@@ -174,40 +192,43 @@ export function registerChromeHandlers(
   });
 
   ipcMain.handle('chrome:inspect-targets', async () => {
-    mainLogger.debug('chrome.ipc.inspectTargets', { targetCount: networkTargets.length });
+    const targets_ = ensureNetworkTargets();
+    mainLogger.debug('chrome.ipc.inspectTargets', { targetCount: targets_.length });
     const results = await Promise.all(
-      networkTargets.map((t) => discoverTargets(t.host, t.port)),
+      targets_.map((t) => discoverTargets(t.host, t.port)),
     );
     const targets = results.flat();
     mainLogger.info('chrome.ipc.inspectTargets.result', { found: targets.length });
-    return { targets, networkTargets: [...networkTargets] };
+    return { targets, networkTargets: [...targets_] };
   });
 
   ipcMain.handle('chrome:inspect-get-network-targets', () => {
     mainLogger.debug('chrome.ipc.inspectGetNetworkTargets');
-    return [...networkTargets];
+    return [...ensureNetworkTargets()];
   });
 
   ipcMain.handle('chrome:inspect-add-target', (_event, host: string, port: number) => {
     mainLogger.info('chrome.ipc.inspectAddTarget', { host, port });
-    const already = networkTargets.some((t) => t.host === host && t.port === port);
+    const targets_ = ensureNetworkTargets();
+    const already = targets_.some((t) => t.host === host && t.port === port);
     if (!already) {
-      networkTargets.push({ host, port });
-      mainLogger.info('chrome.ipc.inspectAddTarget.added', { host, port, total: networkTargets.length });
+      targets_.push({ host, port });
+      mainLogger.info('chrome.ipc.inspectAddTarget.added', { host, port, total: targets_.length });
     } else {
       mainLogger.debug('chrome.ipc.inspectAddTarget.duplicate', { host, port });
     }
-    return [...networkTargets];
+    return [...targets_];
   });
 
   ipcMain.handle('chrome:inspect-remove-target', (_event, host: string, port: number) => {
     mainLogger.info('chrome.ipc.inspectRemoveTarget', { host, port });
-    const idx = networkTargets.findIndex((t) => t.host === host && t.port === port);
+    const targets_ = ensureNetworkTargets();
+    const idx = targets_.findIndex((t) => t.host === host && t.port === port);
     if (idx !== -1) {
-      networkTargets.splice(idx, 1);
-      mainLogger.info('chrome.ipc.inspectRemoveTarget.removed', { host, port, remaining: networkTargets.length });
+      targets_.splice(idx, 1);
+      mainLogger.info('chrome.ipc.inspectRemoveTarget.removed', { host, port, remaining: targets_.length });
     }
-    return [...networkTargets];
+    return [...targets_];
   });
 }
 

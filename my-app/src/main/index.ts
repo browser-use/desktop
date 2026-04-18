@@ -33,6 +33,11 @@ import { registerProtocol, initOAuthHandler } from './oauth';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers, unregisterOnboardingHandlers } from './identity/onboardingHandlers';
 import { mainLogger } from './logger';
+import {
+  resolveUserDataDir,
+  resolveCdpPort,
+  setAnnouncedCdpPort,
+} from './startup/cli';
 // daemon imports removed — Docker-per-task architecture replaces the persistent daemon
 import { getApiKey } from './agentApiKey';
 import { assertString } from './ipc-validators';
@@ -119,27 +124,39 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // ---------------------------------------------------------------------------
-// Dev-only: isolated userData override.
-// AGB_USER_DATA_DIR lets dev scripts (`start:fresh`, `start:onboarding`) run
-// the app against a throwaway profile without touching the real account.json,
-// keychain entries, or session store. MUST be applied before any
-// `app.getPath('userData')` call — including AccountStore/KeychainStore
-// construction at module-top-level below.
+// Isolated userData override.
+//
+// Precedence:
+//   1. `--user-data-dir=<path>` CLI flag (recommended — Playwright launchers,
+//      multi-instance tests)
+//   2. `AGB_USER_DATA_DIR` env var (dev-time `start:fresh` / `start:onboarding`
+//      scripts)
+//   3. Electron's platform default
+//
+// MUST be applied before any `app.getPath('userData')` call — including
+// AccountStore/KeychainStore construction at module-top-level below.
 // ---------------------------------------------------------------------------
-const USER_DATA_OVERRIDE = process.env.AGB_USER_DATA_DIR;
-if (USER_DATA_OVERRIDE) {
-  app.setPath('userData', USER_DATA_OVERRIDE);
+const resolvedUserData = resolveUserDataDir(process.argv, process.env);
+if (resolvedUserData.value) {
+  app.setPath('userData', resolvedUserData.value);
 }
 
 // ---------------------------------------------------------------------------
 // Remote debugging: MUST be called before app.whenReady()
 // ---------------------------------------------------------------------------
-// Fixed port so Docker agent containers can connect via ws://host.docker.internal:9222
-app.commandLine.appendSwitch('remote-debugging-port', '9222');
+// Respect `--remote-debugging-port=<N>` passed by launchers (test harnesses,
+// multi-instance dev). When none is given, default to 9222 so Docker agent
+// containers can keep reaching `host.docker.internal:9222`.
+const resolvedCdp = resolveCdpPort(process.argv);
+app.commandLine.appendSwitch('remote-debugging-port', String(resolvedCdp.port));
+setAnnouncedCdpPort(resolvedCdp.port);
 mainLogger.info('main.startup', {
-  msg: 'Remote debugging port set to 9222',
+  msg: `Remote debugging port set to ${resolvedCdp.port}`,
+  cdpPort: resolvedCdp.port,
+  cdpPortSource: resolvedCdp.source,
   settingsStandalone: process.env.SETTINGS_STANDALONE === '1',
-  userDataOverride: USER_DATA_OVERRIDE ?? null,
+  userDataOverride: resolvedUserData.value,
+  userDataSource: resolvedUserData.source,
   forceOnboarding: process.env.AGB_FORCE_ONBOARDING === '1',
 });
 
