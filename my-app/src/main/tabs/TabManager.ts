@@ -67,6 +67,7 @@ import {
   CERT_ERROR_BACK_PREFIX,
 } from '../errors/NetworkErrorController';
 import type { TabGroupStore } from './TabGroupStore';
+import { getAnnouncedCdpPort } from '../startup/cli';
 
 // Forge VitePlugin globals for the new-tab page (injected at build time)
 declare const NEWTAB_VITE_DEV_SERVER_URL: string | undefined;
@@ -353,19 +354,36 @@ export class TabManager {
   // ---------------------------------------------------------------------------
 
   async discoverCdpPort(): Promise<number | null> {
-    // CDP port is fixed at 9222 (set in main/index.ts via --remote-debugging-port).
-    // Just verify it's responding.
-    const port = 9222;
-    try {
-      const res = await fetch(`http://localhost:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) {
-        this.cdpPort = port;
-        mainLogger.info('TabManager.discoverCdpPort.ok', { cdpPort: port });
-        return port;
-      }
-    } catch { /* not ready */ }
-    mainLogger.warn('TabManager.discoverCdpPort.notFound', { port });
+    // The port was announced via `--remote-debugging-port` in index.ts.
+    // If the caller passed `--remote-debugging-port=0`, Chromium chose a port
+    // at runtime; in that case `getAnnouncedCdpPort()` returns 0 and we fall
+    // back to scanning a small range of common debug ports (9222-9322) via
+    // `/json/version` so the test harness still works.
+    const announced = getAnnouncedCdpPort();
+    const candidates = announced > 0 ? [announced] : this.candidateCdpPorts();
+    for (const port of candidates) {
+      try {
+        const res = await fetch(`http://localhost:${port}/json/version`, { signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          this.cdpPort = port;
+          mainLogger.info('TabManager.discoverCdpPort.ok', { cdpPort: port, announced });
+          return port;
+        }
+      } catch { /* not ready — keep trying */ }
+    }
+    mainLogger.warn('TabManager.discoverCdpPort.notFound', { announced, candidates });
     return null;
+  }
+
+  /**
+   * When Chromium picks an OS-assigned port (announced === 0), scan a small
+   * window of likely ports. The CDP endpoint only binds on a single port, so
+   * the first /json/version hit wins.
+   */
+  private candidateCdpPorts(): number[] {
+    const ports: number[] = [];
+    for (let p = 9222; p <= 9322; p++) ports.push(p);
+    return ports;
   }
   async getActiveTabTargetId(): Promise<string | null> {
     if (!this.activeTabId || !this.cdpPort) return null;
