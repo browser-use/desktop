@@ -77,6 +77,14 @@ export function BookmarkAllTabsDialog({
     };
   }, [onClose]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
   const handleSave = useCallback(async () => {
     const name = folderName.trim() || defaultName;
     try {
