@@ -519,7 +519,74 @@ async function handleFactoryReset(): Promise<void> {
     mainLogger.warn(`${CH_FACTORY_RESET}.sockCleanupFailed`, { error: (err as Error).message });
   }
 
-  // 5. Delete logs directory
+  // 5. Delete app-local data stores (bookmarks, history, passwords, autofill)
+  const localStoreFiles = [
+    'bookmarks.json',
+    'history.json',
+    'passwords.json',
+    'autofill.json',
+  ];
+  for (const fileName of localStoreFiles) {
+    const filePath = path.join(userDataPath, fileName);
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        mainLogger.info(`${CH_FACTORY_RESET}.localStoreDeleted`, { file: fileName });
+      }
+    } catch (err) {
+      mainLogger.warn(`${CH_FACTORY_RESET}.localStoreDeleteFailed`, {
+        file: fileName,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  // 6. Delete per-site data stores (permissions, granted-devices, content-categories)
+  const siteDataFiles = [
+    'permissions.json',
+    'granted-devices.json',
+    'content-categories.json',
+  ];
+  for (const fileName of siteDataFiles) {
+    const filePath = path.join(userDataPath, fileName);
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        mainLogger.info(`${CH_FACTORY_RESET}.siteDataDeleted`, { file: fileName });
+      }
+    } catch (err) {
+      mainLogger.warn(`${CH_FACTORY_RESET}.siteDataDeleteFailed`, {
+        file: fileName,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  // 7. Delete safeStorage fallback token files (*.oauth-tokens.enc)
+  try {
+    const allFiles = fs.readdirSync(userDataPath);
+    for (const file of allFiles) {
+      if (file.endsWith('.oauth-tokens.enc')) {
+        fs.unlinkSync(path.join(userDataPath, file));
+        mainLogger.info(`${CH_FACTORY_RESET}.tokenFallbackDeleted`, { file });
+      }
+    }
+  } catch (err) {
+    mainLogger.warn(`${CH_FACTORY_RESET}.tokenFallbackCleanupFailed`, { error: (err as Error).message });
+  }
+
+  // 8. Delete per-profile directories (profiles/*)
+  const profilesDir = path.join(userDataPath, 'profiles');
+  try {
+    if (fs.existsSync(profilesDir)) {
+      fs.rmSync(profilesDir, { recursive: true, force: true });
+      mainLogger.info(`${CH_FACTORY_RESET}.profileDirsDeleted`);
+    }
+  } catch (err) {
+    mainLogger.warn(`${CH_FACTORY_RESET}.profileDirsDeleteFailed`, { error: (err as Error).message });
+  }
+
+  // 9. Delete logs directory
   const logsDir = path.join(userDataPath, LOGS_DIR_NAME);
   try {
     if (fs.existsSync(logsDir)) {
@@ -532,7 +599,7 @@ async function handleFactoryReset(): Promise<void> {
 
   mainLogger.info(`${CH_FACTORY_RESET}.complete`, { msg: 'Factory reset complete' });
 
-  // 6. Relaunch (skip in test environment)
+  // 10. Relaunch (skip in test environment)
   if (process.env.NODE_ENV !== 'test') {
     app.relaunch();
     app.quit();
