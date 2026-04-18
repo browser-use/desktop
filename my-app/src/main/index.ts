@@ -323,9 +323,11 @@ function openShellAndWire(profileId?: string): BrowserWindow {
   }
 
   // Issue #12 — reset custom window name when shell window closes
+  const shellWinId = shellWindow.id;
   shellWindow.on('closed', () => {
     mainLogger.info('main.shellWindow.closed', { msg: 'Clearing custom window name' });
     windowCustomName = null;
+    windowDefaultTitles.delete(shellWinId);
   });
 
   return shellWindow;
@@ -431,6 +433,11 @@ function openNewWindow(): BrowserWindow {
   });
 
   win.on('resize', () => tm.relayout());
+  const newWinId = win.id;
+  win.on('closed', () => {
+    windowDefaultTitles.delete(newWinId);
+    tm.destroy();
+  });
 
   mainLogger.info('main.openNewWindow.done', { windowId: win.id });
   return win;
@@ -464,7 +471,9 @@ function openIncognitoWindow(): BrowserWindow {
   incognitoWindows.add(win);
   mainLogger.info('main.openIncognitoWindow.tracked', { total: incognitoWindows.size });
 
+  const incogWinId = win.id;
   win.on('closed', () => {
+    windowDefaultTitles.delete(incogWinId);
     incognitoWindows.delete(win);
     mainLogger.info('main.incognitoWindow.closed', {
       remaining: incognitoWindows.size,
