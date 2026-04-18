@@ -2731,7 +2731,6 @@ export class TabManager {
       return;
     }
 
-
     ipcMain.removeHandler('tabs:create');
     ipcMain.removeHandler('tabs:close');
     ipcMain.removeHandler('tabs:activate');
