@@ -27,6 +27,10 @@ import {
 import { isBiometricAvailable } from '../passwords/BiometricAuth';
 import type { PasswordStore } from '../passwords/PasswordStore';
 import type { DownloadManager } from '../downloads/DownloadManager';
+import {
+  performFactoryReset,
+  type FactoryResetStores,
+} from './FactoryResetController';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -40,11 +44,6 @@ const ANTHROPIC_VERSION    = '2023-06-01';
 const API_TEST_MODEL       = 'claude-haiku-4-5-20251001';
 const API_TEST_MAX_TOKENS  = 1;
 const API_TEST_TIMEOUT_MS  = 8000;
-
-const AGENTIC_SERVICE_PREFIX = 'com.agenticbrowser.';
-const DAEMON_SOCK_PREFIX     = 'daemon-';
-const DAEMON_SOCK_SUFFIX     = '.sock';
-const LOGS_DIR_NAME          = 'logs';
 
 const ALLOWED_THEMES = ['onboarding', 'shell'] as const;
 type ThemeName = typeof ALLOWED_THEMES[number];
@@ -120,6 +119,27 @@ let _keychainStore: KeychainStore | null = null;
 // registerSettingsHandlers() is first called (it's created inside openShellAndWire).
 let _getPasswordStore:  () => PasswordStore | null  = () => null;
 let _getDownloadManager: () => DownloadManager | null = () => null;
+
+/**
+ * App-local stores referenced by the factory reset handler. Each store is
+ * optional so older callers of `registerSettingsHandlers` (e.g. the settings
+ * standalone dev harness) don't have to wire every store. See
+ * FactoryResetController for how each is used.
+ *
+ * The fluentSync surface is lazily optional — the factory reset handler
+ * flushes pending debounced writes before it unlinks the backing files.
+ */
+type FlushableFactoryResetStores = FactoryResetStores & {
+  bookmarkStore?: FactoryResetStores['bookmarkStore']        & { flushSync?: () => void };
+  historyStore?: FactoryResetStores['historyStore']          & { flushSync?: () => void };
+  passwordStore?: FactoryResetStores['passwordStore']        & { flushSync?: () => void };
+  autofillStore?: FactoryResetStores['autofillStore']        & { flushSync?: () => void };
+  permissionStore?: FactoryResetStores['permissionStore']    & { flushSync?: () => void };
+  deviceStore?: FactoryResetStores['deviceStore']            & { flushSync?: () => void };
+  contentCategoryStore?: FactoryResetStores['contentCategoryStore'] & { flushSync?: () => void };
+};
+
+let _resetStores: FlushableFactoryResetStores | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -456,83 +476,34 @@ function handleReConsentScope(_event: Electron.IpcMainInvokeEvent, scope: string
 async function handleFactoryReset(): Promise<void> {
   mainLogger.info(CH_FACTORY_RESET, { msg: 'Factory reset initiated' });
 
-  const userDataPath = getUserDataPath();
-  const accountFile  = path.join(userDataPath, 'account.json');
-  const prefsFile    = getPrefsPath();
-
-  // 1. Delete account.json
+  // Flush any pending store writes so the in-memory "empty" state and the
+  // on-disk files are in sync before we delete them. Without this a 300ms
+  // debounce could rewrite e.g. bookmarks.json after we've unlinked it.
   try {
-    if (fs.existsSync(accountFile)) {
-      fs.unlinkSync(accountFile);
-      mainLogger.info(`${CH_FACTORY_RESET}.accountDeleted`);
-    }
+    _resetStores?.bookmarkStore?.flushSync?.();
+    _resetStores?.historyStore?.flushSync?.();
+    _resetStores?.passwordStore?.flushSync?.();
+    _resetStores?.autofillStore?.flushSync?.();
+    _resetStores?.permissionStore?.flushSync?.();
+    _resetStores?.deviceStore?.flushSync?.();
+    _resetStores?.contentCategoryStore?.flushSync?.();
   } catch (err) {
-    mainLogger.warn(`${CH_FACTORY_RESET}.accountDeleteFailed`, { error: (err as Error).message });
+    mainLogger.warn(`${CH_FACTORY_RESET}.flushFailed`, {
+      error: (err as Error).message,
+    });
   }
 
-  // 2. Delete preferences.json
-  try {
-    if (fs.existsSync(prefsFile)) {
-      fs.unlinkSync(prefsFile);
-      mainLogger.info(`${CH_FACTORY_RESET}.prefsDeleted`);
-    }
-  } catch (err) {
-    mainLogger.warn(`${CH_FACTORY_RESET}.prefsDeleteFailed`, { error: (err as Error).message });
-  }
+  const result = await performFactoryReset({
+    userDataPath: getUserDataPath(),
+    stores: _resetStores ?? undefined,
+  });
 
-  // 3. Delete all keychain entries under com.agenticbrowser.*
-  const keychainServices = [
-    'com.agenticbrowser.oauth',
-    ANTHROPIC_SERVICE,
-    'com.agenticbrowser.refresh',
-  ];
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const keytar = require('keytar') as {
-      findCredentials(s: string): Promise<Array<{ account: string }>>;
-      deletePassword(s: string, a: string): Promise<boolean>;
-    };
-    for (const service of keychainServices) {
-      const creds = await keytar.findCredentials(service);
-      for (const cred of creds) {
-        await keytar.deletePassword(service, cred.account);
-        mainLogger.info(`${CH_FACTORY_RESET}.keychainDeleted`, {
-          service,
-          accountLength: cred.account.length,
-        });
-      }
-    }
-  } catch (err) {
-    mainLogger.warn(`${CH_FACTORY_RESET}.keychainFailed`, { error: (err as Error).message });
-  }
+  mainLogger.info(`${CH_FACTORY_RESET}.complete`, {
+    success: result.success,
+    errorCount: result.errors.length,
+  });
 
-  // 4. Delete daemon socket files
-  try {
-    const files = fs.readdirSync(userDataPath);
-    for (const file of files) {
-      if (file.startsWith(DAEMON_SOCK_PREFIX) && file.endsWith(DAEMON_SOCK_SUFFIX)) {
-        fs.unlinkSync(path.join(userDataPath, file));
-        mainLogger.info(`${CH_FACTORY_RESET}.sockDeleted`, { file });
-      }
-    }
-  } catch (err) {
-    mainLogger.warn(`${CH_FACTORY_RESET}.sockCleanupFailed`, { error: (err as Error).message });
-  }
-
-  // 5. Delete logs directory
-  const logsDir = path.join(userDataPath, LOGS_DIR_NAME);
-  try {
-    if (fs.existsSync(logsDir)) {
-      fs.rmSync(logsDir, { recursive: true, force: true });
-      mainLogger.info(`${CH_FACTORY_RESET}.logsDeleted`);
-    }
-  } catch (err) {
-    mainLogger.warn(`${CH_FACTORY_RESET}.logsDeleteFailed`, { error: (err as Error).message });
-  }
-
-  mainLogger.info(`${CH_FACTORY_RESET}.complete`, { msg: 'Factory reset complete' });
-
-  // 6. Relaunch (skip in test environment)
+  // Relaunch (skip in test environment)
   if (process.env.NODE_ENV !== 'test') {
     app.relaunch();
     app.quit();
@@ -929,10 +900,17 @@ function handleCloseWindow(): void {
 // ---------------------------------------------------------------------------
 
 export interface RegisterSettingsHandlersOptions {
-  accountStore:       AccountStore;
-  keychainStore:      KeychainStore;
-  getPasswordStore?:  () => PasswordStore | null;
+  accountStore:        AccountStore;
+  keychainStore:       KeychainStore;
+  getPasswordStore?:   () => PasswordStore | null;
   getDownloadManager?: () => DownloadManager | null;
+  /**
+   * App-local stores wiped by the factory reset handler. Optional so the
+   * settings-standalone dev harness can still register handlers without
+   * spinning up every store. See FactoryResetController for the exact wipe
+   * contract per store.
+   */
+  factoryResetStores?: FlushableFactoryResetStores;
 }
 
 export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions): void {
@@ -940,6 +918,7 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
 
   _accountStore    = opts.accountStore;
   _keychainStore   = opts.keychainStore;
+  _resetStores     = opts.factoryResetStores ?? null;
   // Stash getters so handleClearData can resolve the live instances at call-time.
   if (opts.getPasswordStore)  _getPasswordStore  = opts.getPasswordStore;
   if (opts.getDownloadManager) _getDownloadManager = opts.getDownloadManager;
