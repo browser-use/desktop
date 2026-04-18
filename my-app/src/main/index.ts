@@ -97,6 +97,9 @@ import { DeviceManager } from './devices/DeviceManager';
 import { registerDeviceHandlers, unregisterDeviceHandlers } from './devices/ipc';
 // Issue #100 — Picture-in-Picture
 import { registerPipHandlers, unregisterPipHandlers } from './pip/PictureInPictureManager';
+// Issue #5 — Tab groups
+import { TabGroupStore } from './tabs/TabGroupStore';
+import { registerTabGroupHandlers, unregisterTabGroupHandlers } from './tabs/tab-groups-ipc';
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -195,6 +198,7 @@ let windowCustomName: string | null = null;
 // Stores the default (pre-rename) title for each window, keyed by window.id.
 const windowDefaultTitles = new Map<number, string>();
 
+const tabGroupStore = new TabGroupStore();
 const accountStore = new AccountStore();
 const oauthClient = new OAuthClient({ clientId: process.env.GOOGLE_CLIENT_ID ?? '42357852543-62lvdghq5hatidr3ovmq1rig9q5r5mcg.apps.googleusercontent.com' });
 const keychainStore = new KeychainStore();
@@ -210,6 +214,7 @@ function openShellAndWire(profileId?: string): BrowserWindow {
   mainLogger.info('main.openShellAndWire.profile', { profileId: pid, dataDir: profileDataDir, partition: profilePartition });
   shellWindow = createShellWindow();
   tabManager = new TabManager(shellWindow, { dataDir: profileDataDir, partition: profilePartition });
+  tabManager.setTabGroupStore(tabGroupStore);
   downloadManager?.destroy();
   downloadManager = new DownloadManager(shellWindow);
 
@@ -449,6 +454,9 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
 
   const win = createShellWindow();
   const tm = new TabManager(win, { dataDir: profileDataDir, partition: profilePartition });
+  // Secondary windows do not share the global tab-group store — each window
+  // manages its own tab set and restores its own session IDs, so mixing them
+  // into a shared store would silently mis-assign tab memberships.
 
   if (historyStore) tm.setHistoryStore(historyStore);
   if (bookmarkStore) {
@@ -495,6 +503,7 @@ function openIncognitoWindow(initialUrl?: string): BrowserWindow {
 
   const win = createShellWindow({ titleSuffix: ' (Incognito)', incognito: true });
   const tm = new TabManager(win, { guest: true, partition });
+  // Incognito windows do not share the persistent group store — privacy isolation.
   if (initialUrl) {
     tm.createTab(initialUrl);
   } else {
@@ -652,6 +661,8 @@ app.whenReady().then(async () => {
 
   // Issue #98 — Share menu
   registerShareHandlers(tabManager!, shellWindow!);
+  // Issue #5 — Tab groups
+  registerTabGroupHandlers(tabGroupStore, () => shellWindow);
   registerChromeHandlers(
     (page: string) => tabManager?.openInternalPage(page),
     () => openSettingsWindow(),
@@ -874,6 +885,7 @@ app.whenReady().then(async () => {
       deviceStore?.flushSync();
       contentCategoryStore?.flushSync();
       autofillStore?.flushSync();
+      tabGroupStore.flushSync();
     }
     await teardownHl();
   });
@@ -898,6 +910,7 @@ app.whenReady().then(async () => {
     unregisterPermissionHandlers();
     unregisterDeviceHandlers();
     unregisterPipHandlers();
+    unregisterTabGroupHandlers();
     unregisterExtensionsHandlers();
     unregisterAutofillHandlers();
     // ExtensionManager currently has no dispose()/destroy() hook; its

@@ -66,6 +66,7 @@ import {
   CERT_ERROR_PROCEED_PREFIX,
   CERT_ERROR_BACK_PREFIX,
 } from '../errors/NetworkErrorController';
+import type { TabGroupStore } from './TabGroupStore';
 
 // Forge VitePlugin globals for the new-tab page (injected at build time)
 declare const NEWTAB_VITE_DEV_SERVER_URL: string | undefined;
@@ -185,6 +186,7 @@ export class TabManager {
   private urlMatchFn: UrlMatchFn | null = null;
   private historyStore: HistoryStore | null = null;
   private passwordStore: PasswordStore | null = null;
+  private tabGroupStore: TabGroupStore | null = null;
   readonly isGuest: boolean;
   private readonly partition: string | null;
 
@@ -224,6 +226,10 @@ export class TabManager {
   /** Called by DeviceManager to attach select-bluetooth-device on new tabs */
   setOnWebContentsCreated(cb: ((wc: import("electron").WebContents) => void) | null): void {
     this.onWebContentsCreated = cb;
+  }
+
+  setTabGroupStore(store: TabGroupStore | null): void {
+    this.tabGroupStore = store;
   }
 
   setOnMoveTabToNewWindow(cb: ((url: string, title: string) => void) | null): void {
@@ -571,6 +577,12 @@ export class TabManager {
     this.lastFindQuery.delete(tabId);
     this.pinnedTabs.delete(tabId);
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
+
+    // Remove tab from its group before any early return so the store is always clean.
+    if (this.tabGroupStore?.getGroupForTab(tabId)) {
+      this.tabGroupStore.removeTabFromGroup(tabId);
+      this.broadcastTabGroups();
+    }
 
     if (this.activeTabId === tabId) {
       const newActive = this.tabOrder[this.tabOrder.length - 1] ?? null;
@@ -2017,6 +2029,17 @@ export class TabManager {
     this.win.webContents.send(channel, payload);
   }
 
+  /** Broadcast tab-group updates to every open window so all shells stay in sync. */
+  private broadcastTabGroups(): void {
+    if (!this.tabGroupStore) return;
+    const groups = this.tabGroupStore.listGroups();
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('tab-groups:updated', groups);
+      }
+    }
+  }
+
 
   // ---------------------------------------------------------------------------
   // Pinned tabs (Issue #3)
@@ -2131,6 +2154,29 @@ export class TabManager {
         }
       },
     }));
+
+    if (this.tabGroupStore) {
+      const existingGroup = this.tabGroupStore.getGroupForTab(tabId);
+      if (existingGroup) {
+        menu.append(new MenuItem({
+          label: 'Remove from Group',
+          click: () => {
+            this.tabGroupStore!.removeTabFromGroup(tabId);
+            this.broadcastTabGroups();
+          },
+        }));
+      } else {
+        menu.append(new MenuItem({
+          label: 'Add to New Group',
+          click: () => {
+            const colors: Array<import('./TabGroupStore').TabGroup['color']> = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'];
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            this.tabGroupStore!.createGroup('New group', color, [tabId]);
+            this.broadcastTabGroups();
+          },
+        }));
+      }
+    }
 
     menu.append(new MenuItem({ type: 'separator' }));
 
@@ -2314,8 +2360,8 @@ export class TabManager {
       return this.createTab(url);
     });
 
-    ipcMain.handle('tabs:close', (_e, tabId: string) => {
-      this.closeTab(tabId);
+    ipcMain.handle('tabs:close', (_e, tabId: string, force = false) => {
+      this.closeTab(tabId, force);
     });
 
     ipcMain.handle('tabs:activate', (_e, tabId: string) => {

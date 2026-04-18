@@ -16,6 +16,7 @@ import { decode as punyDecode, toASCII } from 'punycode';
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+const GOOGLE_FAVICON_API = 'https://www.google.com/s2/favicons?sz=32&domain_url=';
 const SECURE_RE = /^https:\/\//i;
 const INSECURE_RE = /^http:\/\//i;
 // New-tab data: URLs and about:blank are internal placeholders; the omnibox
@@ -292,6 +293,8 @@ export function URLBar({
   const securityRef = useRef<HTMLButtonElement>(null);
   const [inputValue, setInputValue] = useState(() => displayUrl(url));
   const [isEditing, setIsEditing] = useState(false);
+  // Track the input text used when the user started editing (for recordSelection)
+  const editInputRef = useRef('');
   const [suggestions, setSuggestions] = useState<OmniboxSuggestion[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -347,6 +350,7 @@ export function URLBar({
 
   const handleFocus = useCallback(() => {
     setIsEditing(true);
+    editInputRef.current = inputValue;
     // On focus, show the full URL so the user can edit it — except for blank
     // new-tab placeholders, where the input stays empty so typing is fresh.
     setInputValue((BLANK_RE.test(url) || NEWTAB_RE.test(url)) ? '' : url);

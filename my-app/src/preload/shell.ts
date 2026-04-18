@@ -18,6 +18,7 @@ import type { DownloadItemDTO } from '../main/downloads/DownloadManager';
 import type { DevicePickerRequest } from '../main/devices/DeviceManager';
 import type { GrantedDevice, DeviceApiType } from '../main/devices/DeviceStore';
 import type { OmniboxSuggestion } from '../main/omnibox/providers';
+import type { TabGroup } from '../main/tabs/TabGroupStore';
 
 // ---------------------------------------------------------------------------
 // Type re-exports for renderer consumption
@@ -40,6 +41,7 @@ export type {
   GrantedDevice,
   DeviceApiType,
   OmniboxSuggestion,
+  TabGroup,
 };
 
 // ---------------------------------------------------------------------------
@@ -51,8 +53,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (url?: string): Promise<string> =>
       ipcRenderer.invoke('tabs:create', url),
 
-    close: (tabId: string): Promise<void> =>
-      ipcRenderer.invoke('tabs:close', tabId),
+    close: (tabId: string, force = false): Promise<void> =>
+      ipcRenderer.invoke('tabs:close', tabId, force),
 
     activate: (tabId: string): Promise<void> =>
       ipcRenderer.invoke('tabs:activate', tabId),
@@ -766,4 +768,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('passwords:autofill', id),
   },
 
+  // Issue #5 — Tab groups
+  tabGroups: {
+    list: (): Promise<TabGroup[]> =>
+      ipcRenderer.invoke('tab-groups:list'),
+
+    create: (p: { name: string; color: string; tabIds: string[] }): Promise<TabGroup> =>
+      ipcRenderer.invoke('tab-groups:create', p),
+
+    update: (p: { id: string; patch: object }): Promise<void> =>
+      ipcRenderer.invoke('tab-groups:update', p),
+
+    addTab: (p: { groupId: string; tabId: string }): Promise<void> =>
+      ipcRenderer.invoke('tab-groups:add-tab', p),
+
+    removeTab: (p: { tabId: string }): Promise<void> =>
+      ipcRenderer.invoke('tab-groups:remove-tab', p),
+
+    delete: (p: { id: string }): Promise<void> =>
+      ipcRenderer.invoke('tab-groups:delete', p),
+
+    onUpdated: (cb: (groups: TabGroup[]) => void): (() => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, groups: TabGroup[]) => cb(groups);
+      ipcRenderer.on('tab-groups:updated', handler);
+      return () => ipcRenderer.removeListener('tab-groups:updated', handler);
+    },
+  },
 });
