@@ -56,6 +56,10 @@ const CH_SET_OPEN_WHEN_DONE = 'downloads:set-open-when-done';
 const CH_CLEAR_COMPLETED = 'downloads:clear-completed';
 const CH_GET_SHOW_ON_COMPLETE = 'downloads:get-show-on-complete';
 const CH_SET_SHOW_ON_COMPLETE = 'downloads:set-show-on-complete';
+// Added for chrome://downloads page (issue #37)
+const CH_REMOVE = 'downloads:remove';
+const CH_RETRY = 'downloads:retry';
+const CH_CLEAR_ALL = 'downloads:clear-all';
 
 // Events (main → renderer)
 const EVT_DOWNLOAD_STARTED = 'download-started';
@@ -249,7 +253,19 @@ export class DownloadManager {
       this.setShowOnComplete(value);
     });
 
-    mainLogger.info('DownloadManager.ipc.registered', { channelCount: 10 });
+    ipcMain.handle(CH_REMOVE, (_e, id: string) => {
+      return this.removeEntry(id);
+    });
+
+    ipcMain.handle(CH_RETRY, (_e, id: string) => {
+      return this.retry(id);
+    });
+
+    ipcMain.handle(CH_CLEAR_ALL, () => {
+      return this.clearAll();
+    });
+
+    mainLogger.info('DownloadManager.ipc.registered', { channelCount: 13 });
   }
 
   // ---------------------------------------------------------------------------
@@ -351,6 +367,89 @@ export class DownloadManager {
     this.broadcastState();
   }
 
+  /**
+   * Remove a single entry from the tracking map. If the underlying download
+   * is still in-flight it is cancelled first. Used by chrome://downloads.
+   */
+  private removeEntry(id: string): boolean {
+    const dl = this.downloads.get(id);
+    if (!dl) {
+      mainLogger.warn('DownloadManager.removeEntry.notFound', { id });
+      return false;
+    }
+    const item = this.electronItems.get(id);
+    if (item && (dl.status === 'in-progress' || dl.status === 'paused')) {
+      try {
+        item.cancel();
+      } catch (err) {
+        mainLogger.warn('DownloadManager.removeEntry.cancel.failed', { id, error: String(err) });
+      }
+    }
+    this.electronItems.delete(id);
+    this.clearThrottle(id);
+    this.downloads.delete(id);
+    mainLogger.info('DownloadManager.removeEntry', { id });
+    this.broadcastState();
+    return true;
+  }
+
+  /**
+   * Retry a failed or cancelled download by re-issuing the original URL via
+   * the default session. The original record is removed so the new download
+   * gets a fresh entry via the will-download handler. No-op if the record
+   * does not exist or is still in-flight.
+   */
+  private retry(id: string): boolean {
+    const dl = this.downloads.get(id);
+    if (!dl) {
+      mainLogger.warn('DownloadManager.retry.notFound', { id });
+      return false;
+    }
+    if (dl.status === 'in-progress' || dl.status === 'paused') {
+      mainLogger.warn('DownloadManager.retry.stillInFlight', { id, status: dl.status });
+      return false;
+    }
+    const url = dl.url;
+    // Drop the old record so the new attempt shows up as a fresh entry.
+    this.downloads.delete(id);
+    this.electronItems.delete(id);
+    this.clearThrottle(id);
+    try {
+      session.defaultSession.downloadURL(url);
+      mainLogger.info('DownloadManager.retry.issued', { id, url: url.slice(0, 200) });
+    } catch (err) {
+      mainLogger.warn('DownloadManager.retry.failed', { id, error: String(err) });
+      this.broadcastState();
+      return false;
+    }
+    this.broadcastState();
+    return true;
+  }
+
+  /**
+   * Remove every entry from the tracking map. In-flight downloads are
+   * cancelled first. Used by the "Clear all" button on chrome://downloads.
+   */
+  private clearAll(): boolean {
+    for (const [id, dl] of this.downloads) {
+      const item = this.electronItems.get(id);
+      if (item && (dl.status === 'in-progress' || dl.status === 'paused')) {
+        try {
+          item.cancel();
+        } catch (err) {
+          mainLogger.warn('DownloadManager.clearAll.cancel.failed', { id, error: String(err) });
+        }
+      }
+      this.clearThrottle(id);
+    }
+    const count = this.downloads.size;
+    this.downloads.clear();
+    this.electronItems.clear();
+    mainLogger.info('DownloadManager.clearAll', { removed: count });
+    this.broadcastState();
+    return true;
+  }
+
   // ---------------------------------------------------------------------------
   // Settings: show downloads when done
   // ---------------------------------------------------------------------------
@@ -436,6 +535,9 @@ export class DownloadManager {
     ipcMain.removeHandler(CH_CLEAR_COMPLETED);
     ipcMain.removeHandler(CH_GET_SHOW_ON_COMPLETE);
     ipcMain.removeHandler(CH_SET_SHOW_ON_COMPLETE);
+    ipcMain.removeHandler(CH_REMOVE);
+    ipcMain.removeHandler(CH_RETRY);
+    ipcMain.removeHandler(CH_CLEAR_ALL);
     for (const timer of this.throttleTimers.values()) {
       clearTimeout(timer);
     }

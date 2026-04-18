@@ -20,6 +20,7 @@ export default defineConfig({
     include: [
       'tests/unit/identity/**/*.spec.ts',
       'tests/unit/onboarding/**/*.spec.tsx',
+      'tests/unit/downloads/**/*.spec.tsx',
       'tests/integration/**/*.test.ts',
     ],
     exclude: ['tests/e2e/**', 'tests/parity/**'],
