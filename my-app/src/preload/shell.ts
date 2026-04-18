@@ -742,4 +742,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     autofill: (id: string): Promise<string | null> =>
       ipcRenderer.invoke('passwords:autofill', id),
   },
+
 });
