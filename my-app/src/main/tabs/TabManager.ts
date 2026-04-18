@@ -43,6 +43,18 @@ import {
   SAFE_BROWSING_BACK_PREFIX,
   type ThreatType,
 } from '../safebrowsing/SafeBrowsingController';
+import {
+  processHSTSHeader,
+  isHSTSHost,
+  getHSTSEntry,
+} from '../https/HSTSStore';
+import {
+  allowCertBypassForOrigin,
+  isCertBypassed,
+  buildCertErrorInterstitial,
+  CERT_BYPASS_PREFIX,
+  CERT_BACK_PREFIX,
+} from '../https/CertErrorController';
 
 // Forge VitePlugin globals for the new-tab page (injected at build time)
 declare const NEWTAB_VITE_DEV_SERVER_URL: string | undefined;
@@ -687,7 +699,20 @@ export class TabManager {
       return;
     }
 
-    const upgrade = maybeUpgradeUrl(url);
+    // HSTS: upgrade http:// to https:// pre-request for known HSTS hosts
+    let hstsUrl = url;
+    if (isHSTSHost(url)) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'http:') {
+          parsed.protocol = 'https:';
+          hstsUrl = parsed.toString();
+          mainLogger.info('TabManager.navigate.hstsUpgrade', { tabId, originalUrl: url, upgradedUrl: hstsUrl });
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    const upgrade = maybeUpgradeUrl(hstsUrl);
     if (upgrade.upgraded) {
       mainLogger.info('TabManager.navigate.httpsUpgrade', {
         tabId,
@@ -1575,6 +1600,27 @@ export class TabManager {
         mainLogger.info('TabManager.tab.safeBrowsingBack', { tabId });
         return;
       }
+      // Cert error: bypass (thisisunsafe typed on interstitial)
+      if (message.startsWith(CERT_BYPASS_PREFIX) && currentUrl.startsWith('data:text/html')) {
+        const certUrl = message.slice(CERT_BYPASS_PREFIX.length);
+        mainLogger.info('TabManager.tab.certBypass', { tabId, certUrl });
+        try {
+          const origin = new URL(certUrl).origin;
+          allowCertBypassForOrigin(origin);
+        } catch { /* ignore parse errors */ }
+        wc.loadURL(certUrl);
+        return;
+      }
+      // Cert error: back button pressed
+      if (message === CERT_BACK_PREFIX && currentUrl.startsWith('data:text/html')) {
+        mainLogger.info('TabManager.tab.certBack', { tabId });
+        if (wc.canGoBack()) {
+          wc.goBack();
+        } else {
+          wc.loadURL('about:blank');
+        }
+        return;
+      }
       if (!message.startsWith(FORM_DETECTOR_PREFIX)) return;
       try {
         const json = message.slice(FORM_DETECTOR_PREFIX.length);
@@ -1638,6 +1684,51 @@ export class TabManager {
       if (!this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
         this.win.webContents.send('target-lost', { tabId });
       }
+    });
+
+    // HSTS header capture: register a one-time onHeadersReceived listener per
+    // navigation to capture Strict-Transport-Security response headers.
+    wc.on('did-start-navigation', (_e, navUrl) => {
+      if (!navUrl.startsWith('https://')) return;
+      const wcSession = wc.session;
+      // Electron allows only one onHeadersReceived listener per session.
+      // We use a filter to narrow to this URL, and unregister after one hit.
+      let captured = false;
+      const filter = { urls: [navUrl.replace(/#.*$/, '') + '*'] };
+      wcSession.webRequest.onHeadersReceived(filter, (details, callback) => {
+        if (!captured && details.responseHeaders) {
+          const hsts = details.responseHeaders['strict-transport-security']?.[0]
+            ?? details.responseHeaders['Strict-Transport-Security']?.[0];
+          if (hsts) {
+            try { processHSTSHeader(navUrl, hsts); } catch { /* ignore */ }
+          }
+          captured = true;
+        }
+        callback({ responseHeaders: details.responseHeaders });
+      });
+    });
+
+    // Certificate errors: show interstitial or allow bypass for session-bypassed origins
+    wc.on('certificate-error', (_e, certUrl, _error, _cert, callback) => {
+      let origin = '';
+      try { origin = new URL(certUrl).origin; } catch { origin = certUrl; }
+
+      if (isCertBypassed(origin)) {
+        mainLogger.info('TabManager.tab.certError.bypassed', { tabId, certUrl, origin });
+        callback(true);
+        return;
+      }
+
+      mainLogger.warn('TabManager.tab.certError', { tabId, certUrl, origin });
+      callback(false);
+
+      let hostname = '';
+      try { hostname = new URL(certUrl).hostname; } catch { hostname = certUrl; }
+      const hstsEntry = getHSTSEntry(certUrl);
+      const isHSTS = !!hstsEntry;
+      const interstitialHtml = buildCertErrorInterstitial(certUrl, hostname, isHSTS, -202);
+      const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(interstitialHtml);
+      wc.loadURL(dataUrl);
     });
 
     // Route Cmd+K from tab webContents to the pill toggle. On macOS Chromium
@@ -2054,6 +2145,18 @@ export class TabManager {
     ipcMain.handle('find:get-last-query', () => {
       return this.getActiveTabLastFindQuery();
     });
+
+    ipcMain.handle('security:get-page-info', () => {
+      const url = this.getActiveTabUrl() ?? '';
+      const hstsEntry = getHSTSEntry(url);
+      return {
+        url,
+        isHSTS: !!hstsEntry,
+        hstsMaxAge: hstsEntry?.maxAge ?? null,
+        hstsIncludeSubdomains: hstsEntry?.includeSubdomains ?? false,
+        isSecure: url.startsWith('https://'),
+      };
+    });
   }
 
   destroy(): void {
@@ -2090,5 +2193,6 @@ export class TabManager {
     ipcMain.removeHandler('find:prev');
     ipcMain.removeHandler('find:stop');
     ipcMain.removeHandler('find:get-last-query');
+    ipcMain.removeHandler('security:get-page-info');
   }
 }

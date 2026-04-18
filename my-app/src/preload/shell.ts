@@ -335,6 +335,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('pip:get-status'),
   },
 
+  // Security — HSTS and cert error page info
+  security: {
+    getPageInfo: (): Promise<{
+      url: string;
+      isHSTS: boolean;
+      hstsMaxAge: number | null;
+      hstsIncludeSubdomains: boolean;
+      isSecure: boolean;
+    }> => ipcRenderer.invoke('security:get-page-info'),
+  },
+
   // Issue #81 — Three-dot app menu (non-macOS)
   menu: {
     showAppMenu: (bounds: { x: number; y: number }): Promise<void> =>
