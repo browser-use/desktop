@@ -2767,10 +2767,11 @@ function SyncTab(): React.ReactElement {
 
   const toggle = useCallback(async (key: keyof SyncPrefs) => {
     const next = { ...syncPrefs, [key]: !syncPrefs[key] };
-    // If toggling syncEverything ON, also enable all categories
+    // If toggling syncEverything ON, enable all data categories (but not encryption settings)
+    const NON_CATEGORY_KEYS = new Set(['enabled', 'syncEverything', 'encryptionEnabled']);
     if (key === 'syncEverything' && next.syncEverything) {
       Object.keys(DEFAULT_SYNC_PREFS).forEach((k) => {
-        if (k !== 'enabled' && k !== 'syncEverything') {
+        if (!NON_CATEGORY_KEYS.has(k)) {
           (next as Record<string, boolean>)[k] = true;
         }
       });

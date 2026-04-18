@@ -153,6 +153,8 @@ interface Preferences {
     encryptionEnabled: boolean;
     // PBKDF2 hash of the passphrase (stored for verification, never the raw passphrase)
     encryptionKeyHash?: string;
+    // Random salt (hex) persisted alongside the hash for PBKDF2 verification
+    encryptionSalt?: string;
   };
   [key: string]: unknown;
 }
@@ -720,17 +722,17 @@ function handleSetSyncPrefs(_e: Electron.IpcMainInvokeEvent, patch: unknown): bo
 
 async function handleSetSyncPassphrase(_e: Electron.IpcMainInvokeEvent, passphrase: unknown): Promise<boolean> {
   if (typeof passphrase !== 'string' || passphrase.length < 8) return false;
-  // Derive a verification hash using PBKDF2 (never store the raw passphrase)
-  const { pbkdf2 } = await import('node:crypto');
+  const { pbkdf2, randomBytes } = await import('node:crypto');
+  const salt = randomBytes(16).toString('hex');
   const hash = await new Promise<string>((resolve, reject) => {
-    pbkdf2(passphrase, 'sync-passphrase-salt', 100000, 32, 'sha256', (err, key) => {
+    pbkdf2(passphrase, salt, 100000, 32, 'sha256', (err, key) => {
       if (err) reject(err);
       else resolve(key.toString('hex'));
     });
   });
   const prefs = readPrefs();
   const current = prefs.syncPrefs ?? {};
-  mergePrefs({ syncPrefs: { ...current, encryptionEnabled: true, encryptionKeyHash: hash } } as Partial<Preferences>);
+  mergePrefs({ syncPrefs: { ...current, encryptionEnabled: true, encryptionKeyHash: hash, encryptionSalt: salt } } as Partial<Preferences>);
   return true;
 }
 
@@ -738,10 +740,11 @@ async function handleVerifySyncPassphrase(_e: Electron.IpcMainInvokeEvent, passp
   if (typeof passphrase !== 'string') return false;
   const prefs = readPrefs();
   const stored = prefs.syncPrefs?.encryptionKeyHash;
-  if (!stored) return false;
+  const salt = prefs.syncPrefs?.encryptionSalt;
+  if (!stored || !salt) return false;
   const { pbkdf2 } = await import('node:crypto');
   const hash = await new Promise<string>((resolve, reject) => {
-    pbkdf2(passphrase, 'sync-passphrase-salt', 100000, 32, 'sha256', (err, key) => {
+    pbkdf2(passphrase, salt, 100000, 32, 'sha256', (err, key) => {
       if (err) reject(err);
       else resolve(key.toString('hex'));
     });
