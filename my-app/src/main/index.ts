@@ -347,6 +347,10 @@ function openGuestShell(): BrowserWindow {
   downloadManager?.destroy();
   downloadManager = new DownloadManager(shellWindow);
 
+  if (searchEngineStore) {
+    tabManager.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
+  }
+
   tabManager.restoreSession();
 
   tabManager.setOnClosedTabsChanged(() => {
