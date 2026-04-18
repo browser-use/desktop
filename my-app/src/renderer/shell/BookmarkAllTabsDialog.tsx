@@ -79,8 +79,12 @@ export function BookmarkAllTabsDialog({
 
   const handleSave = useCallback(async () => {
     const name = folderName.trim() || defaultName;
-    await electronAPI.bookmarks.bookmarkAllTabs({ folderName: name, parentId });
-    onClose();
+    try {
+      await electronAPI.bookmarks.bookmarkAllTabs({ folderName: name, parentId });
+      onClose();
+    } catch {
+      // keep dialog open so user can retry
+    }
   }, [folderName, defaultName, parentId, onClose]);
 
   const handleFormKeyDown = useCallback(
