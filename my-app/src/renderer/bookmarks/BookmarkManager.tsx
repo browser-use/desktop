@@ -384,7 +384,7 @@ export function BookmarkManager() {
           >
             By Date
           </button>
-          <button className="bookmarks__add-folder-btn" onClick={handleAddFolder}>
+          <button className="bookmarks__add-folder-btn" onClick={() => handleAddFolder(selectedFolderId)}>
             + New Folder
           </button>
         </div>
