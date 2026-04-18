@@ -403,22 +403,25 @@ export function URLBar({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (dropdownOpen && suggestions.length > 0) {
-        if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown') {
+        if (dropdownOpen && suggestions.length > 0) {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
-          return;
+          setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
         }
-        if (e.key === 'ArrowUp') {
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        if (dropdownOpen && suggestions.length > 0) {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.max(prev - 1, -1));
-          return;
+          setSelectedIndex((i) => Math.max(i - 1, -1));
         }
-        if (e.key === 'Enter' && selectedIndex >= 0) {
-          e.preventDefault();
-          commitSuggestion(suggestions[selectedIndex]);
-          return;
-        }
+        return;
+      }
+
+      if (dropdownOpen && e.key === 'Enter' && selectedIndex >= 0) {
+        e.preventDefault();
+        commitSuggestion(suggestions[selectedIndex]);
+        return;
       }
 
       if (e.key === 'Enter') {
