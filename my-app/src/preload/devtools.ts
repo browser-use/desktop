@@ -29,6 +29,7 @@ export interface DevToolsAPI {
   getActiveTabInfo: () => Promise<TabInfo | null>;
   onCdpEvent: (cb: (method: string, params: unknown) => void) => () => void;
   onTabChanged: (cb: (tabId: string) => void) => () => void;
+  onToggleDeviceToolbar: (cb: () => void) => () => void;
 }
 
 const api: DevToolsAPI = {
@@ -74,6 +75,16 @@ const api: DevToolsAPI = {
     ipcRenderer.on('devtools:tab-changed', listener);
     return () => {
       ipcRenderer.removeListener('devtools:tab-changed', listener);
+    };
+  },
+
+  onToggleDeviceToolbar: (cb: () => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent): void => {
+      cb();
+    };
+    ipcRenderer.on('devtools:toggle-device-toolbar', listener);
+    return () => {
+      ipcRenderer.removeListener('devtools:toggle-device-toolbar', listener);
     };
   },
 };

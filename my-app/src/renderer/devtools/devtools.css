@@ -550,6 +550,215 @@
   flex-shrink: 0;
 }
 
+/* Device toolbar */
+
+.device-toolbar {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border-default);
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.device-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  min-height: 32px;
+}
+
+.device-toolbar-row-controls {
+  border-top: 1px solid var(--color-border-subtle);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.device-toolbar-row-ua {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.device-toolbar-label {
+  font-size: var(--font-size-2xs);
+  color: var(--color-fg-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.device-toolbar-label-mid {
+  margin-left: var(--space-1);
+}
+
+.device-preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  overflow-x: auto;
+}
+
+.device-preset-btn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-2xs);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+
+.device-preset-btn:hover {
+  background-color: var(--color-surface-interactive-hover);
+  color: var(--color-fg-primary);
+}
+
+.device-preset-btn[data-active="true"] {
+  background-color: var(--color-accent-muted);
+  color: var(--color-accent-default);
+}
+
+.device-dim-input {
+  width: 56px;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-bg-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--color-fg-primary);
+  text-align: center;
+}
+
+.device-dim-input:focus {
+  border-color: var(--color-accent-default);
+  outline: none;
+}
+
+.device-dim-input::-webkit-outer-spin-button,
+.device-dim-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.device-dim-sep {
+  font-size: var(--font-size-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.device-select {
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-bg-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+}
+
+.device-select:focus {
+  border-color: var(--color-accent-default);
+  outline: none;
+}
+
+.device-rotate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  color: var(--color-fg-secondary);
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+
+.device-rotate-btn:hover {
+  background-color: var(--color-surface-interactive-hover);
+  color: var(--color-fg-primary);
+}
+
+.device-rotate-btn[data-rotated="true"] {
+  color: var(--color-accent-default);
+  transform: rotate(90deg);
+}
+
+.device-toolbar-divider {
+  width: 1px;
+  height: 16px;
+  background-color: var(--color-border-subtle);
+  margin: 0 var(--space-1);
+  flex-shrink: 0;
+}
+
+.device-reset-btn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-2xs);
+  border-radius: var(--radius-sm);
+  color: var(--color-status-warning);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.device-reset-btn:hover {
+  background-color: var(--color-surface-interactive-hover);
+}
+
+.device-reset-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.device-toolbar-close-btn {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-2xs);
+  color: var(--color-fg-tertiary);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+
+.device-toolbar-close-btn:hover {
+  background-color: var(--color-surface-interactive-hover);
+  color: var(--color-fg-secondary);
+}
+
+.device-ua-input {
+  flex: 1;
+  padding: var(--space-1) var(--space-3);
+  background-color: var(--color-bg-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--color-fg-primary);
+}
+
+.device-ua-input:focus {
+  border-color: var(--color-accent-default);
+  outline: none;
+}
+
+.device-ua-input::placeholder {
+  color: var(--color-fg-tertiary);
+}
+
+.device-ua-apply-btn {
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--font-size-xs);
+  background-color: var(--color-accent-default);
+  color: var(--color-fg-inverse);
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.device-ua-apply-btn:hover {
+  background-color: var(--color-accent-hover);
+}
+
+.device-ua-apply-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Placeholder panel (for unimplemented panels) */
 
 .panel-placeholder {

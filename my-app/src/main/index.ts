@@ -91,6 +91,9 @@ import { registerNtpHandlers, unregisterNtpHandlers } from './ntp/ipc';
 import { DeviceStore } from './devices/DeviceStore';
 import { DeviceManager } from './devices/DeviceManager';
 import { registerDeviceHandlers, unregisterDeviceHandlers } from './devices/ipc';
+// Issue #78 — DevTools device toolbar
+import { registerDevToolsHandlers, unregisterDevToolsHandlers } from './devtools/ipc';
+import { getDevToolsWindow } from './devtools/DevToolsWindow';
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -229,6 +232,11 @@ function openShellAndWire(profileId?: string): BrowserWindow {
       deviceManager?.attachToWebContents(wc);
     });
     registerDeviceHandlers({ store: deviceStore, manager: deviceManager });
+  }
+
+  // Issue #78 — DevTools device toolbar: register CDP bridge IPC
+  if (tabManager) {
+    registerDevToolsHandlers(tabManager);
   }
 
   // History menu's "Recently Closed" submenu is dynamic — rebuild the whole
@@ -664,6 +672,7 @@ app.whenReady().then(async () => {
     unregisterDeviceHandlers();
     unregisterExtensionsHandlers();
     unregisterAutofillHandlers();
+    unregisterDevToolsHandlers();
     // ExtensionManager currently has no dispose()/destroy() hook; its
     // internal MV3 runtime tears itself down via its own lifecycle. If a
     // top-level cleanup is ever added, wire it in here.
@@ -1253,6 +1262,18 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
                   },
                 },
               ],
+            },
+            { type: 'separator' },
+            {
+              label: 'Toggle Device Toolbar',
+              accelerator: 'CommandOrControl+Shift+M',
+              click: () => {
+                mainLogger.debug('shortcuts.toggleDeviceToolbar');
+                const dtWin = getDevToolsWindow();
+                if (dtWin && !dtWin.isDestroyed()) {
+                  dtWin.webContents.send('devtools:toggle-device-toolbar');
+                }
+              },
             },
           ],
         },

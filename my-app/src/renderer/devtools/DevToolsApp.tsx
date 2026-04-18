@@ -9,6 +9,7 @@ import { ApplicationPanel } from './panels/ApplicationPanel';
 import { SecurityPanel } from './panels/SecurityPanel';
 import { LighthousePanel } from './panels/LighthousePanel';
 import { RecorderPanel } from './panels/RecorderPanel';
+import { DeviceToolbarPanel } from './panels/DeviceToolbarPanel';
 
 declare const devtoolsAPI: {
   attach: () => Promise<{ success: boolean; error?: string }>;
@@ -18,6 +19,7 @@ declare const devtoolsAPI: {
   getActiveTabInfo: () => Promise<{ id: string; url: string; title: string; favicon: string | null; isLoading: boolean } | null>;
   onCdpEvent: (cb: (method: string, params: unknown) => void) => () => void;
   onTabChanged: (cb: (tabId: string) => void) => () => void;
+  onToggleDeviceToolbar: (cb: () => void) => () => void;
 };
 
 type PanelId =
@@ -65,6 +67,7 @@ export function DevToolsApp(): React.ReactElement {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [tabInfo, setTabInfo] = useState<TabInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deviceToolbarOpen, setDeviceToolbarOpen] = useState(false);
   const cdpListenersRef = useRef<Array<(method: string, params: unknown) => void>>([]);
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -87,6 +90,11 @@ export function DevToolsApp(): React.ReactElement {
     },
     [],
   );
+
+  const toggleDeviceToolbar = useCallback(() => {
+    console.log('[DevToolsApp] toggleDeviceToolbar');
+    setDeviceToolbarOpen((prev) => !prev);
+  }, []);
 
   const connect = useCallback(async () => {
     console.log('[DevToolsApp] connecting...');
@@ -137,6 +145,28 @@ export function DevToolsApp(): React.ReactElement {
       void devtoolsAPI.detach();
     };
   }, [connect]);
+
+  // Listen for Cmd+Shift+M toggle from main process
+  useEffect(() => {
+    const cleanup = devtoolsAPI.onToggleDeviceToolbar(() => {
+      console.log('[DevToolsApp] onToggleDeviceToolbar received');
+      setDeviceToolbarOpen((prev) => !prev);
+    });
+    return cleanup;
+  }, []);
+
+  // Also handle Cmd+Shift+M locally via keydown in the devtools window
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'M') {
+        e.preventDefault();
+        console.log('[DevToolsApp] Cmd+Shift+M keydown → toggleDeviceToolbar');
+        setDeviceToolbarOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const isAttached = connectionState === 'connected';
 
@@ -225,7 +255,24 @@ export function DevToolsApp(): React.ReactElement {
             {panel.label}
           </button>
         ))}
+        <button
+          className="devtools-tab"
+          data-active={deviceToolbarOpen ? 'true' : 'false'}
+          onClick={toggleDeviceToolbar}
+          title="Toggle device toolbar (Cmd+Shift+M)"
+          style={{ marginLeft: 'auto' }}
+        >
+          <span className="devtools-tab-icon">⊟</span>
+          Device
+        </button>
       </div>
+
+      {deviceToolbarOpen && isAttached && (
+        <DeviceToolbarPanel
+          sendCdp={sendCdp}
+          onClose={() => setDeviceToolbarOpen(false)}
+        />
+      )}
 
       <div className="devtools-content">
         {renderPanel()}
