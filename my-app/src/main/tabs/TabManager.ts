@@ -23,6 +23,7 @@ import { parseNavigationInput, UrlMatchFn } from '../navigation';
 import path from 'node:path';
 import { mainLogger } from '../logger';
 import { HistoryStore } from '../history/HistoryStore';
+import { PasswordStore } from '../passwords/PasswordStore';
 import { attachContextMenu } from '../contextMenu/ContextMenuController';
 import { getFormDetectorScript, FORM_DETECTOR_PREFIX } from '../passwords/formDetector';
 import { readPrefs } from '../settings/ipc';
@@ -152,6 +153,7 @@ export class TabManager {
   private zoomStore: ZoomStore;
   private urlMatchFn: UrlMatchFn | null = null;
   private historyStore: HistoryStore | null = null;
+  private passwordStore: PasswordStore | null = null;
   readonly isGuest: boolean;
   private readonly partition: string | null;
 
@@ -188,6 +190,11 @@ export class TabManager {
   setHistoryStore(store: HistoryStore): void {
     this.historyStore = store;
     mainLogger.info('TabManager.setHistoryStore', { msg: 'History recording enabled' });
+  }
+
+  setPasswordStore(store: PasswordStore): void {
+    this.passwordStore = store;
+    mainLogger.info('TabManager.setPasswordStore', { msg: 'Password store wired for context menu' });
   }
 
   /**
@@ -1422,6 +1429,7 @@ export class TabManager {
       win: this.win,
       createTab: (url: string) => this.createTab(url),
       navigateActive: (url: string) => this.navigateActive(url),
+      passwordStore: this.passwordStore ?? undefined,
     });
 
 

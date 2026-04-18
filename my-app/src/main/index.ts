@@ -400,6 +400,7 @@ app.whenReady().then(async () => {
   // See comment above re: profile-scoped persistence follow-up.
   passwordStore = new PasswordStore();
   registerPasswordHandlers({ store: passwordStore });
+  if (tabManager) tabManager.setPasswordStore(passwordStore);
 
   // Issue #70 — Autofill: init store + register IPC.
   autofillStore = new AutofillStore();

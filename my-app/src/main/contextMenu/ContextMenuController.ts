@@ -2,16 +2,21 @@
  * ContextMenuController — right-click context menus for page content.
  *
  * Attaches to each WebContentsView's 'context-menu' event and builds a
- * Chrome-parity menu based on what was clicked (page, link, image, selection).
+ * Chrome-parity menu based on what was clicked (page, link, image, selection,
+ * editable, or password field).
  */
 
 import { Menu, MenuItem, clipboard, shell, type BrowserWindow, type WebContents, type ContextMenuParams } from 'electron';
 import { mainLogger } from '../logger';
+import type { PasswordStore } from '../passwords/PasswordStore';
+
+const SETTINGS_PASSWORDS_URL = 'chrome://settings/passwords';
 
 export interface ContextMenuDeps {
   win: BrowserWindow;
   createTab: (url: string) => void;
   navigateActive: (url: string) => void;
+  passwordStore?: PasswordStore;
 }
 
 export function attachContextMenu(wc: WebContents, deps: ContextMenuDeps): void {
@@ -29,6 +34,7 @@ function buildMenu(params: ContextMenuParams, wc: WebContents, deps: ContextMenu
   const hasImage = params.mediaType === 'image';
   const hasSelection = !!params.selectionText;
   const isEditable = params.isEditable;
+  const isPasswordField = params.formControlType === 'input-password';
   const pageUrl = wc.getURL();
 
   if (hasLink) {
@@ -37,6 +43,8 @@ function buildMenu(params: ContextMenuParams, wc: WebContents, deps: ContextMenu
     buildImageMenu(menu, params, wc, deps);
   } else if (hasSelection) {
     buildSelectionMenu(menu, params, wc, deps);
+  } else if (isEditable && isPasswordField) {
+    buildPasswordMenu(menu, params, wc, deps);
   } else if (isEditable) {
     buildEditableMenu(menu, params, wc);
   } else {
@@ -208,4 +216,110 @@ function buildEditableMenu(menu: Menu, params: ContextMenuParams, wc: WebContent
       }));
     }
   }
+}
+
+/**
+ * Password field context menu — shown when right-clicking a <input type="password">.
+ * Mirrors Chrome's password-field menu: Use Password Manager, Suggest Strong Password,
+ * and Show Saved Passwords.
+ */
+function buildPasswordMenu(
+  menu: Menu, params: ContextMenuParams, wc: WebContents, deps: ContextMenuDeps,
+): void {
+  const pageOrigin = (() => {
+    try {
+      return new URL(wc.getURL()).origin;
+    } catch {
+      return '';
+    }
+  })();
+
+  const savedCreds = deps.passwordStore
+    ? deps.passwordStore.findCredentialsForOrigin(pageOrigin)
+    : [];
+
+  mainLogger.debug('contextMenu.passwordField', {
+    origin: pageOrigin,
+    savedCredCount: savedCreds.length,
+  });
+
+  // "Use Password Manager" — fills saved credentials if any exist for this origin,
+  // otherwise opens the saved passwords settings page.
+  if (savedCreds.length > 0) {
+    const credSubmenu = new Menu();
+    for (const cred of savedCreds) {
+      credSubmenu.append(new MenuItem({
+        label: cred.username || '(no username)',
+        click: () => {
+          mainLogger.info('contextMenu.passwordField.autofill', { id: cred.id, origin: pageOrigin });
+          wc.executeJavaScript(
+            `(function() {
+              var el = document.activeElement;
+              if (!el || el.type !== 'password') {
+                el = document.querySelector('input[type="password"]');
+              }
+              if (el) { el.focus(); }
+            })()`,
+          ).catch(() => {});
+          // Trigger autofill via IPC (calls requireBiometric + revealPassword)
+          deps.win.webContents.send('password-autofill-request', { id: cred.id });
+        },
+      }));
+    }
+    menu.append(new MenuItem({
+      label: 'Use Password Manager',
+      submenu: credSubmenu,
+    }));
+  } else {
+    menu.append(new MenuItem({
+      label: 'Use Password Manager',
+      click: () => {
+        mainLogger.info('contextMenu.passwordField.openPasswordManager');
+        deps.createTab(SETTINGS_PASSWORDS_URL);
+      },
+    }));
+  }
+
+  menu.append(new MenuItem({ type: 'separator' }));
+
+  // "Suggest Strong Password" — opens the passwords settings page where the user
+  // can manage and generate passwords (chrome://settings/passwords parity).
+  menu.append(new MenuItem({
+    label: 'Suggest Strong Password',
+    click: () => {
+      mainLogger.info('contextMenu.passwordField.suggestStrongPassword');
+      wc.executeJavaScript(
+        `(function() {
+          var el = document.activeElement;
+          if (!el || el.type !== 'password') {
+            el = document.querySelector('input[type="password"]');
+          }
+          if (el) {
+            var pwd = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+              .map(b => 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*'[b % 63])
+              .join('');
+            el.focus();
+            el.value = pwd;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        })()`,
+      ).catch((err) => {
+        mainLogger.warn('contextMenu.passwordField.suggestStrongPassword.failed', {
+          error: (err as Error).message,
+        });
+      });
+    },
+  }));
+
+  menu.append(new MenuItem({ type: 'separator' }));
+
+  // "Show Saved Passwords" — navigates to chrome://settings/passwords.
+  menu.append(new MenuItem({
+    label: 'Show Saved Passwords',
+    click: () => {
+      mainLogger.info('contextMenu.passwordField.showSavedPasswords');
+      deps.createTab(SETTINGS_PASSWORDS_URL);
+    },
+  }));
 }
