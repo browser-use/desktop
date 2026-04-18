@@ -544,6 +544,8 @@ export function TabStrip({
     const nativeMenu = document.createElement('div');
     nativeMenu.className = 'tab-group-context-menu';
     nativeMenu.style.cssText = `position:fixed;z-index:9999;left:${e.clientX}px;top:${e.clientY}px;background:var(--color-bg-elevated,#fff);border:1px solid var(--color-border-default,#ccc);border-radius:6px;padding:4px 0;box-shadow:0 4px 16px rgba(0,0,0,.18);min-width:140px;`;
+    // Declare dismiss before btn.onclick so the onclick closure can reference it.
+    let dismiss: (ev: MouseEvent) => void;
     menu.forEach((item) => {
       const btn = document.createElement('button');
       btn.textContent = item.label;
@@ -553,11 +555,12 @@ export function TabStrip({
       btn.onclick = () => {
         item.action();
         document.body.removeChild(nativeMenu);
+        document.removeEventListener('mousedown', dismiss);
       };
       nativeMenu.appendChild(btn);
     });
     document.body.appendChild(nativeMenu);
-    const dismiss = (ev: MouseEvent) => {
+    dismiss = (ev: MouseEvent) => {
       if (!nativeMenu.contains(ev.target as Node)) {
         if (document.body.contains(nativeMenu)) document.body.removeChild(nativeMenu);
         document.removeEventListener('mousedown', dismiss);
