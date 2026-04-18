@@ -2823,6 +2823,7 @@ function SyncTab(): React.ReactElement {
             className={`settings-sync-toggle ${syncPrefs.enabled ? 'settings-sync-toggle--on' : ''}`}
             role="switch"
             aria-checked={syncPrefs.enabled}
+            disabled={saving}
             onClick={() => void toggle('enabled')}
           />
         </div>
@@ -2843,6 +2844,7 @@ function SyncTab(): React.ReactElement {
                 className={`settings-sync-toggle ${syncPrefs.syncEverything ? 'settings-sync-toggle--on' : ''}`}
                 role="switch"
                 aria-checked={syncPrefs.syncEverything}
+                disabled={saving}
                 onClick={() => void toggle('syncEverything')}
               />
             </div>
@@ -2862,6 +2864,7 @@ function SyncTab(): React.ReactElement {
                       className={`settings-sync-toggle ${syncPrefs[key] ? 'settings-sync-toggle--on' : ''}`}
                       role="switch"
                       aria-checked={Boolean(syncPrefs[key])}
+                      disabled={saving}
                       onClick={() => void toggle(key)}
                     />
                   </div>
