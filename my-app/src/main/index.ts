@@ -518,9 +518,6 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
 
   const win = createShellWindow();
   const tm = new TabManager(win, { dataDir: profileDataDir, partition: profilePartition });
-  // Secondary windows do not share the global tab-group store — each window
-  // manages its own tab set and restores its own session IDs, so mixing them
-  // into a shared store would silently mis-assign tab memberships.
   if (searchEngineStore) tm.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
 
   if (historyStore) tm.setHistoryStore(historyStore);
@@ -548,11 +545,7 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
   });
 
   win.on('resize', () => tm.relayout());
-  const newWinId = win.id;
-  win.on('closed', () => {
-    windowDefaultTitles.delete(newWinId);
-    tm.destroy();
-  });
+  win.on('closed', () => tm.destroy());
 
   mainLogger.info('main.openNewWindow.done', { windowId: win.id });
   return win;
@@ -572,15 +565,8 @@ function openIncognitoWindow(initialUrl?: string): BrowserWindow {
 
   const win = createShellWindow({ titleSuffix: ' (Incognito)', incognito: true });
   const tm = new TabManager(win, { guest: true, partition });
-  // Incognito windows do not share the persistent group store — privacy isolation.
   if (searchEngineStore) tm.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
-  // Issue #222 — incognito sessions still honor content-category policies.
-  if (contentPolicyEnforcer) tm.setContentPolicyEnforcer(contentPolicyEnforcer);
-  if (initialUrl) {
-    tm.createTab(initialUrl);
-  } else {
-    tm.restoreSession();
-  }
+  tm.restoreSession();
   tm.setOnClosedTabsChanged(() => rebuildApplicationMenu());
   tm.setOnMoveTabToNewWindow((url: string) => {
     openIncognitoWindow(url);
@@ -599,7 +585,6 @@ function openIncognitoWindow(initialUrl?: string): BrowserWindow {
 
   const incogWinId = win.id;
   win.on('closed', () => {
-    windowDefaultTitles.delete(incogWinId);
     tm.destroy();
     incognitoWindows.delete(win);
     mainLogger.info('main.incognitoWindow.closed', {
