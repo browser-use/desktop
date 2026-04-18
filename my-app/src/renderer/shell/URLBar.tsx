@@ -401,13 +401,17 @@ export function URLBar({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
+        if (dropdownOpen && suggestions.length > 0) {
+          e.preventDefault();
+          setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
+        }
         return;
       }
       if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, -1));
+        if (dropdownOpen && suggestions.length > 0) {
+          e.preventDefault();
+          setSelectedIndex((i) => Math.max(i - 1, -1));
+        }
         return;
       }
       if (e.key === 'Enter') {
