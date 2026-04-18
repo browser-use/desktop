@@ -14,12 +14,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { TabState } from '../../main/tabs/TabManager';
 import type { TabGroup } from '../../main/tabs/TabGroupStore';
+import { TabHoverCard } from './TabHoverCard';
 
 declare const electronAPI: {
   tabs: {
     create: (url?: string) => Promise<string>;
     showContextMenu: (tabId: string) => Promise<void>;
     muteTab: (tabId: string) => Promise<void>;
+    captureThumbnail: (tabId: string) => Promise<string | null>;
   };
   tabGroups: {
     list: () => Promise<TabGroup[]>;
@@ -68,6 +70,8 @@ interface TabStripProps {
 // ---------------------------------------------------------------------------
 // Individual tab
 // ---------------------------------------------------------------------------
+const HOVER_DELAY_MS = 500;
+
 interface TabItemProps {
   tab: TabState;
   index: number;
@@ -84,6 +88,8 @@ interface TabItemProps {
   tabRef: (el: HTMLDivElement | null) => void;
   onMuteToggle: (e: React.MouseEvent) => void;
   groupColor?: string;
+  onHoverStart: (tab: TabState, rect: DOMRect) => void;
+  onHoverEnd: () => void;
 }
 
 function TabItem({
@@ -102,12 +108,35 @@ function TabItem({
   tabRef,
   onMuteToggle,
   groupColor,
+  onHoverStart,
+  onHoverEnd,
 }: TabItemProps): React.ReactElement {
   const isPinned = tab.pinned;
   const favicon = faviconSrc(tab);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const elemRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    };
+  }, []);
+
+  const handleMouseEnter = useCallback(() => {
+    hoverTimer.current = setTimeout(() => {
+      const rect = elemRef.current?.getBoundingClientRect();
+      if (rect) onHoverStart(tab, rect);
+    }, HOVER_DELAY_MS);
+  }, [tab, onHoverStart]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+    onHoverEnd();
+  }, [onHoverEnd]);
+
   return (
     <div
-      ref={tabRef}
+      ref={(el) => { elemRef.current = el; tabRef(el); }}
       className={[
         'tab-item',
         isActive ? 'tab-item--active' : '',
@@ -124,11 +153,14 @@ function TabItem({
       tabIndex={isActive ? 0 : -1}
       draggable
       onClick={onActivate}
+      onAuxClick={(e) => { if (e.button === 1) { e.stopPropagation(); onClose(e); } }}
       onKeyDown={onKeyDown}
       onDragStart={(e) => onDragStart(e, tab.id, index)}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={(e) => onDrop(e, index)}
       onContextMenu={onContextMenu}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       title={isPinned || isIconOnly ? tab.title : undefined}
     >
       {/* Favicon / loading spinner / audio indicator */}
@@ -337,6 +369,11 @@ function GroupChip({ group, onToggleCollapse, onContextMenu }: GroupChipProps): 
 // ---------------------------------------------------------------------------
 // TabStrip
 // ---------------------------------------------------------------------------
+interface HoverState {
+  tab: TabState;
+  rect: DOMRect;
+}
+
 export function TabStrip({
   tabs,
   activeTabId,
@@ -352,6 +389,7 @@ export function TabStrip({
   const [groups, setGroups] = useState<TabGroup[]>([]);
   const [renameGroupId, setRenameGroupId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [hoverState, setHoverState] = useState<HoverState | null>(null);
   const dragTabId = useRef<string | null>(null);
   const tabRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -664,6 +702,8 @@ export function TabStrip({
                   onMuteToggle(tab.id);
                 }}
                 groupColor={groupColor}
+                onHoverStart={(t, rect) => setHoverState({ tab: t, rect })}
+                onHoverEnd={() => setHoverState(null)}
               />,
             );
           });
@@ -745,6 +785,15 @@ export function TabStrip({
             </button>
           </div>
         </div>
+      )}
+
+      {hoverState && (
+        <TabHoverCard
+          tabId={hoverState.tab.id}
+          title={hoverState.tab.title}
+          url={hoverState.tab.url}
+          anchorRect={hoverState.rect}
+        />
       )}
     </div>
   );
