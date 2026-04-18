@@ -62,6 +62,9 @@ import { openExtensionsWindow } from './extensions/ExtensionsWindow';
 // Issue #40 — History
 import { HistoryStore } from './history/HistoryStore';
 import { registerHistoryHandlers, unregisterHistoryHandlers } from './history/ipc';
+// Issue #36 — Downloads
+import { DownloadManager } from './downloads/DownloadManager';
+// Downloads
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -127,6 +130,7 @@ let permissionStore: PermissionStore | null = null;
 let permissionManager: PermissionManager | null = null;
 let extensionManager: ExtensionManager | null = null;
 let historyStore: HistoryStore | null = null;
+let downloadManager: DownloadManager | null = null;
 
 const accountStore = new AccountStore();
 const oauthClient = new OAuthClient({ clientId: process.env.GOOGLE_CLIENT_ID ?? 'PLACEHOLDER_CLIENT_ID' });
@@ -139,6 +143,7 @@ function openShellAndWire(): BrowserWindow {
   mainLogger.info('main.openShellAndWire', { msg: 'Creating shell window' });
   shellWindow = createShellWindow();
   tabManager = new TabManager(shellWindow);
+  downloadManager = new DownloadManager(shellWindow);
 
   // Wire bookmark-aware URL matching into the navigation heuristic.
   if (bookmarkStore) {
@@ -440,6 +445,8 @@ app.whenReady().then(async () => {
     unregisterProfileHandlers();
     unregisterPermissionHandlers();
     unregisterExtensionsHandlers();
+    downloadManager?.destroy();
+    downloadManager = null;
   });
 
   app.on('activate', () => {
@@ -1075,7 +1082,10 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
         {
           label: 'Downloads',
           accelerator: 'CommandOrControl+Shift+J',
-          enabled: false,
+          click: () => {
+            mainLogger.debug('shortcuts.downloads');
+            shellWindow?.webContents.send('toggle-downloads');
+          },
         },
         {
           label: 'Extensions',

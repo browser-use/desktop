@@ -4,7 +4,7 @@
  * Subscribes to IPC events and keeps local state in sync.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TabStrip } from './TabStrip';
 import { NavButtons } from './NavButtons';
 import { URLBar } from './URLBar';
@@ -15,6 +15,8 @@ import { PasswordPromptBar } from './PasswordPromptBar';
 import { PermissionBar } from './PermissionBar';
 import { ZoomBadge } from './ZoomBadge';
 import { ProfileMenu } from './ProfileMenu';
+import { DownloadButton } from './DownloadButton';
+import { DownloadBubble } from './DownloadBubble';
 import type {
   TabManagerState,
   TabState,
@@ -25,13 +27,15 @@ import type {
   PersistedBookmarks,
   Visibility,
 } from '../../main/bookmarks/BookmarkStore';
+import type { DownloadItemDTO } from '../../main/downloads/DownloadManager';
 
 // Layout constants — keep in sync with shell.css.
-const BASE_CHROME_HEIGHT = 76;
+const BASE_CHROME_HEIGHT = 82;
 const BOOKMARKS_BAR_HEIGHT = 32;
 // Any tab URL starting with this scheme is a new-tab placeholder; the
 // bookmarks bar treats those as "NTP" for the 'ntp-only' visibility mode.
 const NTP_URL_RE = /^(data:|about:blank$)/i;
+const AUTO_DISMISS_DELAY_MS = 5000;
 
 // Typed reference to the contextBridge API
 declare const electronAPI: {
@@ -74,6 +78,18 @@ declare const electronAPI: {
     removeOverride: (origin: string) => Promise<boolean>;
     clearAll: () => Promise<void>;
   };
+  downloads: {
+    getAll: () => Promise<DownloadItemDTO[]>;
+    pause: (id: string) => Promise<void>;
+    resume: (id: string) => Promise<void>;
+    cancel: (id: string) => Promise<void>;
+    openFile: (id: string) => Promise<void>;
+    showInFolder: (id: string) => Promise<void>;
+    setOpenWhenDone: (id: string, value: boolean) => Promise<void>;
+    clearCompleted: () => Promise<void>;
+    getShowOnComplete: () => Promise<boolean>;
+    setShowOnComplete: (value: boolean) => Promise<void>;
+  };
   shell: {
     setChromeHeight: (height: number) => Promise<void>;
   };
@@ -102,6 +118,10 @@ declare const electronAPI: {
     passwordFormDetected: (
       cb: (payload: { tabId: string; origin: string; username: string; password: string }) => void,
     ) => () => void;
+    downloadStarted: (cb: (dl: DownloadItemDTO) => void) => () => void;
+    downloadProgress: (cb: (dl: DownloadItemDTO) => void) => () => void;
+    downloadDone: (cb: (dl: DownloadItemDTO) => void) => () => void;
+    downloadsState: (cb: (downloads: DownloadItemDTO[]) => void) => () => void;
   };
   permissions: {
     respond: (promptId: string, decision: string) => Promise<void>;
@@ -129,6 +149,12 @@ export function WindowChrome(): React.ReactElement {
   const [bookmarkDialogOpen, setBookmarkDialogOpen] = useState(false);
   const [focusBookmarksBarTick, setFocusBookmarksBarTick] = useState(0);
 
+  // Downloads state
+  const [downloads, setDownloads] = useState<DownloadItemDTO[]>([]);
+  const [bubbleOpen, setBubbleOpen] = useState(false);
+  const [showOnComplete, setShowOnComplete] = useState(true);
+  const autoDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Derived active tab
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const activeUrl = activeTab?.url ?? '';
@@ -148,8 +174,24 @@ export function WindowChrome(): React.ReactElement {
   const barVisible =
     barHasContent && (visibility === 'always' || (visibility === 'ntp-only' && isNtp));
 
+  // Download derived state
+  const activeDownloads = downloads.filter(
+    (d) => d.status === 'in-progress' || d.status === 'paused',
+  );
+  const hasActiveDownloads = activeDownloads.length > 0;
+  const aggregateProgress = useMemo(() => {
+    if (activeDownloads.length === 0) return 0;
+    let totalBytes = 0;
+    let receivedBytes = 0;
+    for (const dl of activeDownloads) {
+      totalBytes += dl.totalBytes;
+      receivedBytes += dl.receivedBytes;
+    }
+    return totalBytes > 0 ? receivedBytes / totalBytes : 0;
+  }, [activeDownloads]);
+
   // ---------------------------------------------------------------------------
-  // Bootstrap: load initial tab + bookmarks state
+  // Bootstrap: load initial tab + bookmarks + downloads state
   // ---------------------------------------------------------------------------
   useEffect(() => {
     electronAPI.tabs.getState().then((state) => {
@@ -162,6 +204,11 @@ export function WindowChrome(): React.ReactElement {
       console.log('[WindowChrome] Bookmarks loaded:', tree.roots[0].children?.length ?? 0, 'bar items');
       setBookmarksTree(tree);
     });
+    electronAPI.downloads.getAll().then((dls) => {
+      console.log('[WindowChrome] Downloads loaded:', dls.length, 'items');
+      setDownloads(dls);
+    });
+    electronAPI.downloads.getShowOnComplete().then((v) => setShowOnComplete(v));
   }, []);
 
   // Push total chrome height to main whenever bar visibility changes so the
@@ -247,6 +294,60 @@ export function WindowChrome(): React.ReactElement {
   }, [bookmarksTree?.visibility]);
 
   // ---------------------------------------------------------------------------
+  // Download IPC subscriptions
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const unsubStarted = electronAPI.on.downloadStarted((dl) => {
+      console.log('[WindowChrome] Download started:', dl.filename);
+      setDownloads((prev) => [dl, ...prev]);
+      setBubbleOpen(true);
+      if (autoDismissTimer.current) clearTimeout(autoDismissTimer.current);
+    });
+
+    const unsubProgress = electronAPI.on.downloadProgress((dl) => {
+      setDownloads((prev) =>
+        prev.map((d) => (d.id === dl.id ? dl : d)),
+      );
+    });
+
+    const unsubDone = electronAPI.on.downloadDone((dl) => {
+      console.log('[WindowChrome] Download done:', dl.filename, dl.status);
+      setDownloads((prev) =>
+        prev.map((d) => (d.id === dl.id ? dl : d)),
+      );
+      if (dl.status === 'completed' && showOnComplete) {
+        setBubbleOpen(true);
+      }
+      // Auto-dismiss after all downloads complete
+      scheduleAutoDismiss();
+    });
+
+    const unsubState = electronAPI.on.downloadsState((dls) => {
+      setDownloads(dls);
+    });
+
+    return () => {
+      unsubStarted();
+      unsubProgress();
+      unsubDone();
+      unsubState();
+    };
+  }, [showOnComplete]);
+
+  const scheduleAutoDismiss = useCallback(() => {
+    if (autoDismissTimer.current) clearTimeout(autoDismissTimer.current);
+    autoDismissTimer.current = setTimeout(() => {
+      setDownloads((current) => {
+        const stillActive = current.some(
+          (d) => d.status === 'in-progress' || d.status === 'paused',
+        );
+        if (!stillActive) setBubbleOpen(false);
+        return current;
+      });
+    }, AUTO_DISMISS_DELAY_MS);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Tab actions
   // ---------------------------------------------------------------------------
   const handleActivate = useCallback((tabId: string) => {
@@ -312,6 +413,22 @@ export function WindowChrome(): React.ReactElement {
   }, [activeUrl]);
 
   // ---------------------------------------------------------------------------
+  // Download actions
+  // ---------------------------------------------------------------------------
+  const handleDownloadToggle = useCallback(() => {
+    setBubbleOpen((prev) => !prev);
+  }, []);
+
+  const handleDownloadClose = useCallback(() => {
+    setBubbleOpen(false);
+  }, []);
+
+  const handleSetShowOnComplete = useCallback((value: boolean) => {
+    setShowOnComplete(value);
+    electronAPI.downloads.setShowOnComplete(value);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
@@ -363,6 +480,32 @@ export function WindowChrome(): React.ReactElement {
             onReset={() => electronAPI.zoom.reset()}
           />
         )}
+
+        {/* Download button + bubble */}
+        <div className="download-bubble-anchor">
+          <DownloadButton
+            hasActiveDownloads={hasActiveDownloads}
+            progress={aggregateProgress}
+            downloadCount={activeDownloads.length}
+            onClick={handleDownloadToggle}
+          />
+          {bubbleOpen && (
+            <DownloadBubble
+              downloads={downloads}
+              showOnComplete={showOnComplete}
+              onClose={handleDownloadClose}
+              onPause={(id) => electronAPI.downloads.pause(id)}
+              onResume={(id) => electronAPI.downloads.resume(id)}
+              onCancel={(id) => electronAPI.downloads.cancel(id)}
+              onOpenFile={(id) => electronAPI.downloads.openFile(id)}
+              onShowInFolder={(id) => electronAPI.downloads.showInFolder(id)}
+              onSetOpenWhenDone={(id, v) => electronAPI.downloads.setOpenWhenDone(id, v)}
+              onClearCompleted={() => electronAPI.downloads.clearCompleted()}
+              onSetShowOnComplete={handleSetShowOnComplete}
+            />
+          )}
+        </div>
+
         <ProfileMenu />
       </div>
 
