@@ -2,7 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ConsolePanel } from './panels/ConsolePanel';
 import { ElementsPanel } from './panels/ElementsPanel';
 import { NetworkPanel } from './panels/NetworkPanel';
-import { PlaceholderPanel } from './panels/PlaceholderPanel';
+import { SourcesPanel } from './panels/SourcesPanel';
+import { PerformancePanel } from './panels/PerformancePanel';
+import { MemoryPanel } from './panels/MemoryPanel';
+import { ApplicationPanel } from './panels/ApplicationPanel';
+import { SecurityPanel } from './panels/SecurityPanel';
+import { LighthousePanel } from './panels/LighthousePanel';
+import { RecorderPanel } from './panels/RecorderPanel';
 
 declare const devtoolsAPI: {
   attach: () => Promise<{ success: boolean; error?: string }>;
@@ -45,16 +51,6 @@ const PANELS: PanelDef[] = [
   { id: 'recorder', label: 'Recorder', icon: '●' },
 ];
 
-const PLACEHOLDER_DESCRIPTIONS: Record<string, string> = {
-  sources: 'Debug JavaScript with breakpoints, watch expressions, call stack inspection, and code snippets.',
-  performance: 'Record and analyze runtime performance with flame charts, Web Vitals overlay, and frame rendering.',
-  memory: 'Take heap snapshots, track allocation timelines, and sample memory usage over time.',
-  application: 'Inspect storage (localStorage, sessionStorage, IndexedDB, cookies), service workers, and manifest.',
-  security: 'View TLS certificate details, mixed content warnings, and connection security information.',
-  lighthouse: 'Run performance, accessibility, best practices, and SEO audits on the current page.',
-  recorder: 'Record user flows, replay interactions, measure performance, and export as Puppeteer scripts.',
-};
-
 type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
 interface TabInfo {
@@ -84,6 +80,13 @@ export function DevToolsApp(): React.ReactElement {
     if (!resp.success) throw new Error(resp.error ?? 'CDP command failed');
     return resp.result;
   }, []);
+
+  const cdpSend = useCallback(
+    async (method: string, params?: Record<string, unknown>): Promise<{ success: boolean; result?: any; error?: string }> => {
+      return devtoolsAPI.send(method, params);
+    },
+    [],
+  );
 
   const connect = useCallback(async () => {
     console.log('[DevToolsApp] connecting...');
@@ -129,7 +132,9 @@ export function DevToolsApp(): React.ReactElement {
     };
   }, [connect]);
 
-  const renderPanel = (): React.ReactElement => {
+  const isAttached = connectionState === 'connected';
+
+  const renderPanel = (): React.ReactElement | null => {
     if (connectionState !== 'connected') {
       return (
         <div className="devtools-connect-overlay">
@@ -160,13 +165,22 @@ export function DevToolsApp(): React.ReactElement {
         return <ElementsPanel sendCdp={sendCdp} subscribeCdp={subscribeCdp} />;
       case 'network':
         return <NetworkPanel sendCdp={sendCdp} subscribeCdp={subscribeCdp} />;
+      case 'sources':
+        return <SourcesPanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
+      case 'performance':
+        return <PerformancePanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
+      case 'memory':
+        return <MemoryPanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
+      case 'application':
+        return <ApplicationPanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
+      case 'security':
+        return <SecurityPanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
+      case 'lighthouse':
+        return <LighthousePanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
+      case 'recorder':
+        return <RecorderPanel cdpSend={cdpSend} onCdpEvent={subscribeCdp} isAttached={isAttached} />;
       default:
-        return (
-          <PlaceholderPanel
-            name={PANELS.find((p) => p.id === activePanel)?.label ?? activePanel}
-            description={PLACEHOLDER_DESCRIPTIONS[activePanel] ?? ''}
-          />
-        );
+        return null;
     }
   };
 
