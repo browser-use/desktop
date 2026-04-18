@@ -1016,15 +1016,16 @@ export class TabManager {
     const result = await dialog.showSaveDialog(this.win, {
       defaultPath: pageTitle.replace(/[/\\?%*:|"<>]/g, '_') + '.html',
       filters: [
-        { name: 'Web Page, Complete', extensions: ['html', 'htm'] },
-        { name: 'Web Page, HTML Only', extensions: ['html', 'htm'] },
+        { name: 'Web Page, Complete', extensions: ['html'] },
+        { name: 'Web Page, HTML Only', extensions: ['htm'] },
       ],
     });
     if (result.canceled || !result.filePath) {
       mainLogger.debug('TabManager.savePageActive.canceled');
       return;
     }
-    const saveType = result.filePath.endsWith('.html') ? 'HTMLComplete' : 'HTMLOnly';
+    const ext = path.extname(result.filePath).toLowerCase();
+    const saveType = ext === '.htm' ? 'HTMLOnly' : 'HTMLComplete';
     try {
       await wc.savePage(result.filePath, saveType as any);
       mainLogger.info('TabManager.savePageActive.ok', { filePath: result.filePath, saveType });
