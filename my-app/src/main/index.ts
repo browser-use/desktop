@@ -55,6 +55,10 @@ import { createProfilePickerWindow, closeProfilePickerWindow } from './profiles/
 import { PermissionStore } from './permissions/PermissionStore';
 import { PermissionManager } from './permissions/PermissionManager';
 import { registerPermissionHandlers, unregisterPermissionHandlers } from './permissions/ipc';
+// Issue #71 — Extensions
+import { ExtensionManager } from './extensions/ExtensionManager';
+import { registerExtensionsHandlers, unregisterExtensionsHandlers } from './extensions/ipc';
+import { openExtensionsWindow } from './extensions/ExtensionsWindow';
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -118,6 +122,7 @@ let passwordStore: PasswordStore | null = null;
 let profileStore: ProfileStore | null = null;
 let permissionStore: PermissionStore | null = null;
 let permissionManager: PermissionManager | null = null;
+let extensionManager: ExtensionManager | null = null;
 
 const accountStore = new AccountStore();
 const oauthClient = new OAuthClient({ clientId: process.env.GOOGLE_CLIENT_ID ?? 'PLACEHOLDER_CLIENT_ID' });
@@ -322,6 +327,11 @@ app.whenReady().then(async () => {
   // Track 5 — Settings IPC handlers
   registerSettingsHandlers({ accountStore, keychainStore });
 
+  // Issue #71 — Extensions: init manager + register IPC
+  extensionManager = new ExtensionManager();
+  registerExtensionsHandlers(extensionManager);
+  void extensionManager.loadAllEnabled();
+
   // Issue #95 — Settings zoom override IPC (needs tabManager access)
   ipcMain.handle('settings:get-zoom-overrides', () => {
     if (!tabManager) return [];
@@ -416,6 +426,7 @@ app.whenReady().then(async () => {
     unregisterBookmarkHandlers();
     unregisterProfileHandlers();
     unregisterPermissionHandlers();
+    unregisterExtensionsHandlers();
   });
 
   app.on('activate', () => {
@@ -1046,7 +1057,10 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
         },
         {
           label: 'Extensions',
-          enabled: false,
+          click: () => {
+            mainLogger.debug('shortcuts.openExtensions');
+            openExtensionsWindow();
+          },
         },
         {
           label: 'Task Manager',
