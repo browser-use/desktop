@@ -76,7 +76,8 @@ export function JourneysPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // React 19's useRef signature requires an explicit initial value.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const fetchJourneys = useCallback(async (searchQuery: string, pageOffset: number) => {

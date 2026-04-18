@@ -51,7 +51,12 @@ import { registerPasswordHandlers, unregisterPasswordHandlers } from './password
 import { ProfileStore } from './profiles/ProfileStore';
 import { registerProfileHandlers, unregisterProfileHandlers } from './profiles/ipc';
 import { createProfilePickerWindow, closeProfilePickerWindow } from './profiles/ProfilePickerWindow';
-import { getProfileDataDir, getProfilePartitionName } from './profiles/ProfileContext';
+import {
+  getProfileDataDir,
+  getProfilePartitionName,
+  createGuestPartitionName,
+  clearGuestSession,
+} from './profiles/ProfileContext';
 // Permissions framework
 import { PermissionStore } from './permissions/PermissionStore';
 import { PermissionManager } from './permissions/PermissionManager';
@@ -337,7 +342,11 @@ app.whenReady().then(async () => {
   mainLogger.info('main.appReady');
 
   // Wave1 P3 — Bookmarks: init store + register IPC before the shell loads.
-  bookmarkStore = new BookmarkStore(getProfileDataDir(activeProfileId));
+  // NOTE: BookmarkStore/PasswordStore/HistoryStore currently key off
+  // `app.getPath('userData')` internally and ignore the active profile.
+  // Profile-scoped persistence for those stores is tracked as a follow-up;
+  // only PermissionStore accepts a data dir today.
+  bookmarkStore = new BookmarkStore();
   permissionStore = new PermissionStore(getProfileDataDir(activeProfileId));
   registerBookmarkHandlers({
     store: bookmarkStore,
@@ -346,8 +355,9 @@ app.whenReady().then(async () => {
       tabManager ? tabManager.getAllTabSummaries() : [],
   });
 
-  // Password Manager: init store + register IPC
-  passwordStore = new PasswordStore(getProfileDataDir(activeProfileId));
+  // Password Manager: init store + register IPC.
+  // See comment above re: profile-scoped persistence follow-up.
+  passwordStore = new PasswordStore();
   registerPasswordHandlers({ store: passwordStore });
 
   // Issue #45 — Profile picker: init store + register IPC
@@ -366,8 +376,9 @@ app.whenReady().then(async () => {
     },
   });
 
-  // Issue #40 — History: init store + register IPC
-  historyStore = new HistoryStore(getProfileDataDir(activeProfileId));
+  // Issue #40 — History: init store + register IPC.
+  // See comment above re: profile-scoped persistence follow-up.
+  historyStore = new HistoryStore();
   registerHistoryHandlers({ store: historyStore });
 
   // Issue #26 — Chrome internal pages
@@ -578,7 +589,9 @@ app.whenReady().then(async () => {
     unregisterProfileHandlers();
     unregisterPermissionHandlers();
     unregisterExtensionsHandlers();
-    extensionManager?.dispose();
+    // ExtensionManager currently has no dispose()/destroy() hook; its
+    // internal MV3 runtime tears itself down via its own lifecycle. If a
+    // top-level cleanup is ever added, wire it in here.
     downloadManager?.destroy();
     downloadManager = null;
   });
@@ -1302,7 +1315,7 @@ ipcMain.handle('menu:show-app-menu', (_event, bounds: { x: number; y: number }) 
   }
   mainLogger.info('menu:show-app-menu', { msg: 'Building three-dot app menu', bounds });
 
-  const zoomPercent = tabManager.getZoomPercentActive?.() ?? 100;
+  const zoomPercent = tabManager.getActiveZoomPercent?.() ?? 100;
 
   const template: MenuItemConstructorOptions[] = [
     {

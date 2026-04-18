@@ -67,7 +67,13 @@ const NOTE_RANGE_IGNORED_PASSWORDS = 'time range ignored — clearAuthCache wipe
 // ---------------------------------------------------------------------------
 
 async function clearHistory(): Promise<{ note?: string }> {
-  await session.defaultSession.clearHistory();
+  // Session.clearHistory is available at runtime on Electron 30+ but the
+  // TypeScript surface bundled with @types/electron in this repo doesn't
+  // declare it yet. Cast through unknown to call it without loosening the
+  // type of `session.defaultSession` everywhere.
+  await (
+    session.defaultSession as unknown as { clearHistory: () => Promise<void> }
+  ).clearHistory();
   return { note: NOTE_RANGE_IGNORED_HISTORY };
 }
 

@@ -19,17 +19,17 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { mainLogger } from '../logger';
 import { AccountStore } from './AccountStore';
 import { OAuthClient } from './OAuthClient';
-import type { GoogleOAuthScope, AccountInfo, OnboardingCompletePayload } from '../../shared/types';
+import type { GoogleOAuthScope, AccountInfo } from '../../shared/types';
 
-// Re-export the payload type for consumers
-export type { OnboardingCompletePayload };
-
-// Local type to match what the preload sends
-interface CompletePayload {
+// Structural type matching what the onboarding preload sends.
+// Also re-exported as `OnboardingCompletePayload` so earlier consumers
+// that imported from this module keep compiling.
+export interface OnboardingCompletePayload {
   agent_name: string;
   account: AccountInfo;
   oauth_scopes: GoogleOAuthScope[];
 }
+type CompletePayload = OnboardingCompletePayload;
 
 export interface OnboardingHandlerDeps {
   accountStore: AccountStore;

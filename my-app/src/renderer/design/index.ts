@@ -23,7 +23,6 @@ export {
   FONT_WEIGHTS,
   SHELL_COLORS,
   ONBOARDING_COLORS,
-  SEMANTIC,
   Z_INDEX,
 } from './tokens';
 

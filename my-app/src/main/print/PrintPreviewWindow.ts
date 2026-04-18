@@ -67,37 +67,41 @@ function registerIpcHandlers(): void {
 
       try {
         const landscape = settings.layout === 'landscape';
-        const marginsType = settings.marginsType === 'none' ? 0
-          : settings.marginsType === 'minimum' ? 1
-          : settings.marginsType === 'custom' ? 2
-          : 0;
+        // Electron's PrintToPDFOptions replaced the old numeric `marginsType`
+        // (0/1/2) with `margins: { marginType: 'default'|'none'|'printableArea'|'custom', ... }`.
+        // Map the renderer's margin preset into the new shape while preserving
+        // the previous behaviour (0 -> default, 1 -> minimum -> printableArea,
+        // 2/custom uses explicit top/bottom/left/right in inches).
+        const marginType: 'default' | 'none' | 'printableArea' | 'custom' =
+          settings.marginsType === 'none' ? 'none'
+          : settings.marginsType === 'minimum' ? 'printableArea'
+          : settings.marginsType === 'custom' ? 'custom'
+          : 'default';
 
         const pdfOptions: Electron.PrintToPDFOptions = {
           landscape,
           printBackground: settings.shouldPrintBackgrounds ?? false,
           scale: (settings.scaleFactor ?? 100) / 100,
-          marginsType: marginsType as 0 | 1 | 2,
+          margins: { marginType },
           pageSize: 'Letter',
-          printSelectionOnly: false,
-          generateTaggedPDF: false,
         };
 
         if (settings.marginsType === 'custom' && settings.customMargins) {
           pdfOptions.margins = {
+            marginType: 'custom',
             top: settings.customMargins.top / 25.4,
             bottom: settings.customMargins.bottom / 25.4,
             left: settings.customMargins.left / 25.4,
             right: settings.customMargins.right / 25.4,
           };
-          pdfOptions.marginsType = undefined as any;
         }
 
         if (settings.customPageRanges && settings.customPageRanges.length > 0 && settings.pageRangeMode === 'custom') {
-          pdfOptions.pageRanges = settings.customPageRanges.reduce<Record<string, number>>((acc, range, i) => {
-            acc[`from_${i}`] = range.from;
-            acc[`to_${i}`] = range.to;
-            return acc;
-          }, {});
+          // Electron now accepts a Chromium-style range string (e.g. "1-5, 8, 11-13")
+          // instead of the old Record<string, number> shape.
+          pdfOptions.pageRanges = settings.customPageRanges
+            .map((range) => (range.from === range.to ? String(range.from) : `${range.from}-${range.to}`))
+            .join(', ');
         }
 
         mainLogger.info('PrintPreview.generatePreview.printToPDF', { pdfOptions });
@@ -229,7 +233,7 @@ function registerIpcHandlers(): void {
 
         mainLogger.info('PrintPreview.executePrint.printing', { printOptions });
 
-        sourceWc.print(printOptions, (success, failureReason) => {
+        sourceWc.print(printOptions, (success: boolean, failureReason: string) => {
           mainLogger.info('PrintPreview.executePrint.result', { success, failureReason });
           if (success) {
             closePrintPreviewWindow();

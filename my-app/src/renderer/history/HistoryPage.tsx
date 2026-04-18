@@ -87,7 +87,9 @@ function HistoryList(): React.ReactElement {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // React 19's useRef signature requires an explicit initial value; undefined
+  // is the effective default for a ref that hasn't been populated yet.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const fetchHistory = useCallback(async (searchQuery: string, pageOffset: number) => {

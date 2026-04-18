@@ -59,19 +59,20 @@ const DAEMON_BINARY_EXISTS = fs.existsSync(DAEMON_BINARY);
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
-    productName: 'Agentic Browser',
-
-    // asarUnpack: pattern relative to the app root that Forge will extract
-    // from the asar archive into app.asar.unpacked/. The PyInstaller binary
-    // MUST be outside the asar — asar files are virtual archives and an
-    // executable inside one cannot be directly execv'd by the OS.
-    // OnlyLoadAppFromAsar: true fuse enforces that app JS loads from asar;
-    // it does NOT prevent extraResource binaries from living outside asar.
-    asarUnpack: [
-      '**/python/agent_daemon',
-      '**/python/agent_daemon/**',
-    ],
+    // asar: was `true`. Newer @electron/packager moved `asarUnpack` under
+    // `asar.unpack` (glob string, not array), so we now nest the unpack
+    // pattern here. The PyInstaller binary MUST be outside the asar — asar
+    // files are virtual archives and an executable inside one cannot be
+    // directly execv'd by the OS. OnlyLoadAppFromAsar: true fuse enforces
+    // that app JS loads from asar; it does NOT prevent extraResource
+    // binaries from living outside asar.
+    asar: {
+      unpack: '**/python/agent_daemon/**',
+    },
+    // `productName` was removed from ForgePackagerOptions in newer
+    // @electron/packager; the field is now `name`. The runtime semantics
+    // are identical: the bundled .app/.exe will be named after this.
+    name: 'Agentic Browser',
 
     // extraResource: files/dirs copied verbatim into Contents/Resources/.
     // agent_daemon ends up at: Contents/Resources/agent_daemon
@@ -87,14 +88,15 @@ const config: ForgeConfig = {
     ...(SHOULD_SIGN && {
       osxSign: {
         identity: SIGNING_IDENTITY,
-        // Hardened runtime is required for Apple notarization.
-        // 'strict' mode enforces it on all nested binaries.
-        hardenedRuntime: true,
-        entitlements: path.resolve(__dirname, 'entitlements.plist'),
-        'entitlements-inherit': path.resolve(__dirname, 'entitlements.plist'),
-        // gatekeeperAssess: false prevents Forge from running spctl --assess
-        // on the un-notarized build. We run spctl manually post-notarization.
-        gatekeeperAssess: false,
+        // Newer @electron/osx-sign moved per-file options (hardenedRuntime,
+        // entitlements, etc.) behind an optionsForFile callback. Runtime
+        // behaviour is equivalent: every file gets hardened runtime and
+        // our entitlements.plist, which is what signing requires for
+        // Apple notarization.
+        optionsForFile: () => ({
+          hardenedRuntime: true,
+          entitlements: path.resolve(__dirname, 'entitlements.plist'),
+        }),
       },
     }),
 
