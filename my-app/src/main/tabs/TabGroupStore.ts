@@ -7,10 +7,13 @@ export interface TabGroup {
 }
 
 export class TabGroupStore {
-  private groups = new Map<string, TabGroup>();
+  private groups: Map<string, TabGroup> = new Map();
 
   createGroup(name: string, color: TabGroup['color'], tabIds: string[]): TabGroup {
-    const id = 'grp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    let id: string;
+    do {
+      id = 'grp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    } while (this.groups.has(id));
     const group: TabGroup = { id, name, color, tabIds: [...tabIds], collapsed: false };
     this.groups.set(id, group);
     return group;
@@ -84,10 +87,11 @@ export class TabGroupStore {
           TabGroupStore.VALID_COLORS.has((g as TabGroup).color) &&
           Array.isArray((g as TabGroup).tabIds),
       );
-      this.groups.clear();
+      const newGroups = new Map<string, TabGroup>();
       for (const g of arr) {
-        this.groups.set(g.id, g);
+        newGroups.set(g.id, g);
       }
+      this.groups = newGroups;
     } catch { /* ignore */ }
   }
 }

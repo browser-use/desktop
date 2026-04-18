@@ -434,19 +434,44 @@ export function TabStrip({
       const count = tabs.length;
       let targetIndex = -1;
 
+      // Skip tabs hidden by collapsed groups
+      const collapsedTabIds = new Set<string>();
+      for (const g of groups) {
+        if (g.collapsed) {
+          for (const tid of g.tabIds) collapsedTabIds.add(tid);
+        }
+      }
+      const isVisible = (i: number) => i >= 0 && i < count && !collapsedTabIds.has(tabs[i].id);
+
       switch (e.key) {
-        case 'ArrowRight':
-          targetIndex = (index + 1) % count;
+        case 'ArrowRight': {
+          let next = (index + 1) % count;
+          for (let i = 0; i < count; i++) {
+            if (isVisible(next)) { targetIndex = next; break; }
+            next = (next + 1) % count;
+          }
           break;
-        case 'ArrowLeft':
-          targetIndex = (index - 1 + count) % count;
+        }
+        case 'ArrowLeft': {
+          let next = (index - 1 + count) % count;
+          for (let i = 0; i < count; i++) {
+            if (isVisible(next)) { targetIndex = next; break; }
+            next = (next - 1 + count) % count;
+          }
           break;
-        case 'Home':
-          targetIndex = 0;
+        }
+        case 'Home': {
+          for (let i = 0; i < count; i++) {
+            if (isVisible(i)) { targetIndex = i; break; }
+          }
           break;
-        case 'End':
-          targetIndex = count - 1;
+        }
+        case 'End': {
+          for (let i = count - 1; i >= 0; i--) {
+            if (isVisible(i)) { targetIndex = i; break; }
+          }
           break;
+        }
         case 'Enter':
         case ' ':
           e.preventDefault();
@@ -471,7 +496,7 @@ export function TabStrip({
         console.log('[TabStrip] Arrow key navigation to index:', targetIndex, 'tab:', targetTab.title);
       }
     },
-    [tabs, onActivate, onClose],
+    [tabs, groups, onActivate, onClose],
   );
 
   const handleDragStart = useCallback(
