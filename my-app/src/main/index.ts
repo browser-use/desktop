@@ -9,6 +9,7 @@
 
 import { config as loadDotEnv } from 'dotenv';
 import path from 'node:path';
+import fs from 'node:fs';
 
 // Load .env from the app root (my-app/.env) BEFORE any module reads
 // process.env. In production the key comes from the keychain; .env is the
@@ -304,6 +305,16 @@ function openShellAndWire(profileId?: string): BrowserWindow {
 
   shellWindow.on('resize', () => tabManager?.relayout());
 
+  // Issue #13 — Fullscreen: hide chrome, edge-peek reveal
+  shellWindow.on('enter-full-screen', () => {
+    tabManager?.setFullscreen(true);
+    shellWindow?.webContents.send('fullscreen-changed', { isFullscreen: true });
+  });
+  shellWindow.on('leave-full-screen', () => {
+    tabManager?.setFullscreen(false);
+    shellWindow?.webContents.send('fullscreen-changed', { isFullscreen: false });
+  });
+
   // DEV/TEST: expose tabManager on the Node.js global object so E2E tests can
   // reach it via electronApp.evaluate() calls (which run in the same Node.js
   // process and share the global scope).  The BrowserWindow proxy returned by
@@ -593,6 +604,12 @@ app.whenReady().then(async () => {
   // Wave1 P3 — Bookmarks: renderer reports total chrome height (base tab-row +
   // toolbar + bookmarks bar when visible). TabManager reuses this to position
   // the WebContentsView below the chrome.
+  ipcMain.handle("shell:set-content-visible", (_e, visible: unknown) => {
+    if (typeof visible !== "boolean") return;
+    mainLogger.debug("main.shell:set-content-visible", { visible });
+    tabManager?.setContentVisible(visible);
+  });
+
   ipcMain.handle('shell:set-chrome-height', (_e, height: unknown) => {
     if (typeof height !== 'number' || !Number.isFinite(height)) return;
     const BASE = 91;
@@ -769,6 +786,7 @@ app.whenReady().then(async () => {
     unregisterShareHandlers();
     unregisterBookmarkHandlers();
     unregisterHistoryHandlers();
+    shortcutsStore?.flushSync();
     unregisterOmniboxHandlers();
     unregisterChromeHandlers();
     unregisterProfileHandlers();
@@ -1437,7 +1455,10 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
         {
           label: 'Bookmark All Tabs…',
           accelerator: 'CommandOrControl+Shift+D',
-          enabled: false,
+          click: () => {
+            mainLogger.debug('shortcuts.bookmarkAllTabs');
+            shellWindow?.webContents.send('open-bookmark-all-tabs-dialog');
+          },
         },
         { type: 'separator' },
         {
@@ -1459,10 +1480,48 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
         { type: 'separator' },
         {
           label: 'Bookmark Manager',
-          accelerator: 'CommandOrControl+Alt+B',
+          accelerator: 'CommandOrControl+Shift+O',
           click: () => {
             mainLogger.debug('shortcuts.bookmarkManager');
             tabManager?.createTab('chrome://bookmarks');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Import Bookmarks…',
+          click: async () => {
+            mainLogger.debug('shortcuts.importBookmarks');
+            if (!shellWindow || !bookmarkStore) return;
+            const { canceled, filePaths } = await dialog.showOpenDialog(shellWindow, {
+              title: 'Import Bookmarks',
+              filters: [{ name: 'HTML Files', extensions: ['html', 'htm'] }],
+              properties: ['openFile'],
+            });
+            if (canceled || !filePaths[0]) return;
+            const html = fs.readFileSync(filePaths[0], 'utf-8');
+            const result = bookmarkStore.importNetscapeHtml(html);
+            shellWindow.webContents.send('bookmarks-updated', bookmarkStore.listTree());
+            mainLogger.info('shortcuts.importBookmarks', result);
+          },
+        },
+        {
+          label: 'Export Bookmarks…',
+          click: async () => {
+            mainLogger.debug('shortcuts.exportBookmarks');
+            if (!shellWindow || !bookmarkStore) return;
+            const defaultPath = path.join(
+              app.getPath('downloads'),
+              `bookmarks_${new Date().toISOString().slice(0, 10)}.html`,
+            );
+            const { canceled, filePath } = await dialog.showSaveDialog(shellWindow, {
+              title: 'Export Bookmarks',
+              defaultPath,
+              filters: [{ name: 'HTML Files', extensions: ['html', 'htm'] }],
+            });
+            if (canceled || !filePath) return;
+            const html = bookmarkStore.exportNetscapeHtml();
+            fs.writeFileSync(filePath, html, 'utf-8');
+            mainLogger.info('shortcuts.exportBookmarks', { filePath });
           },
         },
       ],
@@ -1760,6 +1819,10 @@ ipcMain.handle('menu:show-app-menu', (_event, bounds: { x: number; y: number }) 
         {
           label: 'Bookmark This Tab…', accelerator: 'Ctrl+D',
           click: () => { shellWindow?.webContents.send('open-bookmark-dialog'); },
+        },
+        {
+          label: 'Bookmark All Tabs…', accelerator: 'Ctrl+Shift+D',
+          click: () => { shellWindow?.webContents.send('open-bookmark-all-tabs-dialog'); },
         },
         {
           label: 'Show Bookmarks Bar', accelerator: 'Ctrl+Shift+B',
