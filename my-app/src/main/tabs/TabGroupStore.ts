@@ -10,7 +10,7 @@ export class TabGroupStore {
   private groups = new Map<string, TabGroup>();
 
   createGroup(name: string, color: TabGroup['color'], tabIds: string[]): TabGroup {
-    const id = 'grp_' + Date.now();
+    const id = 'grp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
     const group: TabGroup = { id, name, color, tabIds: [...tabIds], collapsed: false };
     this.groups.set(id, group);
     return group;

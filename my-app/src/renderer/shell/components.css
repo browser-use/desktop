@@ -2388,6 +2388,7 @@
   flex-shrink: 0;
   align-self: center;
   margin: 0 2px;
+  -webkit-app-region: no-drag;
 }
 .tab-group-chip:hover {
   background: color-mix(in srgb, var(--group-color) 35%, transparent);
@@ -2421,6 +2422,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  -webkit-app-region: no-drag;
 }
 .tab-group-rename-dialog {
   background: var(--color-bg-elevated);

@@ -1,5 +1,12 @@
 import { ipcMain, BrowserWindow } from 'electron';
+import type { TabGroup } from './TabGroupStore';
 import { TabGroupStore } from './TabGroupStore';
+
+const VALID_COLORS = new Set<TabGroup['color']>(['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan']);
+
+function isValidColor(c: unknown): c is TabGroup['color'] {
+  return typeof c === 'string' && VALID_COLORS.has(c as TabGroup['color']);
+}
 
 export function registerTabGroupHandlers(
   store: TabGroupStore,
@@ -15,13 +22,20 @@ export function registerTabGroupHandlers(
   ipcMain.handle('tab-groups:list', () => store.listGroups());
 
   ipcMain.handle('tab-groups:create', (_e, { name, color, tabIds }: { name: string; color: string; tabIds: string[] }) => {
-    const group = store.createGroup(name, color as Parameters<TabGroupStore['createGroup']>[1], tabIds);
+    if (!isValidColor(color)) return null;
+    const group = store.createGroup(String(name).slice(0, 64), color, Array.isArray(tabIds) ? tabIds.filter((t) => typeof t === 'string') : []);
     broadcast();
     return group;
   });
 
-  ipcMain.handle('tab-groups:update', (_e, { id, patch }: { id: string; patch: object }) => {
-    store.updateGroup(id, patch as Parameters<TabGroupStore['updateGroup']>[1]);
+  ipcMain.handle('tab-groups:update', (_e, { id, patch }: { id: string; patch: unknown }) => {
+    if (typeof patch !== 'object' || patch === null) return;
+    const safe: Parameters<TabGroupStore['updateGroup']>[1] = {};
+    const p = patch as Record<string, unknown>;
+    if (typeof p['name'] === 'string') safe.name = p['name'].slice(0, 64);
+    if (isValidColor(p['color'])) safe.color = p['color'];
+    if (typeof p['collapsed'] === 'boolean') safe.collapsed = p['collapsed'];
+    store.updateGroup(id, safe);
     broadcast();
   });
 
