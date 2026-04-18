@@ -1156,7 +1156,6 @@ app.whenReady().then(async () => {
     unregisterShareHandlers();
     unregisterBookmarkHandlers();
     unregisterHistoryHandlers();
-    shortcutsStore?.flushSync();
     unregisterSearchEngineHandlers();
     unregisterOmniboxHandlers();
     unregisterChromeHandlers();
