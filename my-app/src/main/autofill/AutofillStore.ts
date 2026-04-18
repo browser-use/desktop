@@ -75,8 +75,8 @@ function makeEmpty(): PersistedAutofill {
   return { version: 1, addresses: [], cards: [] };
 }
 
-function getAutofillPath(): string {
-  return path.join(app.getPath('userData'), AUTOFILL_FILE_NAME);
+function getAutofillPath(dataDir: string): string {
+  return path.join(dataDir, AUTOFILL_FILE_NAME);
 }
 
 // ---------------------------------------------------------------------------
@@ -111,11 +111,13 @@ export function extractLastFour(number: string): string {
 // ---------------------------------------------------------------------------
 
 export class AutofillStore {
+  private dataDir: string;
   private state: PersistedAutofill;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir ?? app.getPath('userData');
     this.state = this.load();
     mainLogger.info('AutofillStore.init', {
       addressCount: this.state.addresses.length,
@@ -129,7 +131,7 @@ export class AutofillStore {
 
   private load(): PersistedAutofill {
     try {
-      const raw = fs.readFileSync(getAutofillPath(), 'utf-8');
+      const raw = fs.readFileSync(getAutofillPath(this.dataDir), 'utf-8');
       const parsed = JSON.parse(raw) as PersistedAutofill;
       if (parsed.version !== 1) {
         mainLogger.warn('AutofillStore.load.invalid', { msg: 'Resetting autofill store' });
@@ -159,7 +161,7 @@ export class AutofillStore {
   flushSync(): void {
     if (!this.dirty) return;
     try {
-      fs.writeFileSync(getAutofillPath(), JSON.stringify(this.state, null, 2), 'utf-8');
+      fs.writeFileSync(getAutofillPath(this.dataDir), JSON.stringify(this.state, null, 2), 'utf-8');
       mainLogger.info('AutofillStore.flushSync.ok');
     } catch (err) {
       mainLogger.error('AutofillStore.flushSync.failed', { error: (err as Error).message });

@@ -62,16 +62,18 @@ function makeEmpty(): PersistedBookmarks {
   };
 }
 
-function getBookmarksPath(): string {
-  return path.join(app.getPath('userData'), BOOKMARKS_FILE_NAME);
+function getBookmarksPath(dataDir: string): string {
+  return path.join(dataDir, BOOKMARKS_FILE_NAME);
 }
 
 export class BookmarkStore {
+  private dataDir: string;
   private state: PersistedBookmarks;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir ?? app.getPath('userData');
     this.state = this.load();
   }
 
@@ -81,7 +83,7 @@ export class BookmarkStore {
 
   private load(): PersistedBookmarks {
     try {
-      const raw = fs.readFileSync(getBookmarksPath(), 'utf-8');
+      const raw = fs.readFileSync(getBookmarksPath(this.dataDir), 'utf-8');
       const parsed = JSON.parse(raw) as PersistedBookmarks;
       if (
         parsed.version !== 1 ||
@@ -112,12 +114,12 @@ export class BookmarkStore {
     if (!this.dirty) return;
     try {
       fs.writeFileSync(
-        getBookmarksPath(),
+        getBookmarksPath(this.dataDir),
         JSON.stringify(this.state, null, 2),
         'utf-8',
       );
       mainLogger.info('BookmarkStore.flushSync.ok', {
-        path: getBookmarksPath(),
+        path: getBookmarksPath(this.dataDir),
       });
     } catch (err) {
       mainLogger.error('BookmarkStore.flushSync.failed', {

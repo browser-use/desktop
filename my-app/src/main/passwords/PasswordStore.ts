@@ -42,16 +42,18 @@ function makeEmpty(): PersistedPasswords {
   };
 }
 
-function getPasswordsPath(): string {
-  return path.join(app.getPath('userData'), PASSWORDS_FILE_NAME);
+function getPasswordsPath(dataDir: string): string {
+  return path.join(dataDir, PASSWORDS_FILE_NAME);
 }
 
 export class PasswordStore {
+  private dataDir: string;
   private state: PersistedPasswords;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir ?? app.getPath('userData');
     this.state = this.load();
     mainLogger.info('PasswordStore.init', {
       credentialCount: this.state.credentials.length,
@@ -65,7 +67,7 @@ export class PasswordStore {
 
   private load(): PersistedPasswords {
     try {
-      const raw = fs.readFileSync(getPasswordsPath(), 'utf-8');
+      const raw = fs.readFileSync(getPasswordsPath(this.dataDir), 'utf-8');
       const parsed = JSON.parse(raw) as PersistedPasswords;
       if (parsed.version !== 1 || !Array.isArray(parsed.credentials)) {
         mainLogger.warn('PasswordStore.load.invalid', { msg: 'Resetting passwords store' });
@@ -92,7 +94,7 @@ export class PasswordStore {
     if (!this.dirty) return;
     try {
       fs.writeFileSync(
-        getPasswordsPath(),
+        getPasswordsPath(this.dataDir),
         JSON.stringify(this.state, null, 2),
         'utf-8',
       );

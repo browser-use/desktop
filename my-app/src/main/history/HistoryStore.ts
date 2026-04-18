@@ -39,8 +39,8 @@ export interface HistoryQueryResult {
   totalCount: number;
 }
 
-function getHistoryPath(): string {
-  return path.join(app.getPath('userData'), HISTORY_FILE_NAME);
+function getHistoryPath(dataDir: string): string {
+  return path.join(dataDir, HISTORY_FILE_NAME);
 }
 
 let nextId = 1;
@@ -50,17 +50,19 @@ function generateId(): string {
 }
 
 export class HistoryStore {
+  private dataDir: string;
   private entries: HistoryEntry[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor() {
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir ?? app.getPath('userData');
     this.load();
   }
 
   private load(): void {
     try {
-      const raw = fs.readFileSync(getHistoryPath(), 'utf-8');
+      const raw = fs.readFileSync(getHistoryPath(this.dataDir), 'utf-8');
       const parsed = JSON.parse(raw) as PersistedHistory;
       if (parsed.version === 1 && Array.isArray(parsed.entries)) {
         this.entries = parsed.entries;
@@ -95,7 +97,7 @@ export class HistoryStore {
     }
     try {
       const data: PersistedHistory = { version: 1, entries: this.entries };
-      fs.writeFileSync(getHistoryPath(), JSON.stringify(data), 'utf-8');
+      fs.writeFileSync(getHistoryPath(this.dataDir), JSON.stringify(data), 'utf-8');
       mainLogger.debug('HistoryStore.flush.ok', { count: this.entries.length });
     } catch (err) {
       mainLogger.error('HistoryStore.flush.failed', {

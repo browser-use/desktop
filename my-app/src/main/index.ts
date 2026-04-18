@@ -258,6 +258,9 @@ function openShellAndWire(profileId?: string): BrowserWindow {
   if (historyStore) {
     tabManager.setHistoryStore(historyStore);
   }
+  if (passwordStore) {
+    tabManager.setPasswordStore(passwordStore);
+  }
   tabManager.restoreSession();
 
   // Permission framework: wire manager to session + tab lifecycle
@@ -652,11 +655,9 @@ app.whenReady().then(async () => {
   });
 
   // Wave1 P3 — Bookmarks: init store + register IPC before the shell loads.
-  // NOTE: BookmarkStore/PasswordStore/HistoryStore currently key off
-  // `app.getPath('userData')` internally and ignore the active profile.
-  // Profile-scoped persistence for those stores is tracked as a follow-up;
-  // only PermissionStore accepts a data dir today.
-  bookmarkStore = new BookmarkStore();
+  // Each store is scoped to the active profile's data directory so that
+  // bookmarks, history, passwords, and autofill are isolated per profile.
+  bookmarkStore = new BookmarkStore(getProfileDataDir(activeProfileId));
   permissionStore = new PermissionStore(getProfileDataDir(activeProfileId));
   protocolHandlerStore = new ProtocolHandlerStore(getProfileDataDir(activeProfileId));
   deviceStore = new DeviceStore(getProfileDataDir(activeProfileId));
@@ -670,13 +671,12 @@ app.whenReady().then(async () => {
   });
 
   // Password Manager: init store + register IPC.
-  // See comment above re: profile-scoped persistence follow-up.
-  passwordStore = new PasswordStore();
+  passwordStore = new PasswordStore(getProfileDataDir(activeProfileId));
   registerPasswordHandlers({ store: passwordStore });
   if (tabManager) tabManager.setPasswordStore(passwordStore);
 
   // Issue #70 — Autofill: init store + register IPC.
-  autofillStore = new AutofillStore();
+  autofillStore = new AutofillStore(getProfileDataDir(activeProfileId));
   registerAutofillHandlers({ store: autofillStore });
 
   // Issue #45 — Profile picker: init store + register IPC
@@ -690,14 +690,45 @@ app.whenReady().then(async () => {
         openGuestShell();
       } else {
         activeProfileId = profileId ?? 'default';
+
+        // Flush and recreate per-profile stores so the new profile's data
+        // directory is used. IPC handlers are re-registered with the new
+        // store instances.
+        bookmarkStore?.flushSync();
+        historyStore?.flushSync();
+        passwordStore?.flushSync();
+        autofillStore?.flushSync();
+
+        const newDataDir = getProfileDataDir(activeProfileId);
+
+        unregisterBookmarkHandlers();
+        bookmarkStore = new BookmarkStore(newDataDir);
+        registerBookmarkHandlers({
+          store: bookmarkStore,
+          getShellWindow: () => shellWindow,
+          getAllTabs: () =>
+            tabManager ? tabManager.getAllTabSummaries() : [],
+        });
+
+        unregisterHistoryHandlers();
+        historyStore = new HistoryStore(newDataDir);
+        registerHistoryHandlers({ store: historyStore });
+
+        unregisterPasswordHandlers();
+        passwordStore = new PasswordStore(newDataDir);
+        registerPasswordHandlers({ store: passwordStore });
+
+        unregisterAutofillHandlers();
+        autofillStore = new AutofillStore(newDataDir);
+        registerAutofillHandlers({ store: autofillStore });
+
         openShellAndWire();
       }
     },
   });
 
   // Issue #40 — History: init store + register IPC.
-  // See comment above re: profile-scoped persistence follow-up.
-  historyStore = new HistoryStore();
+  historyStore = new HistoryStore(getProfileDataDir(activeProfileId));
   registerHistoryHandlers({ store: historyStore });
 
   // Issue #17 — Omnibox autocomplete providers
