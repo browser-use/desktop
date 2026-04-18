@@ -27,22 +27,22 @@ export const app = {
 };
 
 export const ipcMain = {
-  handle: () => undefined,
-  removeHandler: () => undefined,
-  on: () => undefined,
-  off: () => undefined,
-  emit: () => false,
+  handle: (): undefined => undefined,
+  removeHandler: (): undefined => undefined,
+  on: (): undefined => undefined,
+  off: (): undefined => undefined,
+  emit: (): boolean => false,
 };
 
 export const BrowserWindow = {
-  getAllWindows: () => [],
-  getFocusedWindow: () => null,
+  getAllWindows: (): unknown[] => [],
+  getFocusedWindow: (): null => null,
 };
 
 export const globalShortcut = {
-  register: () => false,
-  unregister: () => undefined,
-  unregisterAll: () => undefined,
+  register: (): boolean => false,
+  unregister: (): undefined => undefined,
+  unregisterAll: (): undefined => undefined,
 };
 
 export const screen = {
@@ -61,7 +61,7 @@ export const nativeImage = {
 };
 
 export const shell = {
-  openExternal: (_url: string) => Promise.resolve(),
+  openExternal: (_url: string): Promise<void> => Promise.resolve(),
 };
 
 // Session stub covering every API reached from src/main.
@@ -87,35 +87,35 @@ const sessionStub = {
   removeAllListeners: (_event?: string) => sessionStub,
 
   // permissions
-  setPermissionRequestHandler: (_handler: unknown) => undefined,
-  setPermissionCheckHandler: (_handler: unknown) => undefined,
-  setDevicePermissionHandler: (_handler: unknown) => undefined,
+  setPermissionRequestHandler: (_handler: unknown): undefined => undefined,
+  setPermissionCheckHandler: (_handler: unknown): undefined => undefined,
+  setDevicePermissionHandler: (_handler: unknown): undefined => undefined,
 
   // web request interception (DeclarativeNetRequestEngine)
   webRequest: {
-    onBeforeRequest: (_listener: unknown) => undefined,
-    onBeforeSendHeaders: (_listener: unknown) => undefined,
-    onSendHeaders: (_listener: unknown) => undefined,
-    onHeadersReceived: (_listener: unknown) => undefined,
-    onResponseStarted: (_listener: unknown) => undefined,
-    onBeforeRedirect: (_listener: unknown) => undefined,
-    onCompleted: (_listener: unknown) => undefined,
-    onErrorOccurred: (_listener: unknown) => undefined,
+    onBeforeRequest: (_listener: unknown): undefined => undefined,
+    onBeforeSendHeaders: (_listener: unknown): undefined => undefined,
+    onSendHeaders: (_listener: unknown): undefined => undefined,
+    onHeadersReceived: (_listener: unknown): undefined => undefined,
+    onResponseStarted: (_listener: unknown): undefined => undefined,
+    onBeforeRedirect: (_listener: unknown): undefined => undefined,
+    onCompleted: (_listener: unknown): undefined => undefined,
+    onErrorOccurred: (_listener: unknown): undefined => undefined,
   },
 
   // data clearing (ClearDataController)
-  clearCache: () => Promise.resolve(),
-  clearAuthCache: () => Promise.resolve(),
-  clearHistory: () => Promise.resolve(),
-  clearHostResolverCache: () => Promise.resolve(),
-  clearStorageData: (_options?: unknown) => Promise.resolve(),
-  flushStorageData: () => undefined,
+  clearCache: (): Promise<void> => Promise.resolve(),
+  clearAuthCache: (): Promise<void> => Promise.resolve(),
+  clearHistory: (): Promise<void> => Promise.resolve(),
+  clearHostResolverCache: (): Promise<void> => Promise.resolve(),
+  clearStorageData: (_options?: unknown): Promise<void> => Promise.resolve(),
+  flushStorageData: (): undefined => undefined,
 
   cookies: {
-    get: () => Promise.resolve([]),
-    set: (_details: unknown) => Promise.resolve(),
-    remove: () => Promise.resolve(),
-    flushStore: () => Promise.resolve(),
+    get: (): Promise<unknown[]> => Promise.resolve([]),
+    set: (_details: unknown): Promise<void> => Promise.resolve(),
+    remove: (): Promise<void> => Promise.resolve(),
+    flushStore: (): Promise<void> => Promise.resolve(),
   },
 
   // extensions (ExtensionManager)
@@ -127,29 +127,29 @@ const sessionStub = {
       path: _path,
       version: '0.0.0',
     }),
-  removeExtension: (_id: string) => undefined,
-  getExtension: (_id: string) => null,
-  getAllExtensions: () => [],
+  removeExtension: (_id: string): undefined => undefined,
+  getExtension: (_id: string): null => null,
+  getAllExtensions: (): unknown[] => [],
 
   // spell check / proxies / misc
-  setSpellCheckerEnabled: (_enabled: boolean) => undefined,
-  isSpellCheckerEnabled: () => false,
-  setProxy: (_config: unknown) => Promise.resolve(),
-  resolveProxy: (_url: string) => Promise.resolve(''),
+  setSpellCheckerEnabled: (_enabled: boolean): undefined => undefined,
+  isSpellCheckerEnabled: (): boolean => false,
+  setProxy: (_config: unknown): Promise<void> => Promise.resolve(),
+  resolveProxy: (_url: string): Promise<string> => Promise.resolve(''),
 
   // service workers (ServiceWorkerManager)
   serviceWorkers: {
-    getAllRunning: () => ({}),
-    getFromVersionID: (_id: number) => null,
-    startWorkerForScope: (_scope: string) => Promise.resolve(),
+    getAllRunning: (): Record<string, unknown> => ({}),
+    getFromVersionID: (_id: number): null => null,
+    startWorkerForScope: (_scope: string): Promise<void> => Promise.resolve(),
   },
 
   // user agent
-  getUserAgent: () => 'mock-ua',
-  setUserAgent: (_ua: string) => undefined,
+  getUserAgent: (): string => 'mock-ua',
+  setUserAgent: (_ua: string): undefined => undefined,
 
   // certificate handlers
-  setCertificateVerifyProc: (_proc: unknown) => undefined,
+  setCertificateVerifyProc: (_proc: unknown): undefined => undefined,
 };
 
 export const session = {
@@ -160,21 +160,21 @@ export const session = {
 // Many main-process modules reach for app.whenReady via the namespace import.
 // The `protocol` module is also referenced by custom scheme registration code.
 export const protocol = {
-  registerSchemesAsPrivileged: (_schemes: unknown[]) => undefined,
-  registerFileProtocol: (_scheme: string, _handler: unknown) => undefined,
-  registerStringProtocol: (_scheme: string, _handler: unknown) => undefined,
-  registerBufferProtocol: (_scheme: string, _handler: unknown) => undefined,
-  handle: (_scheme: string, _handler: unknown) => undefined,
-  unhandle: (_scheme: string) => undefined,
+  registerSchemesAsPrivileged: (_schemes: unknown[]): undefined => undefined,
+  registerFileProtocol: (_scheme: string, _handler: unknown): undefined => undefined,
+  registerStringProtocol: (_scheme: string, _handler: unknown): undefined => undefined,
+  registerBufferProtocol: (_scheme: string, _handler: unknown): undefined => undefined,
+  handle: (_scheme: string, _handler: unknown): undefined => undefined,
+  unhandle: (_scheme: string): undefined => undefined,
 };
 
 export const Menu = {
-  setApplicationMenu: (_menu: unknown) => undefined,
+  setApplicationMenu: (_menu: unknown): undefined => undefined,
   buildFromTemplate: (_template: unknown[]) => ({
-    popup: () => undefined,
-    closePopup: () => undefined,
+    popup: (): undefined => undefined,
+    closePopup: (): undefined => undefined,
   }),
-  getApplicationMenu: () => null,
+  getApplicationMenu: (): null => null,
 };
 
 export const MenuItem = class {

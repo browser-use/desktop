@@ -269,8 +269,10 @@ test("PID-scoped socket path contains process PID", async () => {
   // Two different fake PIDs should produce different paths
   const pid1 = 12345;
   const pid2 = 67890;
-  const path1 = `/tmp/userData/daemon-${pid1}.sock`;
-  const path2 = `/tmp/userData/daemon-${pid2}.sock`;
+  // Widen to `string` so tsc doesn't treat the comparison as a literal-vs-literal
+  // overlap check (which would be unconditionally true at the type level).
+  const path1: string = `/tmp/userData/daemon-${pid1}.sock`;
+  const path2: string = `/tmp/userData/daemon-${pid2}.sock`;
   assert(path1 !== path2, "different PIDs should have different socket paths");
   assert(!path1.includes("67890"), "path1 should not contain PID2");
   assert(!path2.includes("12345"), "path2 should not contain PID1");
