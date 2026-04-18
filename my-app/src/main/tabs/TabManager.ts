@@ -19,7 +19,9 @@ import { NavigationController } from './NavigationController';
 import { SessionStore, PersistedSession, PersistedTab } from './SessionStore';
 import { ZoomStore, extractOrigin, zoomLevelToPercent, type ZoomEntry } from './ZoomStore';
 import { parseNavigationInput, UrlMatchFn } from '../navigation';
+import path from 'node:path';
 import { mainLogger } from '../logger';
+import { HistoryStore } from '../history/HistoryStore';
 import { attachContextMenu } from '../contextMenu/ContextMenuController';
 import { getFormDetectorScript, FORM_DETECTOR_PREFIX } from '../passwords/formDetector';
 
@@ -79,6 +81,13 @@ export interface FindResultPayload {
   finalUpdate: boolean;
 }
 
+// Forge VitePlugin globals for internal pages (injected at build time)
+declare const HISTORY_VITE_DEV_SERVER_URL: string | undefined;
+declare const HISTORY_VITE_NAME: string | undefined;
+
+// URLs that should not be recorded in browsing history
+const SKIP_HISTORY_RE = /^(data:|about:|chrome:|devtools:|view-source:)/i;
+
 export class TabManager {
   private win: BrowserWindow;
   private tabs: Map<string, WebContentsView> = new Map();
@@ -107,6 +116,7 @@ export class TabManager {
   private pillToggle: (() => void) | null = null;
   private zoomStore: ZoomStore;
   private urlMatchFn: UrlMatchFn | null = null;
+  private historyStore: HistoryStore | null = null;
 
   constructor(win: BrowserWindow) {
     this.win = win;
@@ -121,6 +131,11 @@ export class TabManager {
 
   setOnTabClosed(cb: ((tabId: string) => void) | null): void {
     this.onTabClosed = cb;
+  }
+
+  setHistoryStore(store: HistoryStore): void {
+    this.historyStore = store;
+    mainLogger.info('TabManager.setHistoryStore', { msg: 'History recording enabled' });
   }
 
   /**
@@ -523,6 +538,43 @@ export class TabManager {
 
   navigateActive(input: string): void {
     if (this.activeTabId) this.navigate(this.activeTabId, input);
+  }
+
+  openInternalPage(page: string): void {
+    mainLogger.info('TabManager.openInternalPage', { page });
+    const preloadPath = path.join(__dirname, 'history.js');
+    const view = new WebContentsView({
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    const tabId = uuidv4();
+    this.win.contentView.addChildView(view);
+    this.tabs.set(tabId, view);
+    this.tabOrder.push(tabId);
+    this.navControllers.set(tabId, new NavigationController(view));
+
+    view.webContents.setVisualZoomLevelLimits(1, 3).catch(() => {});
+    this.attachViewEvents(tabId, view);
+    this.positionView(view);
+
+    let url: string;
+    if (typeof HISTORY_VITE_DEV_SERVER_URL !== 'undefined' && HISTORY_VITE_DEV_SERVER_URL) {
+      url = HISTORY_VITE_DEV_SERVER_URL + '/src/renderer/history/history.html';
+    } else {
+      const name = typeof HISTORY_VITE_NAME !== 'undefined' ? HISTORY_VITE_NAME : 'history';
+      url = 'file://' + path.join(__dirname, '..', '..', 'renderer', name, 'history.html');
+    }
+    mainLogger.debug('TabManager.openInternalPage.loadURL', { page, url });
+    view.webContents.loadURL(url);
+
+    this.activateTab(tabId);
+    this.saveSession();
+    this.broadcastState();
   }
 
   goBack(tabId: string): void {

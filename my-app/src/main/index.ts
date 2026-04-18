@@ -147,6 +147,9 @@ function openShellAndWire(): BrowserWindow {
       return store.isUrlBookmarked(candidate) ? candidate : null;
     });
   }
+  if (historyStore) {
+    tabManager.setHistoryStore(historyStore);
+  }
   tabManager.restoreSession();
 
   // Permission framework: wire manager to session + tab lifecycle
@@ -1006,6 +1009,15 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
         backShadowOpt,
         forwardItem,
         forwardShadowOpt,
+        { type: 'separator' },
+        {
+          label: 'Show Full History',
+          accelerator: 'CommandOrControl+Y',
+          click: () => {
+            mainLogger.debug('shortcuts.showHistory');
+            tabManager?.openInternalPage('history');
+          },
+        },
         { type: 'separator' },
         {
           label: 'Home',
