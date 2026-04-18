@@ -41,6 +41,8 @@ export default defineConfig({
       'tests/unit/privacy/**/*.spec.ts',
       // Issue #202 — auto-updater wiring
       'tests/unit/updater/**/*.spec.ts',
+      // Factory-reset controller wiping (Issues #217 / #225)
+      'tests/unit/settings/**/*.spec.ts',
     ],
     exclude: ['tests/e2e/**', 'tests/parity/**'],
     // Renderer .spec.tsx files declare jsdom via the per-file

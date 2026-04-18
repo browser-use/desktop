@@ -841,12 +841,23 @@ app.whenReady().then(async () => {
     }
   });
 
-  // Track 5 — Settings IPC handlers
+  // Track 5 — Settings IPC handlers. Pass every app-local store so the
+  // factory-reset handler can wipe them via their public APIs — fixes the
+  // advertised "permanently delete all data" lie (#217 / #225).
   registerSettingsHandlers({
     accountStore,
     keychainStore,
     getPasswordStore:   () => passwordStore,
     getDownloadManager: () => downloadManager,
+    factoryResetStores: {
+      bookmarkStore:        bookmarkStore        ?? undefined,
+      historyStore:         historyStore         ?? undefined,
+      passwordStore:        passwordStore        ?? undefined,
+      autofillStore:        autofillStore        ?? undefined,
+      permissionStore:      permissionStore      ?? undefined,
+      deviceStore:          deviceStore          ?? undefined,
+      contentCategoryStore: contentCategoryStore ?? undefined,
+    },
   });
 
   // Issue #200 — let ClearDataController reach the password store + download
