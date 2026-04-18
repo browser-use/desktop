@@ -46,7 +46,7 @@ export class AccountStore {
   constructor(userDataPath?: string) {
     const dir = userDataPath ?? (() => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { app } = require('electron') as typeof import('electron');
         return app.getPath('userData');
       } catch {

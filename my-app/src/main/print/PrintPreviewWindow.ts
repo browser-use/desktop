@@ -57,7 +57,7 @@ function registerIpcHandlers(): void {
         return null;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { webContents } = require('electron');
       const sourceWc = webContents.fromId(sourceTabWebContentsId);
       if (!sourceWc || sourceWc.isDestroyed()) {
@@ -143,7 +143,7 @@ function registerIpcHandlers(): void {
         return { success: false, error: 'No source tab' };
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { webContents } = require('electron');
       const sourceWc = webContents.fromId(sourceTabWebContentsId);
       if (!sourceWc || sourceWc.isDestroyed()) {
@@ -172,7 +172,7 @@ function registerIpcHandlers(): void {
           };
 
           const pdfBuffer = await sourceWc.printToPDF(pdfOptions);
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const fs = require('node:fs');
           fs.writeFileSync(result.filePath, pdfBuffer);
 

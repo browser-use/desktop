@@ -97,7 +97,7 @@ function validateSchemaStructure(schema: SchemaDoc, filename: string): void {
 
 function tryAjvValidation(schema: SchemaDoc, filename: string): boolean {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Ajv = require("ajv");
     const ajv = new Ajv({ strict: false });
     const valid = ajv.validateSchema(schema);

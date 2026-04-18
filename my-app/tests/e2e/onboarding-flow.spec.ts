@@ -47,7 +47,6 @@ test.describe('Onboarding Flow', () => {
   test('fresh userData opens onboarding window; shell window is not shown', async () => {
     // Onboarding should be the first (and only) window
     const windowCount = await app.electronApp.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { BrowserWindow } = require('electron');
       return BrowserWindow.getAllWindows().length;
     });
@@ -130,7 +129,6 @@ test.describe('Onboarding Flow', () => {
     // Capture the OAuth URL that would be used
     const capturedUrl: string = await app.electronApp.evaluate(() => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { ipcMain: _ipcMain } = require('electron');
         // Track C exposes the pending OAuth URL via a test IPC channel
         return (global as Record<string, unknown>)['__test_pending_oauth_url'] as string ?? '';
