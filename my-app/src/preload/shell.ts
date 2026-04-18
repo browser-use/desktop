@@ -349,6 +349,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       hstsIncludeSubdomains: boolean;
       isSecure: boolean;
     }> => ipcRenderer.invoke('security:get-page-info'),
+    getCookieCount: (): Promise<number> =>
+      ipcRenderer.invoke('security:get-cookie-count'),
   },
 
   // Issue #81 — Three-dot app menu (non-macOS)

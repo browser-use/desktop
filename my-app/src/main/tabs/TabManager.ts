@@ -2368,6 +2368,18 @@ export class TabManager {
         isSecure: url.startsWith('https://'),
       };
     });
+
+    ipcMain.handle('security:get-cookie-count', async () => {
+      const url = this.getActiveTabUrl() ?? '';
+      if (!url) return 0;
+      try {
+        const u = new URL(url);
+        const cookies = await this.win.webContents.session.cookies.get({ url });
+        return cookies.length;
+      } catch {
+        return 0;
+      }
+    });
   }
 
   destroy(): void {
@@ -2406,5 +2418,6 @@ export class TabManager {
     ipcMain.removeHandler('find:stop');
     ipcMain.removeHandler('find:get-last-query');
     ipcMain.removeHandler('security:get-page-info');
+    ipcMain.removeHandler('security:get-cookie-count');
   }
 }

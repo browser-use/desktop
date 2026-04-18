@@ -28,13 +28,31 @@ const DEFAULT_PORTS: Record<string, number> = {
   'https:': 443,
 };
 
+interface PermissionEntry {
+  permissionType: string;
+  state: 'allow' | 'deny' | 'ask';
+}
+
 interface PageInfo {
   url: string;
   isHSTS: boolean;
   hstsMaxAge: number | null;
   hstsIncludeSubdomains: boolean;
   isSecure: boolean;
+  permissions: PermissionEntry[];
+  cookieCount: number;
 }
+
+declare const electronAPI: {
+  security: {
+    getPageInfo: () => Promise<Omit<PageInfo, 'permissions' | 'cookieCount'>>;
+    getCookieCount: () => Promise<number>;
+  };
+  permissions: {
+    getSite: (origin: string) => Promise<PermissionEntry[]>;
+    setSite: (origin: string, permissionType: string, state: string) => Promise<void>;
+  };
+};
 
 interface URLBarProps {
   url: string;
@@ -95,6 +113,119 @@ function displayUrl(url: string): string {
   // Build final display string.
   // https scheme is elided entirely; http scheme remains implicit via chip.
   return host + path + parsed.search + parsed.hash;
+}
+
+const PERMISSION_LABELS: Record<string, string> = {
+  camera: 'Camera',
+  microphone: 'Microphone',
+  geolocation: 'Location',
+  notifications: 'Notifications',
+  clipboard: 'Clipboard',
+  midi: 'MIDI',
+};
+
+function PageInfoPopover({
+  security,
+  pageInfo,
+  onClose,
+}: {
+  security: 'secure' | 'insecure' | 'none';
+  pageInfo: PageInfo | null;
+  onClose: () => void;
+}): React.ReactElement {
+  const [permissions, setPermissions] = React.useState<PermissionEntry[]>(
+    pageInfo?.permissions ?? [],
+  );
+
+  const handlePermissionChange = useCallback(
+    async (permType: string, newState: string) => {
+      if (!pageInfo?.url) return;
+      try {
+        const origin = new URL(pageInfo.url).origin;
+        await electronAPI.permissions.setSite(origin, permType, newState);
+        setPermissions((prev) =>
+          prev.map((p) =>
+            p.permissionType === permType ? { ...p, state: newState as PermissionEntry['state'] } : p,
+          ),
+        );
+      } catch { /* ignore */ }
+    },
+    [pageInfo?.url],
+  );
+
+  const handleSiteSettings = useCallback(() => {
+    void (window as any).electronAPI?.chrome?.openPage?.('settings');
+    onClose();
+  }, [onClose]);
+
+  const namedPerms = permissions.filter((p) => PERMISSION_LABELS[p.permissionType]);
+
+  return (
+    <div className="url-bar__page-info-popover" role="dialog" aria-label="Page info">
+      {/* Connection */}
+      <div className="url-bar__page-info-row">
+        <span className={`url-bar__page-info-status url-bar__page-info-status--${security}`}>
+          {security === 'secure'
+            ? 'Connection is secure'
+            : security === 'insecure'
+              ? 'Connection is not secure'
+              : 'No connection info'}
+        </span>
+      </div>
+      {pageInfo?.isHSTS && (
+        <div className="url-bar__page-info-row url-bar__page-info-hsts">
+          <span className="url-bar__page-info-badge">HSTS</span>
+          <span className="url-bar__page-info-hsts-detail">
+            {pageInfo.hstsIncludeSubdomains ? 'Includes subdomains' : 'This domain only'}
+            {pageInfo.hstsMaxAge != null ? ` · ${Math.round(pageInfo.hstsMaxAge / 86400)}d` : ''}
+          </span>
+        </div>
+      )}
+
+      {/* Permissions */}
+      {namedPerms.length > 0 && (
+        <>
+          <div className="url-bar__page-info-divider" />
+          <div className="url-bar__page-info-section-label">Permissions</div>
+          {namedPerms.map((p) => (
+            <div key={p.permissionType} className="url-bar__page-info-perm-row">
+              <span className="url-bar__page-info-perm-label">
+                {PERMISSION_LABELS[p.permissionType]}
+              </span>
+              <select
+                className="url-bar__page-info-perm-select"
+                value={p.state}
+                onChange={(e) => void handlePermissionChange(p.permissionType, e.target.value)}
+              >
+                <option value="allow">Allow</option>
+                <option value="deny">Block</option>
+                <option value="ask">Ask</option>
+              </select>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Cookies & site settings */}
+      <div className="url-bar__page-info-divider" />
+      <div className="url-bar__page-info-footer">
+        {pageInfo != null && (
+          <span className="url-bar__page-info-cookies">
+            {pageInfo.cookieCount === 0
+              ? 'No cookies'
+              : `${pageInfo.cookieCount} cookie${pageInfo.cookieCount === 1 ? '' : 's'}`}
+          </span>
+        )}
+        <button
+          type="button"
+          className="url-bar__page-info-site-settings"
+          onClick={handleSiteSettings}
+        >
+          Site settings
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function URLBar({
@@ -176,8 +307,16 @@ export function URLBar({
   const handleSecurityClick = useCallback(async () => {
     if (!pageInfoOpen) {
       try {
-        const info = await (window as any).electronAPI?.security?.getPageInfo?.();
-        setPageInfo(info ?? null);
+        const [base, cookieCount] = await Promise.all([
+          electronAPI.security.getPageInfo(),
+          electronAPI.security.getCookieCount(),
+        ]);
+        let permissions: PermissionEntry[] = [];
+        try {
+          const origin = new URL(base.url).origin;
+          permissions = await electronAPI.permissions.getSite(origin);
+        } catch { /* non-URL pages have no permissions */ }
+        setPageInfo({ ...base, permissions, cookieCount });
       } catch {
         setPageInfo(null);
       }
@@ -234,22 +373,11 @@ export function URLBar({
           )}
         </button>
         {pageInfoOpen && (
-          <div className="url-bar__page-info-popover" role="dialog" aria-label="Page info">
-            <div className="url-bar__page-info-row">
-              <span className={`url-bar__page-info-status url-bar__page-info-status--${security}`}>
-                {security === 'secure' ? 'Connection is secure' : security === 'insecure' ? 'Connection is not secure' : 'No connection info'}
-              </span>
-            </div>
-            {pageInfo?.isHSTS && (
-              <div className="url-bar__page-info-row url-bar__page-info-hsts">
-                <span className="url-bar__page-info-badge">HSTS</span>
-                <span className="url-bar__page-info-hsts-detail">
-                  {pageInfo.hstsIncludeSubdomains ? 'Includes subdomains' : 'This domain only'}
-                  {pageInfo.hstsMaxAge != null ? ` · ${Math.round(pageInfo.hstsMaxAge / 86400)}d` : ''}
-                </span>
-              </div>
-            )}
-          </div>
+          <PageInfoPopover
+            security={security}
+            pageInfo={pageInfo}
+            onClose={() => setPageInfoOpen(false)}
+          />
         )}
       </div>
 
