@@ -322,6 +322,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('ntp:pick-background-image'),
   },
 
+  // Issue #55 — File System Access API grant management
+  fsAccess: {
+    getGrants: (): Promise<import('../main/permissions/FileSystemAccessStore').FsAccessGrant[]> =>
+      ipcRenderer.invoke('fs-access:get-grants'),
+
+    getGrantsForOrigin: (origin: string): Promise<import('../main/permissions/FileSystemAccessStore').FsAccessGrant[]> =>
+      ipcRenderer.invoke('fs-access:get-grants-for-origin', origin),
+
+    removeGrant: (origin: string, filePath: string): Promise<boolean> =>
+      ipcRenderer.invoke('fs-access:remove-grant', origin, filePath),
+
+    clearOrigin: (origin: string): Promise<void> =>
+      ipcRenderer.invoke('fs-access:clear-origin', origin),
+
+    clearAll: (): Promise<void> =>
+      ipcRenderer.invoke('fs-access:clear-all'),
+  },
+
   // Event listeners
   on: {
     tabsState: (

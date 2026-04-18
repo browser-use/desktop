@@ -33,6 +33,7 @@ const TAB_PROFILES     = 'profiles'    as const;
 const TAB_PRIVACY      = 'privacy'     as const;
 const TAB_PASSWORDS    = 'passwords'   as const;
 const TAB_ZOOM         = 'site-zoom'   as const;
+const TAB_FS_ACCESS    = 'fs-access'    as const;
 
 type TabId =
   | typeof TAB_API_KEY
@@ -44,6 +45,7 @@ type TabId =
   | typeof TAB_PRIVACY
   | typeof TAB_PASSWORDS
   | typeof TAB_ZOOM
+  | typeof TAB_FS_ACCESS
   | typeof TAB_PASSWORDS
   | typeof TAB_DANGER;
 
@@ -56,6 +58,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: TAB_PROFILES,   label: 'Profiles' },
   { id: TAB_PRIVACY,    label: 'Privacy and security' },
   { id: TAB_ZOOM,       label: 'Site Zoom' },
+  { id: TAB_FS_ACCESS,  label: 'File System Access' },
   { id: TAB_DANGER,     label: 'Danger Zone' },
 ];
 
@@ -154,6 +157,10 @@ declare global {
       setDntEnabled: (enabled: boolean) => Promise<void>;
       getGpcEnabled: () => Promise<boolean>;
       setGpcEnabled: (enabled: boolean) => Promise<void>;
+      getFsAccessGrants: () => Promise<Array<{ origin: string; filePath: string; mode: string; createdAt: number; updatedAt: number }>>;
+      removeFsAccessGrant: (origin: string, filePath: string) => Promise<boolean>;
+      clearFsAccessOrigin: (origin: string) => Promise<void>;
+      clearAllFsAccessGrants: () => Promise<void>;
     };
   }
 }
@@ -1526,6 +1533,134 @@ function PasswordsTab(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// File System Access tab
+// ---------------------------------------------------------------------------
+
+interface FsGrant {
+  origin: string;
+  filePath: string;
+  mode: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function FileSystemAccessTab(): React.ReactElement {
+  const toast = useToast();
+  const [grants, setGrants] = useState<FsGrant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const loadGrants = useCallback(async () => {
+    const data = await window.settingsAPI.getFsAccessGrants();
+    setGrants(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void loadGrants(); }, [loadGrants]);
+
+  const filtered = grants.filter((g) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return g.origin.toLowerCase().includes(q) || g.filePath.toLowerCase().includes(q);
+  });
+
+  async function handleRemove(origin: string, filePath: string): Promise<void> {
+    const ok = await window.settingsAPI.removeFsAccessGrant(origin, filePath);
+    if (ok) {
+      setGrants((prev) => prev.filter((g) => !(g.origin === origin && g.filePath === filePath)));
+      toast.show({ variant: 'success', title: 'Grant removed' });
+    }
+  }
+
+  async function handleClearAll(): Promise<void> {
+    await window.settingsAPI.clearAllFsAccessGrants();
+    setGrants([]);
+    toast.show({ variant: 'success', title: 'All file system grants cleared' });
+  }
+
+  if (loading) {
+    return (
+      <div className="settings-section">
+        <h2 className="settings-section-title">File System Access</h2>
+        <div className="settings-loading">
+          <Spinner size="md" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">File System Access</h2>
+      <p className="settings-section-desc">
+        Sites that have been granted persistent access to files or directories on your
+        device via the File System Access API. Removing a grant revokes that access.
+      </p>
+
+      <div className="settings-field" style={{ marginBottom: 16 }}>
+        <input
+          className="settings-input"
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by site or path..."
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <Card variant="outline" padding="md" className="settings-card">
+          <p style={{ color: 'var(--color-fg-tertiary)', fontSize: 13 }}>
+            {grants.length === 0
+              ? 'No persistent file system grants.'
+              : 'No matching grants.'}
+          </p>
+        </Card>
+      ) : (
+        <>
+          <Card variant="default" padding="none" className="settings-card">
+            {filtered.map((grant, idx) => (
+              <div
+                key={`${grant.origin}::${grant.filePath}`}
+                className={`settings-scope-row ${idx < filtered.length - 1 ? 'settings-scope-row--bordered' : ''}`}
+              >
+                <div className="settings-scope-info">
+                  <span className="settings-scope-label">{grant.origin}</span>
+                  <code className="settings-scope-name" style={{ wordBreak: 'break-all' }}>
+                    {grant.filePath}
+                  </code>
+                  <span style={{ fontSize: 11, color: 'var(--color-fg-tertiary)' }}>
+                    {grant.mode === 'readwrite' ? 'Read & write' : 'Read only'}
+                  </span>
+                </div>
+                <div className="settings-scope-actions">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleRemove(grant.origin, grant.filePath)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </Card>
+
+          <div style={{ marginTop: 12 }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleClearAll()}
+            >
+              Clear all grants
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Danger Zone tab
 // ---------------------------------------------------------------------------
 
@@ -1680,6 +1815,7 @@ function SettingsInner(): React.ReactElement {
     [TAB_PROFILES]:   <ProfilesTab />,
     [TAB_PRIVACY]:    <PrivacyTab openDialog={clearDataOpen} onDialogChange={setClearDataOpen} />,
     [TAB_ZOOM]:       <SiteZoomTab />,
+    [TAB_FS_ACCESS]:  <FileSystemAccessTab />,
     [TAB_DANGER]:     <DangerZoneTab />,
   };
 

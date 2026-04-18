@@ -34,6 +34,7 @@ export type PermissionType =
   | 'payment-handler'
   | 'background-sync'
   | 'protocol-handler'
+  | 'fileSystem'
   | 'unknown';
 
 export interface PermissionRecord {
@@ -68,6 +69,7 @@ const DEFAULT_PERMISSION_STATES: Record<PermissionType, PermissionState> = {
   'payment-handler': 'allow',
   'background-sync': 'allow',
   'protocol-handler': 'ask',
+  fileSystem: 'ask',
   unknown: 'ask',
 };
 

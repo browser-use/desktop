@@ -29,6 +29,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'payment-handler': 'handle payment requests',
   'background-sync': 'sync data in the background',
   'protocol-handler': 'handle links for a protocol',
+  fileSystem: 'access files on your device',
   unknown: 'use a feature',
 };
 
@@ -48,6 +49,7 @@ const PERMISSION_ICONS: Record<string, string> = {
   'background-sync': 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
   'protocol-handler': 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
   'idle-detection': 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+  fileSystem: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z',
 };
 
 interface PermissionPromptData {
@@ -58,6 +60,7 @@ interface PermissionPromptData {
   isMainFrame: boolean;
   combinedTypes?: string[];
   quietUI?: boolean;
+  filePath?: string;
 }
 
 declare const electronAPI: {
@@ -79,6 +82,10 @@ function getPromptLabel(data: PermissionPromptData): string {
   if (data.combinedTypes && data.combinedTypes.length > 1) {
     const key = data.combinedTypes.sort().join('+');
     return COMBINED_LABELS[key] ?? data.combinedTypes.map((t) => PERMISSION_LABELS[t] ?? t).join(' and ');
+  }
+  if (data.permissionType === 'fileSystem' && data.filePath) {
+    const name = data.filePath.split('/').pop() ?? data.filePath;
+    return `access "${name}" on your device`;
   }
   return PERMISSION_LABELS[data.permissionType] ?? PERMISSION_LABELS.unknown;
 }

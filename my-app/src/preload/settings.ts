@@ -161,6 +161,18 @@ export interface SettingsAPI {
 
   /** Set whether Global Privacy Control header is enabled */
   setGpcEnabled: (enabled: boolean) => Promise<void>;
+
+  /** List all File System Access API persistent grants */
+  getFsAccessGrants: () => Promise<Array<{ origin: string; filePath: string; mode: string; createdAt: number; updatedAt: number }>>;
+
+  /** Remove a specific File System Access grant */
+  removeFsAccessGrant: (origin: string, filePath: string) => Promise<boolean>;
+
+  /** Clear all File System Access grants for an origin */
+  clearFsAccessOrigin: (origin: string) => Promise<void>;
+
+  /** Clear all File System Access grants */
+  clearAllFsAccessGrants: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +383,26 @@ const api: SettingsAPI = {
   setGpcEnabled: async (enabled: boolean): Promise<void> => {
     console.debug('[settings-preload] setGpcEnabled', { enabled });
     await ipcRenderer.invoke('settings:set-gpc-enabled', enabled);
+  },
+
+  getFsAccessGrants: async () => {
+    console.debug('[settings-preload] getFsAccessGrants');
+    return ipcRenderer.invoke('fs-access:get-grants');
+  },
+
+  removeFsAccessGrant: async (origin: string, filePath: string) => {
+    console.debug('[settings-preload] removeFsAccessGrant', { origin, filePath });
+    return ipcRenderer.invoke('fs-access:remove-grant', origin, filePath);
+  },
+
+  clearFsAccessOrigin: async (origin: string) => {
+    console.debug('[settings-preload] clearFsAccessOrigin', { origin });
+    await ipcRenderer.invoke('fs-access:clear-origin', origin);
+  },
+
+  clearAllFsAccessGrants: async () => {
+    console.debug('[settings-preload] clearAllFsAccessGrants');
+    await ipcRenderer.invoke('fs-access:clear-all');
   },
 };
 

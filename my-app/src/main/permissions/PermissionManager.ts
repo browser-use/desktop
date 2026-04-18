@@ -9,6 +9,7 @@
 import { BrowserWindow, Session, session, systemPreferences } from 'electron';
 import { mainLogger } from '../logger';
 import { PermissionStore, PermissionType, PermissionState } from './PermissionStore';
+import { FileSystemAccessStore } from './FileSystemAccessStore';
 
 // Map Electron's permission strings to our PermissionType enum
 const ELECTRON_PERMISSION_MAP: Record<string, PermissionType> = {
@@ -32,6 +33,8 @@ const ELECTRON_PERMISSION_MAP: Record<string, PermissionType> = {
   'payment-handler': 'payment-handler',
   'background-sync': 'background-sync',
   'protocol-handler': 'protocol-handler',
+  // File System Access API — Electron surfaces this as 'fileSystem'
+  'fileSystem': 'fileSystem',
 };
 
 // Permissions that are auto-granted without prompting.
@@ -62,6 +65,8 @@ export interface PermissionPromptRequest {
   isMainFrame: boolean;
   combinedTypes?: PermissionType[];
   quietUI?: boolean;
+  // For fileSystem prompts: the path being requested
+  filePath?: string;
 }
 
 export type PermissionDecision = 'allow' | 'allow-once' | 'deny';
@@ -83,6 +88,7 @@ interface DeferredMediaRequest {
 
 export class PermissionManager {
   private store: PermissionStore;
+  private fsStore: FileSystemAccessStore;
   private getShellWindow: () => BrowserWindow | null;
   private getTabIdForWebContents: (wcId: number) => string | null;
   private pending: Map<string, PendingPrompt> = new Map();
@@ -93,10 +99,12 @@ export class PermissionManager {
 
   constructor(opts: {
     store: PermissionStore;
+    fsStore?: FileSystemAccessStore;
     getShellWindow: () => BrowserWindow | null;
     getTabIdForWebContents: (wcId: number) => string | null;
   }) {
     this.store = opts.store;
+    this.fsStore = opts.fsStore ?? new FileSystemAccessStore();
     this.getShellWindow = opts.getShellWindow;
     this.getTabIdForWebContents = opts.getTabIdForWebContents;
 
@@ -222,6 +230,7 @@ export class PermissionManager {
     permissionType: PermissionType,
     isMainFrame: boolean,
     callback: (granted: boolean) => void,
+    extra?: { filePath?: string },
   ): void {
     const promptId = `perm-${++this.promptCounter}`;
     const request: PermissionPromptRequest = {
@@ -234,6 +243,10 @@ export class PermissionManager {
 
     if (permissionType === 'notifications') {
       request.quietUI = this.shouldUseQuietUI(origin, isMainFrame);
+    }
+
+    if (extra?.filePath) {
+      request.filePath = extra.filePath;
     }
 
     this.pending.set(promptId, { request, resolve: callback });
@@ -275,6 +288,22 @@ export class PermissionManager {
         return;
       }
 
+      // File System Access API: check persistent path-level grants first
+      if (permissionType === 'fileSystem') {
+        const filePath = (details as unknown as Record<string, unknown>)?.filePath as string | undefined;
+        mainLogger.info('PermissionManager.fileSystem.request', { origin, filePath });
+
+        if (filePath && this.fsStore.hasGrant(origin, filePath)) {
+          mainLogger.info('PermissionManager.fileSystem.persistentGrant', { origin, filePath });
+          callback(true);
+          return;
+        }
+
+        // Fall through to prompt with filePath attached
+        this.dispatchSinglePrompt(origin, tabId, 'fileSystem', isMainFrame, callback, { filePath });
+        return;
+      }
+
       if (this.hasSessionGrant(tabId, origin, permissionType)) {
         mainLogger.info('PermissionManager.sessionGrant', { origin, permissionType, tabId });
         callback(true);
@@ -311,6 +340,14 @@ export class PermissionManager {
       if (osCheck === 'denied') return false;
 
       const origin = this.extractOrigin(requestingOrigin);
+
+      // fileSystem check: allow if site has any persistent grant
+      if (permissionType === 'fileSystem') {
+        const hasSomeGrant = this.fsStore.getGrantsForOrigin(origin).length > 0;
+        mainLogger.info('PermissionManager.fileSystem.check', { origin, hasSomeGrant });
+        return hasSomeGrant;
+      }
+
       const stored = this.store.getSitePermission(origin, permissionType);
       return stored === 'allow';
     });
@@ -335,6 +372,7 @@ export class PermissionManager {
       permissionType: request.permissionType,
       combinedTypes: request.combinedTypes,
       quietUI: request.quietUI,
+      filePath: request.filePath,
     });
     win.webContents.send('permission-prompt', request);
   }
@@ -357,12 +395,18 @@ export class PermissionManager {
       origin: request.origin,
       permissionType: request.permissionType,
       combinedTypes: request.combinedTypes,
+      filePath: request.filePath,
     });
 
     switch (decision) {
       case 'allow':
         for (const t of types) {
-          this.store.setSitePermission(request.origin, t, 'allow');
+          if (t === 'fileSystem' && request.filePath) {
+            // Persistent path-level grant
+            this.fsStore.addGrant(request.origin, request.filePath);
+          } else {
+            this.store.setSitePermission(request.origin, t, 'allow');
+          }
         }
         p.resolve(true);
         if (p.pairedResolve) p.pairedResolve(true);
@@ -378,7 +422,9 @@ export class PermissionManager {
         break;
       case 'deny':
         for (const t of types) {
-          this.store.setSitePermission(request.origin, t, 'deny');
+          if (t !== 'fileSystem') {
+            this.store.setSitePermission(request.origin, t, 'deny');
+          }
         }
         if (types.includes('notifications')) {
           this.recordNotificationDenial();
@@ -408,11 +454,11 @@ export class PermissionManager {
     }
 
     // Also dismiss any pending prompts for this tab
-    for (const [id, p] of this.pending) {
-      if (p.request.tabId === tabId) {
+    for (const [id, pending] of this.pending) {
+      if (pending.request.tabId === tabId) {
         mainLogger.info('PermissionManager.dismissPending', { promptId: id, tabId });
-        p.resolve(false);
-        if (p.pairedResolve) p.pairedResolve(false);
+        pending.resolve(false);
+        if (pending.pairedResolve) pending.pairedResolve(false);
         this.pending.delete(id);
         const win = this.getShellWindow();
         if (win && !win.isDestroyed()) {

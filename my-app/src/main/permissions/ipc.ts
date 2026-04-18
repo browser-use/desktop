@@ -8,16 +8,18 @@ import { mainLogger } from '../logger';
 import { PermissionStore, PermissionType, PermissionState } from './PermissionStore';
 import { PermissionManager, PermissionDecision } from './PermissionManager';
 import { ProtocolHandlerStore } from './ProtocolHandlerStore';
+import { FileSystemAccessStore } from './FileSystemAccessStore';
 
 export interface RegisterPermissionHandlersOptions {
   store: PermissionStore;
   manager: PermissionManager;
   getShellWindow: () => BrowserWindow | null;
   protocolHandlerStore?: ProtocolHandlerStore;
+  fsStore?: FileSystemAccessStore;
 }
 
 export function registerPermissionHandlers(opts: RegisterPermissionHandlersOptions): void {
-  const { store, manager, protocolHandlerStore } = opts;
+  const { store, manager, protocolHandlerStore, fsStore } = opts;
 
   ipcMain.handle('permissions:respond', (_e, promptId: string, decision: string) => {
     mainLogger.info('permissions:respond', { promptId, decision });
@@ -60,6 +62,34 @@ export function registerPermissionHandlers(opts: RegisterPermissionHandlersOptio
   ipcMain.handle('permissions:reset-all', () => {
     store.resetAllSitePermissions();
   });
+
+  // File System Access API grant management
+  if (fsStore) {
+    ipcMain.handle('fs-access:get-grants', () => {
+      mainLogger.info('fs-access:get-grants');
+      return fsStore.getAllGrants();
+    });
+
+    ipcMain.handle('fs-access:get-grants-for-origin', (_e, origin: string) => {
+      mainLogger.info('fs-access:get-grants-for-origin', { origin });
+      return fsStore.getGrantsForOrigin(origin);
+    });
+
+    ipcMain.handle('fs-access:remove-grant', (_e, origin: string, filePath: string) => {
+      mainLogger.info('fs-access:remove-grant', { origin, filePath });
+      return fsStore.removeGrant(origin, filePath);
+    });
+
+    ipcMain.handle('fs-access:clear-origin', (_e, origin: string) => {
+      mainLogger.info('fs-access:clear-origin', { origin });
+      fsStore.clearOrigin(origin);
+    });
+
+    ipcMain.handle('fs-access:clear-all', () => {
+      mainLogger.info('fs-access:clear-all');
+      fsStore.clearAll();
+    });
+  }
 
   // Protocol handler management (chrome://settings/handlers parity)
   if (protocolHandlerStore) {
@@ -117,6 +147,11 @@ export function unregisterPermissionHandlers(): void {
   ipcMain.removeHandler('permissions:set-default');
   ipcMain.removeHandler('permissions:get-all');
   ipcMain.removeHandler('permissions:reset-all');
+  ipcMain.removeHandler('fs-access:get-grants');
+  ipcMain.removeHandler('fs-access:get-grants-for-origin');
+  ipcMain.removeHandler('fs-access:remove-grant');
+  ipcMain.removeHandler('fs-access:clear-origin');
+  ipcMain.removeHandler('fs-access:clear-all');
   ipcMain.removeHandler('protocol-handlers:get-all');
   ipcMain.removeHandler('protocol-handlers:get-for-protocol');
   ipcMain.removeHandler('protocol-handlers:get-for-origin');
