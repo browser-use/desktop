@@ -128,14 +128,14 @@ export function initSentry(cfg: SentryConfig = {}): boolean {
   try {
     // Lazy import so the module can be imported without @sentry/electron installed
     // in unit test environments.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Sentry = require('@sentry/electron');
 
     const release =
       cfg.release ??
       (() => {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { app } = require('electron');
           return `agentic-browser@${app.getVersion()}`;
         } catch {
@@ -175,7 +175,7 @@ export function initSentry(cfg: SentryConfig = {}): boolean {
  */
 export function captureException(error: unknown, extra?: Record<string, unknown>): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Sentry = require('@sentry/electron');
     Sentry.captureException(error, { extra });
   } catch {
@@ -193,7 +193,7 @@ export function addBreadcrumb(
   level: 'debug' | 'info' | 'warning' | 'error' = 'info',
 ): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Sentry = require('@sentry/electron');
     Sentry.addBreadcrumb({ message, category, level });
   } catch {

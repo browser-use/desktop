@@ -44,7 +44,6 @@ test.describe('Crash Recovery', () => {
     // Get daemon PID from the main process
     const daemonPid: number | null = await app.electronApp.evaluate(() => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { app: electronApp } = require('electron');
         // Track D exposes the daemon PID via app metadata
         return (electronApp as unknown as { _daemonPid?: number })._daemonPid ?? null;
@@ -113,7 +112,6 @@ test.describe('Crash Recovery', () => {
       // The status element may not exist yet — fall back to checking internal state
       const isDisconnected: boolean = await app.electronApp.evaluate(() => {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
           const { app: electronApp } = require('electron');
           return (electronApp as unknown as { _daemonConnected?: boolean })._daemonConnected === false;
         } catch {
@@ -166,7 +164,6 @@ test.describe('Crash Recovery', () => {
     // Verify daemon has a new PID (different from the killed one)
     const newPid: number | null = await app.electronApp.evaluate(() => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { app: electronApp } = require('electron');
         return (electronApp as unknown as { _daemonPid?: number })._daemonPid ?? null;
       } catch {

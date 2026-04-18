@@ -198,7 +198,7 @@ export class LoggerFactory {
       userDataPath ??
       (() => {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { app } = require('electron');
           return app.getPath('userData');
         } catch {
