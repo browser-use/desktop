@@ -29,6 +29,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   'payment-handler': 'handle payment requests',
   'background-sync': 'sync data in the background',
   'protocol-handler': 'handle links for a protocol',
+  'auto-picture-in-picture': 'automatically enter Picture-in-Picture',
   unknown: 'use a feature',
 };
 
@@ -48,6 +49,7 @@ const PERMISSION_ICONS: Record<string, string> = {
   'background-sync': 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
   'protocol-handler': 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
   'idle-detection': 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+  'auto-picture-in-picture': 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z',
 };
 
 interface PermissionPromptData {

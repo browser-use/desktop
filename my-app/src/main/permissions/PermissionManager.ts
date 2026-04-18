@@ -32,6 +32,7 @@ const ELECTRON_PERMISSION_MAP: Record<string, PermissionType> = {
   'payment-handler': 'payment-handler',
   'background-sync': 'background-sync',
   'protocol-handler': 'protocol-handler',
+  'autopictureInPicture': 'auto-picture-in-picture',
 };
 
 // Permissions that are auto-granted without prompting.
@@ -260,6 +261,14 @@ export class PermissionManager {
         wcId,
         isMainFrame,
       });
+
+      // Auto Picture-in-Picture is disabled in incognito/guest sessions by default
+      // (Chrome parity: automatic-picture-in-picture blocked in incognito)
+      if (permissionType === 'auto-picture-in-picture' && !webContents.session.isPersistent()) {
+        mainLogger.info('PermissionManager.autoPiP.incognitoDenied', { origin });
+        callback(false);
+        return;
+      }
 
       if (AUTO_GRANT.has(permissionType)) {
         mainLogger.debug('PermissionManager.autoGrant', { origin, permissionType });
