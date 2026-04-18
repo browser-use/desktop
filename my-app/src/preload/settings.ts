@@ -68,6 +68,38 @@ export interface PasswordCheckupResult {
   breachCount: number;
 }
 
+// ---------------------------------------------------------------------------
+// Autofill types
+// ---------------------------------------------------------------------------
+
+export interface SavedAddress {
+  id: string;
+  fullName: string;
+  company: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  email: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SavedCard {
+  id: string;
+  nameOnCard: string;
+  lastFour: string;
+  network: string;
+  expiryMonth: string;
+  expiryYear: string;
+  nickname: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 
 // ---------------------------------------------------------------------------
 // Content category types
@@ -223,6 +255,20 @@ export interface SettingsAPI {
 
   /** Reset all per-site overrides */
   resetAllContentCategoryOverrides: () => Promise<void>;
+
+  // Autofill — addresses
+  saveAddress: (fields: Omit<SavedAddress, 'id' | 'createdAt' | 'updatedAt'>) => Promise<SavedAddress>;
+  listAddresses: () => Promise<SavedAddress[]>;
+  updateAddress: (payload: { id: string } & Partial<Omit<SavedAddress, 'id' | 'createdAt' | 'updatedAt'>>) => Promise<boolean>;
+  deleteAddress: (id: string) => Promise<boolean>;
+
+  // Autofill — payment cards (numberEncrypted excluded from list; reveal requires biometric)
+  saveCard: (fields: { nameOnCard: string; cardNumber: string; expiryMonth: string; expiryYear: string; nickname: string }) => Promise<SavedCard>;
+  listCards: () => Promise<SavedCard[]>;
+  revealCardNumber: (id: string) => Promise<string | null>;
+  updateCard: (payload: { id: string; nameOnCard?: string; cardNumber?: string; expiryMonth?: string; expiryYear?: string; nickname?: string }) => Promise<boolean>;
+  deleteCard: (id: string) => Promise<boolean>;
+  deleteAllAutofill: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +519,58 @@ const api: SettingsAPI = {
   resetAllContentCategoryOverrides: async (): Promise<void> => {
     console.debug('[settings-preload] resetAllContentCategoryOverrides');
     await ipcRenderer.invoke('content-categories:reset-all');
+  },
+
+  // Autofill — addresses
+  saveAddress: async (fields) => {
+    console.debug('[settings-preload] saveAddress', { country: (fields as SavedAddress).country });
+    return ipcRenderer.invoke('autofill:address-save', fields);
+  },
+
+  listAddresses: async (): Promise<SavedAddress[]> => {
+    console.debug('[settings-preload] listAddresses');
+    return ipcRenderer.invoke('autofill:address-list');
+  },
+
+  updateAddress: async (payload) => {
+    console.debug('[settings-preload] updateAddress', { id: payload.id });
+    return ipcRenderer.invoke('autofill:address-update', payload);
+  },
+
+  deleteAddress: async (id: string): Promise<boolean> => {
+    console.debug('[settings-preload] deleteAddress', { id });
+    return ipcRenderer.invoke('autofill:address-delete', id);
+  },
+
+  // Autofill — payment cards
+  saveCard: async (fields) => {
+    console.debug('[settings-preload] saveCard', { nameOnCard: fields.nameOnCard });
+    return ipcRenderer.invoke('autofill:card-save', fields);
+  },
+
+  listCards: async (): Promise<SavedCard[]> => {
+    console.debug('[settings-preload] listCards');
+    return ipcRenderer.invoke('autofill:card-list');
+  },
+
+  revealCardNumber: async (id: string): Promise<string | null> => {
+    console.debug('[settings-preload] revealCardNumber', { id });
+    return ipcRenderer.invoke('autofill:card-reveal', id);
+  },
+
+  updateCard: async (payload) => {
+    console.debug('[settings-preload] updateCard', { id: payload.id });
+    return ipcRenderer.invoke('autofill:card-update', payload);
+  },
+
+  deleteCard: async (id: string): Promise<boolean> => {
+    console.debug('[settings-preload] deleteCard', { id });
+    return ipcRenderer.invoke('autofill:card-delete', id);
+  },
+
+  deleteAllAutofill: async (): Promise<void> => {
+    console.debug('[settings-preload] deleteAllAutofill');
+    await ipcRenderer.invoke('autofill:delete-all');
   },
 
 };

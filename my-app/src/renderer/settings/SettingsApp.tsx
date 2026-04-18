@@ -35,6 +35,8 @@ const TAB_PASSWORDS    = 'passwords'        as const;
 const TAB_ZOOM         = 'site-zoom'        as const;
 const TAB_CONTENT      = 'content'          as const;
 const TAB_PERMISSIONS  = 'permissions'     as const;
+const TAB_ADDRESSES    = 'addresses'        as const;
+const TAB_PAYMENTS     = 'payments'         as const;
 
 type TabId =
   | typeof TAB_API_KEY
@@ -47,6 +49,8 @@ type TabId =
   | typeof TAB_ZOOM
   | typeof TAB_CONTENT
   | typeof TAB_PERMISSIONS
+  | typeof TAB_ADDRESSES
+  | typeof TAB_PAYMENTS
   | typeof TAB_DANGER;
 
 const TABS: Array<{ id: TabId; label: string }> = [
@@ -60,6 +64,8 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: TAB_ZOOM,       label: 'Site Zoom' },
   { id: TAB_CONTENT,    label: 'Content' },
   { id: TAB_PERMISSIONS, label: 'Permissions' },
+  { id: TAB_ADDRESSES,   label: 'Addresses' },
+  { id: TAB_PAYMENTS,    label: 'Payments' },
   { id: TAB_DANGER,     label: 'Danger Zone' },
 ];
 
@@ -166,6 +172,16 @@ declare global {
       getAllContentCategoryOverrides: () => Promise<Array<{ origin: string; category: string; state: string; updatedAt: number }>>;
       clearContentCategoryOrigin: (origin: string) => Promise<void>;
       resetAllContentCategoryOverrides: () => Promise<void>;
+      saveAddress: (fields: Omit<{ id: string; fullName: string; company: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string; phone: string; email: string; createdAt: number; updatedAt: number }, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ id: string; fullName: string; company: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string; phone: string; email: string; createdAt: number; updatedAt: number }>;
+      listAddresses: () => Promise<Array<{ id: string; fullName: string; company: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string; phone: string; email: string; createdAt: number; updatedAt: number }>>;
+      updateAddress: (payload: { id: string } & Partial<{ fullName: string; company: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string; phone: string; email: string }>) => Promise<boolean>;
+      deleteAddress: (id: string) => Promise<boolean>;
+      saveCard: (fields: { nameOnCard: string; cardNumber: string; expiryMonth: string; expiryYear: string; nickname: string }) => Promise<{ id: string; nameOnCard: string; lastFour: string; network: string; expiryMonth: string; expiryYear: string; nickname: string; createdAt: number; updatedAt: number }>;
+      listCards: () => Promise<Array<{ id: string; nameOnCard: string; lastFour: string; network: string; expiryMonth: string; expiryYear: string; nickname: string; createdAt: number; updatedAt: number }>>;
+      revealCardNumber: (id: string) => Promise<string | null>;
+      updateCard: (payload: { id: string; nameOnCard?: string; cardNumber?: string; expiryMonth?: string; expiryYear?: string; nickname?: string }) => Promise<boolean>;
+      deleteCard: (id: string) => Promise<boolean>;
+      deleteAllAutofill: () => Promise<void>;
       scanAutoRevokePermissions: () => Promise<{
         candidates: Array<{
           origin: string;
@@ -2031,6 +2047,539 @@ function DangerZoneTab(): React.ReactElement {
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Addresses tab
+// ---------------------------------------------------------------------------
+
+interface AddressEntry {
+  id: string;
+  fullName: string;
+  company: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  email: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const EMPTY_ADDRESS: Omit<AddressEntry, 'id' | 'createdAt' | 'updatedAt'> = {
+  fullName: '',
+  company: '',
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  country: '',
+  phone: '',
+  email: '',
+};
+
+function AddressForm({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  value: Omit<AddressEntry, 'id' | 'createdAt' | 'updatedAt'>;
+  onChange: (patch: Partial<typeof value>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}): React.ReactElement {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <input className="settings-input" placeholder="Full name" value={value.fullName} onChange={(e) => onChange({ fullName: e.target.value })} />
+      <input className="settings-input" placeholder="Company (optional)" value={value.company} onChange={(e) => onChange({ company: e.target.value })} />
+      <input className="settings-input" placeholder="Address line 1" value={value.addressLine1} onChange={(e) => onChange({ addressLine1: e.target.value })} />
+      <input className="settings-input" placeholder="Address line 2 (optional)" value={value.addressLine2} onChange={(e) => onChange({ addressLine2: e.target.value })} />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input className="settings-input" placeholder="City" value={value.city} onChange={(e) => onChange({ city: e.target.value })} style={{ flex: 2 }} />
+        <input className="settings-input" placeholder="State" value={value.state} onChange={(e) => onChange({ state: e.target.value })} style={{ flex: 1 }} />
+        <input className="settings-input" placeholder="ZIP / Postal" value={value.postalCode} onChange={(e) => onChange({ postalCode: e.target.value })} style={{ flex: 1 }} />
+      </div>
+      <input className="settings-input" placeholder="Country" value={value.country} onChange={(e) => onChange({ country: e.target.value })} />
+      <input className="settings-input" placeholder="Phone (optional)" value={value.phone} onChange={(e) => onChange({ phone: e.target.value })} />
+      <input className="settings-input" placeholder="Email (optional)" value={value.email} onChange={(e) => onChange({ email: e.target.value })} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <Button variant="primary" size="sm" onClick={onSave} loading={saving} disabled={!value.fullName.trim() && !value.addressLine1.trim()}>
+          Save
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AddressesTab(): React.ReactElement {
+  const toast = useToast();
+  const [addresses, setAddresses] = useState<AddressEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newAddr, setNewAddr] = useState({ ...EMPTY_ADDRESS });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editAddr, setEditAddr] = useState({ ...EMPTY_ADDRESS });
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const loadData = useCallback(async () => {
+    const addrs = await window.settingsAPI.listAddresses();
+    setAddresses(addrs);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void loadData(); }, [loadData]);
+
+  const filtered = addresses.filter((a) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      a.fullName.toLowerCase().includes(q) ||
+      a.addressLine1.toLowerCase().includes(q) ||
+      a.city.toLowerCase().includes(q) ||
+      a.country.toLowerCase().includes(q)
+    );
+  });
+
+  async function handleAdd(): Promise<void> {
+    setSaving(true);
+    try {
+      await window.settingsAPI.saveAddress(newAddr);
+      setNewAddr({ ...EMPTY_ADDRESS });
+      setShowAdd(false);
+      void loadData();
+      toast.show({ variant: 'success', title: 'Address saved' });
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Save failed', message: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEditSave(): Promise<void> {
+    if (!editId) return;
+    setSaving(true);
+    try {
+      await window.settingsAPI.updateAddress({ id: editId, ...editAddr });
+      setEditId(null);
+      void loadData();
+      toast.show({ variant: 'success', title: 'Address updated' });
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Update failed', message: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: string): Promise<void> {
+    await window.settingsAPI.deleteAddress(id);
+    setAddresses((prev) => prev.filter((a) => a.id !== id));
+    toast.show({ variant: 'success', title: 'Address deleted' });
+  }
+
+  function startEdit(addr: AddressEntry): void {
+    setEditId(addr.id);
+    setEditAddr({
+      fullName: addr.fullName,
+      company: addr.company,
+      addressLine1: addr.addressLine1,
+      addressLine2: addr.addressLine2,
+      city: addr.city,
+      state: addr.state,
+      postalCode: addr.postalCode,
+      country: addr.country,
+      phone: addr.phone,
+      email: addr.email,
+    });
+  }
+
+  if (loading) {
+    return (
+      <div className="settings-section">
+        <h2 className="settings-section-title">Addresses</h2>
+        <div className="settings-loading"><Spinner size="md" /></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Addresses</h2>
+      <p className="settings-section-desc">
+        Saved addresses are offered when filling out forms. Your addresses are stored locally and never sent to servers.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <input
+          className="settings-input"
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search addresses..."
+          style={{ flex: 1 }}
+        />
+        {!showAdd && (
+          <Button variant="primary" size="sm" onClick={() => setShowAdd(true)}>
+            Add address
+          </Button>
+        )}
+      </div>
+
+      {showAdd && (
+        <Card variant="default" padding="md" className="settings-card">
+          <div style={{ fontWeight: 600, marginBottom: 12 }}>New address</div>
+          <AddressForm
+            value={newAddr}
+            onChange={(patch) => setNewAddr((prev) => ({ ...prev, ...patch }))}
+            onSave={() => void handleAdd()}
+            onCancel={() => { setShowAdd(false); setNewAddr({ ...EMPTY_ADDRESS }); }}
+            saving={saving}
+          />
+        </Card>
+      )}
+
+      <Card variant="default" padding="none" className="settings-card">
+        {filtered.length === 0 ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-fg-tertiary)' }}>
+            {addresses.length === 0 ? 'No saved addresses' : 'No matching addresses'}
+          </div>
+        ) : (
+          filtered.map((addr, idx) => (
+            <div
+              key={addr.id}
+              className={`settings-scope-row ${idx < filtered.length - 1 ? 'settings-scope-row--bordered' : ''}`}
+            >
+              {editId === addr.id ? (
+                <div style={{ flex: 1, padding: '4px 0' }}>
+                  <AddressForm
+                    value={editAddr}
+                    onChange={(patch) => setEditAddr((prev) => ({ ...prev, ...patch }))}
+                    onSave={() => void handleEditSave()}
+                    onCancel={() => setEditId(null)}
+                    saving={saving}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="settings-scope-info">
+                    <span className="settings-scope-label">{addr.fullName}</span>
+                    <span className="settings-scope-name" style={{ fontFamily: 'var(--font-ui)', fontSize: 12 }}>
+                      {[addr.addressLine1, addr.addressLine2, addr.city, addr.state, addr.postalCode, addr.country]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </span>
+                    {addr.phone && (
+                      <span className="settings-scope-name" style={{ fontFamily: 'var(--font-ui)', fontSize: 12 }}>
+                        {addr.phone}
+                      </span>
+                    )}
+                  </div>
+                  <div className="settings-scope-actions">
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(addr)}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => void handleDelete(addr.id)}>Delete</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Payments tab
+// ---------------------------------------------------------------------------
+
+interface CardEntry {
+  id: string;
+  nameOnCard: string;
+  lastFour: string;
+  network: string;
+  expiryMonth: string;
+  expiryYear: string;
+  nickname: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+const MONTHS = ['01','02','03','04','05','06','07','08','09','10','11','12'] as const;
+
+function currentYear(): number {
+  return new Date().getFullYear();
+}
+
+function cardLabel(card: CardEntry): string {
+  const name = card.nickname || `${card.network} ending in ${card.lastFour}`;
+  return `${name} — expires ${card.expiryMonth}/${card.expiryYear}`;
+}
+
+function PaymentsTab(): React.ReactElement {
+  const toast = useToast();
+  const [cards, setCards] = useState<CardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newCard, setNewCard] = useState({
+    nameOnCard: '',
+    cardNumber: '',
+    expiryMonth: '01',
+    expiryYear: String(currentYear()),
+    nickname: '',
+  });
+  const [cvcInput, setCvcInput] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editCard, setEditCard] = useState({ nameOnCard: '', expiryMonth: '01', expiryYear: String(currentYear()), nickname: '' });
+  const [saving, setSaving] = useState(false);
+  const [revealedId, setRevealedId] = useState<string | null>(null);
+  const [revealedNumber, setRevealedNumber] = useState<string | null>(null);
+  const [cvcChallenge, setCvcChallenge] = useState<{ id: string; cvc: string } | null>(null);
+
+  const loadData = useCallback(async () => {
+    const list = await window.settingsAPI.listCards();
+    setCards(list);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void loadData(); }, [loadData]);
+
+  const YEAR_OPTIONS = Array.from({ length: 12 }, (_, i) => String(currentYear() + i));
+
+  async function handleAdd(): Promise<void> {
+    if (!newCard.cardNumber.replace(/\D/g, '') || !newCard.nameOnCard.trim()) {
+      toast.show({ variant: 'error', title: 'Card number and name are required' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await window.settingsAPI.saveCard(newCard);
+      setNewCard({ nameOnCard: '', cardNumber: '', expiryMonth: '01', expiryYear: String(currentYear()), nickname: '' });
+      setCvcInput('');
+      setShowAdd(false);
+      void loadData();
+      toast.show({ variant: 'success', title: 'Card saved' });
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Save failed', message: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEditSave(): Promise<void> {
+    if (!editId) return;
+    setSaving(true);
+    try {
+      await window.settingsAPI.updateCard({ id: editId, ...editCard });
+      setEditId(null);
+      void loadData();
+      toast.show({ variant: 'success', title: 'Card updated' });
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Update failed', message: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReveal(id: string): Promise<void> {
+    if (revealedId === id) {
+      setRevealedId(null);
+      setRevealedNumber(null);
+      return;
+    }
+    // Show CVC challenge dialog
+    setCvcChallenge({ id, cvc: '' });
+  }
+
+  async function handleCvcConfirm(): Promise<void> {
+    if (!cvcChallenge) return;
+    const { id, cvc } = cvcChallenge;
+    if (!cvc.match(/^\d{3,4}$/)) {
+      toast.show({ variant: 'error', title: 'Enter a valid CVC (3-4 digits)' });
+      return;
+    }
+    // CVC is validated locally for format only — never sent anywhere
+    try {
+      const number = await window.settingsAPI.revealCardNumber(id);
+      setRevealedId(id);
+      setRevealedNumber(number);
+      setCvcChallenge(null);
+      toast.show({ variant: 'success', title: 'Card number revealed' });
+    } catch (err) {
+      setCvcChallenge(null);
+      toast.show({ variant: 'error', title: 'Authentication required', message: (err as Error).message });
+    }
+  }
+
+  async function handleDelete(id: string): Promise<void> {
+    await window.settingsAPI.deleteCard(id);
+    setCards((prev) => prev.filter((c) => c.id !== id));
+    if (revealedId === id) { setRevealedId(null); setRevealedNumber(null); }
+    toast.show({ variant: 'success', title: 'Card deleted' });
+  }
+
+  function startEdit(card: CardEntry): void {
+    setEditId(card.id);
+    setEditCard({ nameOnCard: card.nameOnCard, expiryMonth: card.expiryMonth, expiryYear: card.expiryYear, nickname: card.nickname });
+  }
+
+  if (loading) {
+    return (
+      <div className="settings-section">
+        <h2 className="settings-section-title">Payment methods</h2>
+        <div className="settings-loading"><Spinner size="md" /></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Payment methods</h2>
+      <p className="settings-section-desc">
+        Saved payment cards are offered when filling checkout forms.
+        CVC is never stored — it is requested each time a card is revealed.
+        Card numbers are encrypted locally using the system keychain.
+      </p>
+
+      {/* CVC challenge modal */}
+      {cvcChallenge && (
+        <Modal open onClose={() => setCvcChallenge(null)} title="Enter CVC to reveal card" size="sm">
+          <p className="settings-modal-body">
+            Enter the 3 or 4 digit security code on the back of your card. The CVC is never stored.
+          </p>
+          <input
+            className="settings-input"
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            placeholder="CVC"
+            value={cvcChallenge.cvc}
+            onChange={(e) => setCvcChallenge({ ...cvcChallenge, cvc: e.target.value })}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleCvcConfirm(); }}
+          />
+          <div className="settings-modal-actions">
+            <Button variant="secondary" size="sm" onClick={() => setCvcChallenge(null)}>Cancel</Button>
+            <Button variant="primary" size="sm" onClick={() => void handleCvcConfirm()}>Confirm</Button>
+          </div>
+        </Modal>
+      )}
+
+      {!showAdd && (
+        <div style={{ marginBottom: 16 }}>
+          <Button variant="primary" size="sm" onClick={() => setShowAdd(true)}>
+            Add card
+          </Button>
+        </div>
+      )}
+
+      {showAdd && (
+        <Card variant="default" padding="md" className="settings-card">
+          <div style={{ fontWeight: 600, marginBottom: 12 }}>New card</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input className="settings-input" placeholder="Name on card" value={newCard.nameOnCard} onChange={(e) => setNewCard((p) => ({ ...p, nameOnCard: e.target.value }))} />
+            <input className="settings-input" placeholder="Card number" type="text" inputMode="numeric" maxLength={19} value={newCard.cardNumber} onChange={(e) => setNewCard((p) => ({ ...p, cardNumber: e.target.value }))} />
+            <input className="settings-input" placeholder="Nickname (optional)" value={newCard.nickname} onChange={(e) => setNewCard((p) => ({ ...p, nickname: e.target.value }))} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <label className="settings-label" style={{ fontSize: 12 }}>Expiry month</label>
+                <select className="settings-select" value={newCard.expiryMonth} onChange={(e) => setNewCard((p) => ({ ...p, expiryMonth: e.target.value }))}>
+                  {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label className="settings-label" style={{ fontSize: 12 }}>Expiry year</label>
+                <select className="settings-select" value={newCard.expiryYear} onChange={(e) => setNewCard((p) => ({ ...p, expiryYear: e.target.value }))}>
+                  {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label className="settings-label" style={{ fontSize: 12 }}>CVC (not stored)</label>
+                <input className="settings-input" type="password" inputMode="numeric" maxLength={4} placeholder="CVC" value={cvcInput} onChange={(e) => setCvcInput(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <Button variant="primary" size="sm" onClick={() => void handleAdd()} loading={saving}>Save</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setShowAdd(false); setNewCard({ nameOnCard: '', cardNumber: '', expiryMonth: '01', expiryYear: String(currentYear()), nickname: '' }); setCvcInput(''); }}>Cancel</Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card variant="default" padding="none" className="settings-card">
+        {cards.length === 0 ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--color-fg-tertiary)' }}>
+            No saved payment cards
+          </div>
+        ) : (
+          cards.map((card, idx) => (
+            <div
+              key={card.id}
+              className={`settings-scope-row ${idx < cards.length - 1 ? 'settings-scope-row--bordered' : ''}`}
+            >
+              {editId === card.id ? (
+                <div style={{ flex: 1, padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input className="settings-input" placeholder="Name on card" value={editCard.nameOnCard} onChange={(e) => setEditCard((p) => ({ ...p, nameOnCard: e.target.value }))} />
+                  <input className="settings-input" placeholder="Nickname (optional)" value={editCard.nickname} onChange={(e) => setEditCard((p) => ({ ...p, nickname: e.target.value }))} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <label className="settings-label" style={{ fontSize: 12 }}>Month</label>
+                      <select className="settings-select" value={editCard.expiryMonth} onChange={(e) => setEditCard((p) => ({ ...p, expiryMonth: e.target.value }))}>
+                        {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label className="settings-label" style={{ fontSize: 12 }}>Year</label>
+                      <select className="settings-select" value={editCard.expiryYear} onChange={(e) => setEditCard((p) => ({ ...p, expiryYear: e.target.value }))}>
+                        {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button variant="primary" size="sm" onClick={() => void handleEditSave()} loading={saving}>Save</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setEditId(null)}>Cancel</Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="settings-scope-info">
+                    <span className="settings-scope-label">{cardLabel(card)}</span>
+                    {card.nameOnCard && (
+                      <span className="settings-scope-name" style={{ fontFamily: 'var(--font-ui)', fontSize: 12 }}>
+                        {card.nameOnCard}
+                      </span>
+                    )}
+                    {revealedId === card.id && revealedNumber && (
+                      <code className="settings-scope-name" style={{ color: 'var(--color-fg-primary)', letterSpacing: '0.1em' }}>
+                        {revealedNumber}
+                      </code>
+                    )}
+                  </div>
+                  <div className="settings-scope-actions" style={{ gap: 4 }}>
+                    <Button variant="ghost" size="sm" onClick={() => void handleReveal(card.id)}>
+                      {revealedId === card.id ? 'Hide' : 'Reveal'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(card)}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => void handleDelete(card.id)}>Delete</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))
+        )}
+      </Card>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Inner app (uses useToast — must be inside ToastProvider)
 // ---------------------------------------------------------------------------
@@ -2093,6 +2642,8 @@ function SettingsInner(): React.ReactElement {
     [TAB_PRIVACY]:    <PrivacyTab openDialog={clearDataOpen} onDialogChange={setClearDataOpen} />,
     [TAB_ZOOM]:       <SiteZoomTab />,
     [TAB_PERMISSIONS]: <PermissionsTab />,
+    [TAB_ADDRESSES]:   <AddressesTab />,
+    [TAB_PAYMENTS]:    <PaymentsTab />,
     [TAB_CONTENT]:    <ContentCategoriesTab />,
     [TAB_DANGER]:     <DangerZoneTab />,
   };

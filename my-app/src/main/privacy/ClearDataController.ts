@@ -12,6 +12,7 @@
 
 import { session } from 'electron';
 import { mainLogger } from '../logger';
+import { clearAutofillData } from '../autofill/ipc';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,7 +57,6 @@ const CACHE_STORAGES         = ['cachestorage', 'shadercache'] as const;
 const COOKIE_STORAGES        = ['cookies'] as const;
 
 const NOTE_NOOP_DOWNLOADS = 'downloads store not yet implemented; no-op';
-const NOTE_NOOP_AUTOFILL  = 'autofill store not yet implemented; no-op';
 const NOTE_NOOP_HOSTEDAPP = 'hosted-app data store not yet implemented; no-op';
 const NOTE_RANGE_IGNORED_CACHE     = 'time range ignored — clearCache wipes all cache';
 const NOTE_RANGE_IGNORED_HISTORY   = 'time range ignored — clearHistory wipes all history';
@@ -147,7 +147,8 @@ export async function clearBrowsingData(req: ClearDataRequest): Promise<ClearDat
           outcome = await clearPasswords();
           break;
         case 'autofill':
-          outcome = { note: NOTE_NOOP_AUTOFILL };
+          clearAutofillData();
+          outcome = {};
           break;
         case 'siteSettings':
           outcome = await clearSiteSettings(startTimeMs);
