@@ -11,6 +11,7 @@ import { URLBar } from './URLBar';
 import { BookmarksBar } from './BookmarksBar';
 import { BookmarkDialog } from './BookmarkDialog';
 import { FindBar } from './FindBar';
+import { TabSearchDropdown } from './TabSearchDropdown';
 import { StatusBar } from './StatusBar';
 import { PasswordPromptBar } from './PasswordPromptBar';
 import { PermissionBar } from './PermissionBar';
@@ -129,6 +130,7 @@ declare const electronAPI: {
     closedTabsUpdated: (cb: (records: ClosedTabRecord[]) => void) => () => void;
     windowReady: (cb: () => void) => () => void;
     focusUrlBar: (cb: () => void) => () => void;
+    openTabSearch: (cb: () => void) => () => void;
     targetLost: (cb: (payload: { tabId: string }) => void) => () => void;
     bookmarksUpdated: (cb: (tree: PersistedBookmarks) => void) => () => void;
     openBookmarkDialog: (cb: () => void) => () => void;
@@ -169,6 +171,7 @@ export function WindowChrome(): React.ReactElement {
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [urlBarFocused, setUrlBarFocused] = useState(false);
+  const [tabSearchOpen, setTabSearchOpen] = useState(false);
   const [hoveredUrl, setHoveredUrl] = useState('');
   const [zoomPercent, setZoomPercent] = useState(100);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -295,6 +298,11 @@ export function WindowChrome(): React.ReactElement {
       setUrlBarFocused(true);
     });
 
+    const unsubTabSearch = electronAPI.on.openTabSearch(() => {
+      console.log('[WindowChrome] Tab search opened');
+      setTabSearchOpen(true);
+    });
+
     const unsubLinkHover = electronAPI.on.linkHover(({ url }) => {
       setHoveredUrl(url);
     });
@@ -331,6 +339,7 @@ export function WindowChrome(): React.ReactElement {
       unsubTabActivated();
       unsubFaviconUpdated();
       unsubFocusUrl();
+      unsubTabSearch();
       unsubLinkHover();
       unsubZoomChanged();
       unsubTargetLost();
@@ -673,6 +682,13 @@ export function WindowChrome(): React.ReactElement {
       <PermissionBar activeTabId={activeTabId} />
       <DevicePickerBar />
       <PasswordPromptBar activeTabId={activeTabId} />
+      {tabSearchOpen && (
+        <TabSearchDropdown
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onClose={() => setTabSearchOpen(false)}
+        />
+      )}
       <FindBar activeTabId={activeTabId} />
       <StatusBar url={hoveredUrl} />
     </div>

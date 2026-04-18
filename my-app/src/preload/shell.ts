@@ -17,6 +17,7 @@ import type { ProtocolHandlerRecord } from '../main/permissions/ProtocolHandlerS
 import type { DownloadItemDTO } from '../main/downloads/DownloadManager';
 import type { DevicePickerRequest } from '../main/devices/DeviceManager';
 import type { GrantedDevice, DeviceApiType } from '../main/devices/DeviceStore';
+import type { OmniboxSuggestion } from '../main/omnibox/providers';
 
 // ---------------------------------------------------------------------------
 // Type re-exports for renderer consumption
@@ -38,6 +39,7 @@ export type {
   DevicePickerRequest,
   GrantedDevice,
   DeviceApiType,
+  OmniboxSuggestion,
 };
 
 // ---------------------------------------------------------------------------
@@ -642,6 +644,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('link-hover', handler);
       return () => ipcRenderer.removeListener('link-hover', handler);
     },
+
+    // Issue #6 — Tab search (Cmd+Shift+A)
+    openTabSearch: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('open-tab-search', handler);
+      return () => ipcRenderer.removeListener('open-tab-search', handler);
+    },
   },
 
   // Profiles — current profile info + switch
@@ -678,6 +687,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     getAccountInfo: (): Promise<{ email: string; agentName: string } | null> =>
       ipcRenderer.invoke('identity:get-account-info'),
+  },
+
+  // Issue #17 — Omnibox autocomplete providers
+  omnibox: {
+    suggest: (payload: { input: string; remoteSearch?: boolean }): Promise<OmniboxSuggestion[]> =>
+      ipcRenderer.invoke('omnibox:suggest', payload),
+
+    recordSelection: (payload: { inputText: string; url: string; title: string }): Promise<boolean> =>
+      ipcRenderer.invoke('omnibox:record-selection', payload),
+
+    removeHistory: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke('omnibox:remove-history', id),
   },
 
   // Passwords
