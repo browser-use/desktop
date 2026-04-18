@@ -233,8 +233,10 @@ async function measureOneLaunch(runIdx: number): Promise<{ sample: LaunchSample;
   // T0 — immediately before launch
   const t0 = Date.now();
 
+  // CRITICAL: do NOT pass executablePath. Passing it breaks Playwright's
+  // loader injection and causes electron.launch() to hang for 30s.
+  // See tests/setup/electron-launcher.ts for the detailed explanation.
   const electronApp = await electron.launch({
-    executablePath: ELECTRON_BIN,
     args: [
       MAIN_JS,
       `--user-data-dir=${userDataDir}`,
@@ -249,7 +251,7 @@ async function measureOneLaunch(runIdx: number): Promise<{ sample: LaunchSample;
       POSTHOG_API_KEY: '',
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
       LOG_LEVEL: 'INFO',
-      // No API key → daemon won't start; we're measuring shell startup only
+      // No API key → Docker task won't run; we're measuring shell startup only
       ANTHROPIC_API_KEY: '',
     },
     timeout: 60_000,

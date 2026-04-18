@@ -33,8 +33,9 @@ const MY_APP_ROOT = path.resolve(__dirname, '../..');
 const REFERENCES_DIR = path.join(__dirname, 'references');
 const LOG_PREFIX = '[visual-qa]';
 
-// Dev-mode launch: use local electron binary + vite-built main.js
-const ELECTRON_BIN = path.join(MY_APP_ROOT, 'node_modules', '.bin', 'electron');
+// Dev-mode launch: Playwright resolves the electron binary via
+// `require('electron/index.js')` — we only need to point at the built main.js.
+// DO NOT pass executablePath (breaks loader injection, hangs launch).
 const MAIN_JS = path.join(MY_APP_ROOT, '.vite', 'build', 'main.js');
 
 /** Settle time after state change before screenshot (ms) */
@@ -207,8 +208,10 @@ async function launchApp(opts: {
     fs.writeFileSync(path.join(userDataDir, 'account.json'), opts.accountJson, 'utf-8');
   }
 
+  // CRITICAL: do NOT pass executablePath. Passing it breaks Playwright's
+  // loader injection and causes electron.launch() to hang for 30s.
+  // See tests/setup/electron-launcher.ts for the detailed explanation.
   const electronApp = await electron.launch({
-    executablePath: ELECTRON_BIN,
     args: [
       MAIN_JS,
       `--user-data-dir=${userDataDir}`,

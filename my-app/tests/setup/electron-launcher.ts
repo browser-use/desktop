@@ -2,7 +2,7 @@
  * Shared Electron launcher helper for Playwright E2E tests.
  *
  * Wraps `_electron.launch()` with:
- * - Correct path to the built artifact
+ * - Correct path to the built main.js entry point (.vite/build/main.js)
  * - Isolated userData dir per test run (prevents session bleed)
  * - Verbose startup logging
  * - Clean teardown helper
@@ -14,14 +14,27 @@
  *   test.beforeAll(async () => { app = await launchApp(); });
  *   test.afterAll(async () => { await teardownApp(app); });
  *
- * Track H owns this file.
+ * ---------------------------------------------------------------------------
+ * CRITICAL: DO NOT PASS executablePath
+ * ---------------------------------------------------------------------------
+ * Playwright's `_electron.launch()` ONLY injects its internal `-r <loader>`
+ * bootstrap arg when `executablePath` is NOT set. The loader hijacks
+ * `app.whenReady()` and signals `__playwright_run` back to the test harness.
+ * Passing `executablePath` skips the loader → `launch()` hangs for the full
+ * timeout (30s) even though the Electron process starts correctly.
+ *
+ * Playwright uses `require('electron/index.js')` internally to resolve the
+ * local electron binary — the same path that `node_modules/.bin/electron`
+ * points to — just with the bootstrap loader wired in.
+ *
+ * See: https://github.com/microsoft/playwright/blob/main/packages/playwright/src/electron/electron.ts
  */
 
 import { _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { ELECTRON_APP_PATH, MY_APP_DIR } from './playwright.config';
+import { MY_APP_DIR } from './playwright.config';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,16 +43,20 @@ import { ELECTRON_APP_PATH, MY_APP_DIR } from './playwright.config';
 const LOG_PREFIX = '[ElectronLauncher]';
 const LAUNCH_TIMEOUT_MS = 30_000;
 
+/** Entry point — built by `npm run build` (Electron Forge's vite build). */
+const MAIN_JS_ENTRY = path.join(MY_APP_DIR, '.vite', 'build', 'main.js');
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface LaunchOptions {
   /**
-   * Override the built app path. Defaults to the value from playwright.config.ts.
-   * Useful for integration tests that launch a dev build.
+   * Override the built main.js entry. Defaults to
+   * `my-app/.vite/build/main.js`. Useful for integration tests that launch
+   * a development entry point.
    */
-  appPath?: string;
+  mainEntry?: string;
   /**
    * Override userData directory. If not set, a fresh temp dir is created for
    * each launch to provide full test isolation.
@@ -73,12 +90,18 @@ export interface AppHandle {
  * Launch the Electron application for E2E testing.
  * Returns an AppHandle with the running ElectronApplication and first window.
  *
- * NOTE: Tests run against the BUILT artifact. Run `npm run make` in my-app/
- * before executing e2e tests. The specs are currently gated with test.skip()
- * until integration is ready (other tracks landed + artifact built).
+ * NOTE: Tests run against the vite-built main.js. Run `npm run build`
+ * (or `npm run package`) in my-app/ before executing e2e tests.
  */
 export async function launchApp(opts: LaunchOptions = {}): Promise<AppHandle> {
-  const appPath = opts.appPath ?? ELECTRON_APP_PATH;
+  const mainEntry = opts.mainEntry ?? MAIN_JS_ENTRY;
+
+  if (!fs.existsSync(mainEntry)) {
+    throw new Error(
+      `${LOG_PREFIX} Built main.js not found at ${mainEntry}. ` +
+        `Run \`npm run build\` in my-app/ before running E2E tests.`,
+    );
+  }
 
   let cleanupUserData = false;
   let userDataDir = opts.userDataDir ?? '';
@@ -88,7 +111,7 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<AppHandle> {
     console.log(`${LOG_PREFIX} Created ephemeral userData: ${userDataDir}`);
   }
 
-  console.log(`${LOG_PREFIX} Launching app: ${appPath}`);
+  console.log(`${LOG_PREFIX} Launching with main entry: ${mainEntry}`);
   console.log(`${LOG_PREFIX} userData: ${userDataDir}`);
 
   const launchEnv: Record<string, string> = {
@@ -102,10 +125,12 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<AppHandle> {
     ...opts.env,
   };
 
+  // CRITICAL: DO NOT pass executablePath here — see file header.
+  // Playwright resolves electron via `require('electron/index.js')` and
+  // injects its loader that signals __playwright_run.
   const electronApp = await electron.launch({
-    executablePath: appPath,
     args: [
-      path.join(MY_APP_DIR, '.vite', 'build', 'main.js'),
+      mainEntry,
       `--user-data-dir=${userDataDir}`,
       '--no-sandbox',
       '--disable-gpu',
