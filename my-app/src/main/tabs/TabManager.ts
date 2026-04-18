@@ -17,6 +17,7 @@ import { NavigationController } from './NavigationController';
 import { SessionStore, PersistedSession, PersistedTab } from './SessionStore';
 import { parseNavigationInput } from '../navigation';
 import { mainLogger } from '../logger';
+import { attachContextMenu } from '../contextMenu/ContextMenuController';
 
 // Chrome's chrome://newtab is a local page — zero network, instant paint.
 // We mirror that with a dark-themed data: URL so a new tab opens instantly
@@ -721,6 +722,14 @@ export class TabManager {
 
   private attachViewEvents(tabId: string, view: WebContentsView): void {
     const wc = view.webContents;
+
+    // Right-click context menus (page, link, image, selection, editable)
+    attachContextMenu(wc, {
+      win: this.win,
+      createTab: (url: string) => this.createTab(url),
+      navigateActive: (url: string) => this.navigateActive(url),
+    });
+
 
     // Ctrl+wheel (and macOS trackpad pinch, which Chromium translates to
     // Ctrl+wheel) fires 'zoom-changed'. Electron ships no default handler for
