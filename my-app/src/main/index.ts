@@ -78,9 +78,10 @@ if (USER_DATA_OVERRIDE) {
 // ---------------------------------------------------------------------------
 // Remote debugging: MUST be called before app.whenReady()
 // ---------------------------------------------------------------------------
-app.commandLine.appendSwitch('remote-debugging-port', '0');
+// Fixed port so Docker agent containers can connect via ws://host.docker.internal:9222
+app.commandLine.appendSwitch('remote-debugging-port', '9222');
 mainLogger.info('main.startup', {
-  msg: 'Remote debugging port set to OS-assigned (0)',
+  msg: 'Remote debugging port set to 9222',
   settingsStandalone: process.env.SETTINGS_STANDALONE === '1',
   userDataOverride: USER_DATA_OVERRIDE ?? null,
   forceOnboarding: process.env.AGB_FORCE_ONBOARDING === '1',
