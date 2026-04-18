@@ -672,13 +672,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('passwords:autofill', id),
   },
 
-  // Omnibox — suggestion providers for the URL bar autocomplete
-  omnibox: {
-    suggest: (payload?: { input?: string }): Promise<unknown[]> =>
-      ipcRenderer.invoke('omnibox:suggest', payload),
-    recordSelection: (payload: { inputText: string; url: string; title: string }): Promise<boolean> =>
-      ipcRenderer.invoke('omnibox:record-selection', payload),
-    removeHistory: (id: string): Promise<boolean> =>
-      ipcRenderer.invoke('omnibox:remove-history', id),
-  },
 });
