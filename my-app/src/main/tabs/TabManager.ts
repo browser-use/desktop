@@ -2698,6 +2698,18 @@ export class TabManager {
 
   destroy(): void {
     TabManager._instances.delete(this);
+
+    // Only unregister process-wide IPC handlers when the last TabManager
+    // instance is being destroyed. With multiple windows open, closing one
+    // window must not tear down IPC handlers still needed by remaining windows.
+    if (TabManager._instances.size > 0) {
+      mainLogger.info('TabManager.destroy.skipIpcRemoval', {
+        remainingInstances: TabManager._instances.size,
+        msg: 'Other windows still open — preserving shared IPC handlers',
+      });
+      return;
+    }
+
     ipcMain.removeHandler('tabs:create');
     ipcMain.removeHandler('tabs:close');
     ipcMain.removeHandler('tabs:activate');

@@ -312,7 +312,7 @@ export function URLBar({
     onNavigate(suggestion.url);
     // Record selection for ShortcutsProvider learning
     electronAPI.omnibox.recordSelection({
-      inputText: inputRef.current?.value ?? '',
+      inputText: inputValue,
       url: suggestion.url,
       title: suggestion.title,
     }).catch((err: unknown) => {
@@ -320,7 +320,7 @@ export function URLBar({
     });
     closeDropdown();
     inputRef.current?.blur();
-  }, [onNavigate, closeDropdown]);
+  }, [onNavigate, closeDropdown, inputValue]);
 
   const handleFocus = useCallback(() => {
     setIsEditing(true);
