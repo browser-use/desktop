@@ -188,6 +188,11 @@ export class TabManager {
   readonly isGuest: boolean;
   private readonly partition: string | null;
 
+  /** Returns the Electron session partition name used by this TabManager's tabs, or null for the default session. */
+  getGuestPartition(): string | null {
+    return this.partition;
+  }
+
   constructor(win: BrowserWindow, opts?: { dataDir?: string; partition?: string; guest?: boolean }) {
     this.win = win;
     TabManager.instances.set(win.id, this);
