@@ -1724,7 +1724,8 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
           label: 'Name Window…',
           click: () => {
             mainLogger.debug('shortcuts.nameWindow');
-            shellWindow?.webContents.send('name-window-dialog');
+            const focusedWin = BrowserWindow.getFocusedWindow() ?? shellWindow;
+            focusedWin?.webContents.send('name-window-dialog');
           },
         },
         {
@@ -1798,9 +1799,14 @@ ipcMain.handle('window:set-name', (e, name: string) => {
       targetWin.setTitle(windowCustomName);
     } else {
       // Restore the original title (preserves Guest/Incognito suffix).
-      const defaultTitle = windowDefaultTitles.get(winId) ?? app.getName();
-      windowDefaultTitles.delete(winId);
-      targetWin.setTitle(defaultTitle);
+      // Only restore if the window was previously renamed; if no prior name
+      // was ever set, windowDefaultTitles has no entry and there is nothing
+      // to restore — the title is already correct.
+      if (windowDefaultTitles.has(winId)) {
+        const defaultTitle = windowDefaultTitles.get(winId)!;
+        windowDefaultTitles.delete(winId);
+        targetWin.setTitle(defaultTitle);
+      }
     }
   }
 });
