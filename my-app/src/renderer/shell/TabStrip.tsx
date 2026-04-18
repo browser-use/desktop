@@ -103,6 +103,12 @@ function TabItem({
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const elemRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    };
+  }, []);
+
   const handleMouseEnter = useCallback(() => {
     hoverTimer.current = setTimeout(() => {
       const rect = elemRef.current?.getBoundingClientRect();

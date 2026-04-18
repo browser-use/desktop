@@ -29,6 +29,7 @@ export function TabHoverCard({
   const [thumbnail, setThumbnail] = useState<string | null>(null);
 
   useEffect(() => {
+    setThumbnail(null);
     let cancelled = false;
     void electronAPI.tabs.captureThumbnail(tabId).then((dataUrl) => {
       if (!cancelled) setThumbnail(dataUrl);
@@ -37,11 +38,15 @@ export function TabHoverCard({
   }, [tabId]);
 
   const CARD_WIDTH = 280;
+  const CARD_HEIGHT = 175 + 56; // thumbnail + body estimate
   const left = Math.max(4, Math.min(
     anchorRect.left + anchorRect.width / 2 - CARD_WIDTH / 2,
     window.innerWidth - CARD_WIDTH - 4,
   ));
-  const top = anchorRect.bottom + 6;
+  const topBelow = anchorRect.bottom + 6;
+  const top = topBelow + CARD_HEIGHT > window.innerHeight
+    ? Math.max(4, anchorRect.top - CARD_HEIGHT - 6)
+    : topBelow;
 
   const displayUrl = (() => {
     try { return new URL(url).hostname || url; } catch { return url; }
