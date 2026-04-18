@@ -93,6 +93,13 @@ export interface SiteCategoryOverride {
   updatedAt: number;
 }
 
+// ---------------------------------------------------------------------------
+// DoH types
+// ---------------------------------------------------------------------------
+
+export type DohMode = 'off' | 'automatic' | 'secure';
+export type DohProvider = 'google' | 'cloudflare' | 'quad9' | 'nextdns' | 'cleanbrowsing' | 'custom';
+
 export interface SettingsAPI {
   /** Save API key to Keychain (never logged) */
   saveApiKey: (key: string) => Promise<void>;
@@ -223,6 +230,28 @@ export interface SettingsAPI {
 
   /** Reset all per-site overrides */
   resetAllContentCategoryOverrides: () => Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Secure DNS (DoH)
+  // ---------------------------------------------------------------------------
+
+  /** Get the current DNS-over-HTTPS mode */
+  getDohMode: () => Promise<DohMode>;
+
+  /** Set the DNS-over-HTTPS mode */
+  setDohMode: (mode: DohMode) => Promise<void>;
+
+  /** Get the selected DoH provider */
+  getDohProvider: () => Promise<DohProvider>;
+
+  /** Set the DoH provider */
+  setDohProvider: (provider: DohProvider) => Promise<void>;
+
+  /** Get the custom DoH URI template (used when provider is 'custom') */
+  getDohCustomUri: () => Promise<string>;
+
+  /** Set the custom DoH URI template */
+  setDohCustomUri: (uri: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,6 +502,40 @@ const api: SettingsAPI = {
   resetAllContentCategoryOverrides: async (): Promise<void> => {
     console.debug('[settings-preload] resetAllContentCategoryOverrides');
     await ipcRenderer.invoke('content-categories:reset-all');
+  },
+
+  // ---------------------------------------------------------------------------
+  // Secure DNS (DoH)
+  // ---------------------------------------------------------------------------
+
+  getDohMode: async (): Promise<DohMode> => {
+    console.debug('[settings-preload] getDohMode');
+    return ipcRenderer.invoke('settings:get-doh-mode') as Promise<DohMode>;
+  },
+
+  setDohMode: async (mode: DohMode): Promise<void> => {
+    console.debug('[settings-preload] setDohMode', { mode });
+    await ipcRenderer.invoke('settings:set-doh-mode', mode);
+  },
+
+  getDohProvider: async (): Promise<DohProvider> => {
+    console.debug('[settings-preload] getDohProvider');
+    return ipcRenderer.invoke('settings:get-doh-provider') as Promise<DohProvider>;
+  },
+
+  setDohProvider: async (provider: DohProvider): Promise<void> => {
+    console.debug('[settings-preload] setDohProvider', { provider });
+    await ipcRenderer.invoke('settings:set-doh-provider', provider);
+  },
+
+  getDohCustomUri: async (): Promise<string> => {
+    console.debug('[settings-preload] getDohCustomUri');
+    return ipcRenderer.invoke('settings:get-doh-custom-uri') as Promise<string>;
+  },
+
+  setDohCustomUri: async (uri: string): Promise<void> => {
+    console.debug('[settings-preload] setDohCustomUri', { uriLength: uri.length });
+    await ipcRenderer.invoke('settings:set-doh-custom-uri', uri);
   },
 
 };

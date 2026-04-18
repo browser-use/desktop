@@ -93,6 +93,38 @@ const CH_GET_DNT_ENABLED     = 'settings:get-dnt-enabled';
 const CH_SET_DNT_ENABLED     = 'settings:set-dnt-enabled';
 const CH_GET_GPC_ENABLED     = 'settings:get-gpc-enabled';
 const CH_SET_GPC_ENABLED     = 'settings:set-gpc-enabled';
+const CH_GET_DOH_MODE        = 'settings:get-doh-mode';
+const CH_SET_DOH_MODE        = 'settings:set-doh-mode';
+const CH_GET_DOH_PROVIDER    = 'settings:get-doh-provider';
+const CH_SET_DOH_PROVIDER    = 'settings:set-doh-provider';
+const CH_GET_DOH_CUSTOM_URI  = 'settings:get-doh-custom-uri';
+const CH_SET_DOH_CUSTOM_URI  = 'settings:set-doh-custom-uri';
+
+// ---------------------------------------------------------------------------
+// DoH — built-in provider URI templates (RFC 8484)
+// ---------------------------------------------------------------------------
+
+const DOH_PROVIDERS: Readonly<Record<string, string>> = {
+  google:        'https://dns.google/dns-query{?dns}',
+  cloudflare:    'https://cloudflare-dns.com/dns-query{?dns}',
+  quad9:         'https://dns.quad9.net/dns-query{?dns}',
+  nextdns:       'https://dns.nextdns.io/{?dns}',
+  cleanbrowsing: 'https://doh.cleanbrowsing.org/doh/family-filter/{?dns}',
+};
+
+const DOH_MODE_OFF    = 'off'       as const;
+const DOH_MODE_AUTO   = 'automatic' as const;
+const DOH_MODE_SECURE = 'secure'    as const;
+
+type DohMode = typeof DOH_MODE_OFF | typeof DOH_MODE_AUTO | typeof DOH_MODE_SECURE;
+
+const ALLOWED_DOH_MODES     = [DOH_MODE_OFF, DOH_MODE_AUTO, DOH_MODE_SECURE] as const;
+const ALLOWED_DOH_PROVIDERS = ['google', 'cloudflare', 'quad9', 'nextdns', 'cleanbrowsing', 'custom'] as const;
+type DohProvider = typeof ALLOWED_DOH_PROVIDERS[number];
+
+const DEFAULT_DOH_MODE: DohMode         = DOH_MODE_AUTO;
+const DEFAULT_DOH_PROVIDER: DohProvider = 'cloudflare';
+const DOH_CUSTOM_URI_MAX_LENGTH         = 512;
 
 // ---------------------------------------------------------------------------
 // Module-level deps (set by registerSettingsHandlers)
@@ -631,6 +663,109 @@ function handleSetGpcEnabled(_event: Electron.IpcMainInvokeEvent, enabled: boole
 }
 
 // ---------------------------------------------------------------------------
+// DoH handler implementations
+// ---------------------------------------------------------------------------
+
+function handleGetDohMode(): DohMode {
+  mainLogger.info(CH_GET_DOH_MODE);
+  const prefs = readPrefs();
+  const mode = (prefs.dohMode as DohMode | undefined) ?? DEFAULT_DOH_MODE;
+  mainLogger.info(`${CH_GET_DOH_MODE}.ok`, { mode });
+  return mode;
+}
+
+function handleSetDohMode(_event: Electron.IpcMainInvokeEvent, mode: string): void {
+  const validated = assertOneOf(mode, 'dohMode', ALLOWED_DOH_MODES);
+  mainLogger.info(CH_SET_DOH_MODE, { mode: validated });
+  mergePrefs({ dohMode: validated });
+  applyDohConfig();
+  mainLogger.info(`${CH_SET_DOH_MODE}.ok`, { mode: validated });
+}
+
+function handleGetDohProvider(): DohProvider {
+  mainLogger.info(CH_GET_DOH_PROVIDER);
+  const prefs = readPrefs();
+  const provider = (prefs.dohProvider as DohProvider | undefined) ?? DEFAULT_DOH_PROVIDER;
+  mainLogger.info(`${CH_GET_DOH_PROVIDER}.ok`, { provider });
+  return provider;
+}
+
+function handleSetDohProvider(_event: Electron.IpcMainInvokeEvent, provider: string): void {
+  const validated = assertOneOf(provider, 'dohProvider', ALLOWED_DOH_PROVIDERS);
+  mainLogger.info(CH_SET_DOH_PROVIDER, { provider: validated });
+  mergePrefs({ dohProvider: validated });
+  applyDohConfig();
+  mainLogger.info(`${CH_SET_DOH_PROVIDER}.ok`, { provider: validated });
+}
+
+function handleGetDohCustomUri(): string {
+  mainLogger.info(CH_GET_DOH_CUSTOM_URI);
+  const prefs = readPrefs();
+  const uri = typeof prefs.dohCustomUri === 'string' ? prefs.dohCustomUri : '';
+  mainLogger.info(`${CH_GET_DOH_CUSTOM_URI}.ok`, { hasUri: uri.length > 0 });
+  return uri;
+}
+
+function handleSetDohCustomUri(_event: Electron.IpcMainInvokeEvent, uri: string): void {
+  const validated = assertString(uri, 'dohCustomUri', DOH_CUSTOM_URI_MAX_LENGTH);
+  mainLogger.info(CH_SET_DOH_CUSTOM_URI, { uriLength: validated.length });
+  mergePrefs({ dohCustomUri: validated });
+  applyDohConfig();
+  mainLogger.info(`${CH_SET_DOH_CUSTOM_URI}.ok`, { uriLength: validated.length });
+}
+
+// ---------------------------------------------------------------------------
+// DoH application — calls session.defaultSession.configureDohServers
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads current DoH preferences and applies them to the default session.
+ * Called at startup (via registerSettingsHandlers) and on every change.
+ *
+ * Electron's configureDohServers accepts a JSON string:
+ *   { "servers": ["https://...{?dns}"], "mode": "automatic"|"secure"|"off" }
+ */
+export function applyDohConfig(): void {
+  const prefs    = readPrefs();
+  const mode     = (prefs.dohMode as DohMode | undefined) ?? DEFAULT_DOH_MODE;
+  const provider = (prefs.dohProvider as DohProvider | undefined) ?? DEFAULT_DOH_PROVIDER;
+  const customUri = typeof prefs.dohCustomUri === 'string' ? prefs.dohCustomUri : '';
+
+  mainLogger.info('doh.applyConfig', { mode, provider });
+
+  if (mode === DOH_MODE_OFF) {
+    try {
+      session.defaultSession.configureDohServers(
+        JSON.stringify({ servers: [], mode: 'off' }),
+      );
+      mainLogger.info('doh.applyConfig.off');
+    } catch (err) {
+      mainLogger.warn('doh.applyConfig.off.failed', { error: (err as Error).message });
+    }
+    return;
+  }
+
+  const serverUri =
+    provider === 'custom'
+      ? customUri
+      : DOH_PROVIDERS[provider] ?? DOH_PROVIDERS[DEFAULT_DOH_PROVIDER];
+
+  if (!serverUri) {
+    mainLogger.warn('doh.applyConfig.noUri', { provider });
+    return;
+  }
+
+  try {
+    session.defaultSession.configureDohServers(
+      JSON.stringify({ servers: [serverUri], mode }),
+    );
+    mainLogger.info('doh.applyConfig.ok', { mode, provider, uriLength: serverUri.length });
+  } catch (err) {
+    mainLogger.warn('doh.applyConfig.failed', { error: (err as Error).message });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Privacy header injection (DNT + GPC)
 // ---------------------------------------------------------------------------
 
@@ -719,10 +854,17 @@ export function registerSettingsHandlers(opts: RegisterSettingsHandlersOptions):
   ipcMain.handle(CH_SET_DNT_ENABLED,    handleSetDntEnabled);
   ipcMain.handle(CH_GET_GPC_ENABLED,    handleGetGpcEnabled);
   ipcMain.handle(CH_SET_GPC_ENABLED,    handleSetGpcEnabled);
+  ipcMain.handle(CH_GET_DOH_MODE,       handleGetDohMode);
+  ipcMain.handle(CH_SET_DOH_MODE,       handleSetDohMode);
+  ipcMain.handle(CH_GET_DOH_PROVIDER,   handleGetDohProvider);
+  ipcMain.handle(CH_SET_DOH_PROVIDER,   handleSetDohProvider);
+  ipcMain.handle(CH_GET_DOH_CUSTOM_URI, handleGetDohCustomUri);
+  ipcMain.handle(CH_SET_DOH_CUSTOM_URI, handleSetDohCustomUri);
 
   refreshPrivacyHeaders();
+  applyDohConfig();
 
-  mainLogger.info('settings.ipc.register.ok', { channelCount: 25 });
+  mainLogger.info('settings.ipc.register.ok', { channelCount: 31 });
 }
 
 export function unregisterSettingsHandlers(): void {
@@ -753,6 +895,12 @@ export function unregisterSettingsHandlers(): void {
   ipcMain.removeHandler(CH_SET_DNT_ENABLED);
   ipcMain.removeHandler(CH_GET_GPC_ENABLED);
   ipcMain.removeHandler(CH_SET_GPC_ENABLED);
+  ipcMain.removeHandler(CH_GET_DOH_MODE);
+  ipcMain.removeHandler(CH_SET_DOH_MODE);
+  ipcMain.removeHandler(CH_GET_DOH_PROVIDER);
+  ipcMain.removeHandler(CH_SET_DOH_PROVIDER);
+  ipcMain.removeHandler(CH_GET_DOH_CUSTOM_URI);
+  ipcMain.removeHandler(CH_SET_DOH_CUSTOM_URI);
 
   _accountStore  = null;
   _keychainStore = null;

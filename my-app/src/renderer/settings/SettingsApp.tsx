@@ -79,6 +79,40 @@ const PAGE_ZOOM_OPTIONS = [
 ] as const;
 
 // ---------------------------------------------------------------------------
+// DoH constants
+// ---------------------------------------------------------------------------
+
+type DohMode = 'off' | 'automatic' | 'secure';
+type DohProvider = 'google' | 'cloudflare' | 'quad9' | 'nextdns' | 'cleanbrowsing' | 'custom';
+
+const DOH_MODE_OPTIONS: Array<{ value: DohMode; label: string; desc: string }> = [
+  {
+    value: 'off',
+    label: 'Off',
+    desc: 'Use your system DNS provider without encryption.',
+  },
+  {
+    value: 'automatic',
+    label: 'With your current service provider',
+    desc: 'Automatically upgrade to DNS-over-HTTPS if your provider supports it.',
+  },
+  {
+    value: 'secure',
+    label: 'With a specific provider',
+    desc: 'Always use DNS-over-HTTPS with the selected provider.',
+  },
+];
+
+const DOH_PROVIDER_OPTIONS: Array<{ value: DohProvider; label: string }> = [
+  { value: 'cloudflare',    label: 'Cloudflare (1.1.1.1)' },
+  { value: 'google',        label: 'Google (8.8.8.8)' },
+  { value: 'quad9',         label: 'Quad9 (9.9.9.9)' },
+  { value: 'nextdns',       label: 'NextDNS' },
+  { value: 'cleanbrowsing', label: 'CleanBrowsing (Family Filter)' },
+  { value: 'custom',        label: 'Custom...' },
+];
+
+// ---------------------------------------------------------------------------
 // Types (mirror preload shape)
 // ---------------------------------------------------------------------------
 
@@ -178,6 +212,13 @@ declare global {
       }>;
       applyAutoRevokePermissions: (revocations: Array<{ origin: string; permissionType: string }>) => Promise<number>;
       optOutAutoRevoke: (origin: string, permissionType: string) => Promise<void>;
+      // Secure DNS (DoH)
+      getDohMode: () => Promise<DohMode>;
+      setDohMode: (mode: DohMode) => Promise<void>;
+      getDohProvider: () => Promise<DohProvider>;
+      setDohProvider: (provider: DohProvider) => Promise<void>;
+      getDohCustomUri: () => Promise<string>;
+      setDohCustomUri: (uri: string) => Promise<void>;
     };
   }
 }
@@ -764,6 +805,165 @@ function ProfilesTab(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// Secure DNS section — rendered inside PrivacyTab
+// ---------------------------------------------------------------------------
+
+function SecureDnsSection(): React.ReactElement {
+  const toast = useToast();
+  const [dohMode, setDohMode]           = useState<DohMode>('automatic');
+  const [dohProvider, setDohProvider]   = useState<DohProvider>('cloudflare');
+  const [customUri, setCustomUri]       = useState('');
+  const [loading, setLoading]           = useState(true);
+  const [savingUri, setSavingUri]       = useState(false);
+
+  useEffect(() => {
+    void Promise.all([
+      window.settingsAPI.getDohMode(),
+      window.settingsAPI.getDohProvider(),
+      window.settingsAPI.getDohCustomUri(),
+    ]).then(([mode, provider, uri]) => {
+      setDohMode(mode);
+      setDohProvider(provider);
+      setCustomUri(uri);
+    }).catch(() => {
+      // silently fall back to defaults
+    }).finally(() => {
+      setLoading(false);
+    });
+  }, []);
+
+  async function handleModeChange(mode: DohMode): Promise<void> {
+    const prev = dohMode;
+    setDohMode(mode);
+    try {
+      await window.settingsAPI.setDohMode(mode);
+      const modeLabel = DOH_MODE_OPTIONS.find((o) => o.value === mode)?.label ?? mode;
+      toast.show({ variant: 'success', title: `Secure DNS: ${modeLabel}` });
+    } catch (err) {
+      setDohMode(prev);
+      toast.show({ variant: 'error', title: 'Failed to update Secure DNS mode', message: (err as Error).message });
+    }
+  }
+
+  async function handleProviderChange(provider: DohProvider): Promise<void> {
+    const prev = dohProvider;
+    setDohProvider(provider);
+    try {
+      await window.settingsAPI.setDohProvider(provider);
+      const providerLabel = DOH_PROVIDER_OPTIONS.find((o) => o.value === provider)?.label ?? provider;
+      toast.show({ variant: 'success', title: `DNS provider: ${providerLabel}` });
+    } catch (err) {
+      setDohProvider(prev);
+      toast.show({ variant: 'error', title: 'Failed to update DNS provider', message: (err as Error).message });
+    }
+  }
+
+  async function handleSaveCustomUri(): Promise<void> {
+    setSavingUri(true);
+    try {
+      await window.settingsAPI.setDohCustomUri(customUri.trim());
+      toast.show({ variant: 'success', title: 'Custom DNS URI saved' });
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Failed to save custom URI', message: (err as Error).message });
+    } finally {
+      setSavingUri(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card variant="default" padding="md" className="settings-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Spinner size="sm" />
+          <span style={{ fontSize: 13, color: 'var(--color-fg-secondary)' }}>Loading DNS settings…</span>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card variant="default" padding="md" className="settings-card">
+      <div className="settings-field">
+        <span className="settings-label">Use secure DNS</span>
+        <p className="settings-field-hint">
+          DNS-over-HTTPS (DoH) encrypts your DNS queries so your ISP cannot
+          see which sites you look up.
+        </p>
+      </div>
+
+      <fieldset className="settings-fieldset" style={{ marginTop: 12 }}>
+        <legend className="settings-label" style={{ marginBottom: 8 }}>Mode</legend>
+        {DOH_MODE_OPTIONS.map((opt) => (
+          <label key={opt.value} className="settings-radio-row" style={{ marginBottom: 4 }}>
+            <input
+              type="radio"
+              name="doh-mode"
+              value={opt.value}
+              checked={dohMode === opt.value}
+              onChange={() => void handleModeChange(opt.value)}
+            />
+            <span className="settings-radio-content">
+              <span className="settings-radio-label">{opt.label}</span>
+              <span className="settings-radio-desc">{opt.desc}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      {dohMode === 'secure' && (
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="settings-field">
+            <label className="settings-label" htmlFor="doh-provider-select">Provider</label>
+            <select
+              id="doh-provider-select"
+              className="settings-select"
+              value={dohProvider}
+              onChange={(e) => void handleProviderChange(e.target.value as DohProvider)}
+            >
+              {DOH_PROVIDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {dohProvider === 'custom' && (
+            <div className="settings-field">
+              <label className="settings-label" htmlFor="doh-custom-uri">
+                Custom DoH URI template
+              </label>
+              <p className="settings-field-hint">
+                Must be an RFC 8484 URI template, e.g.
+                {' '}<code style={{ fontSize: 11 }}>https://example.com/dns-query{'{?dns}'}</code>
+              </p>
+              <div className="settings-input-row">
+                <input
+                  id="doh-custom-uri"
+                  className="settings-input"
+                  type="text"
+                  value={customUri}
+                  onChange={(e) => setCustomUri(e.target.value)}
+                  placeholder="https://example.com/dns-query{?dns}"
+                  spellCheck={false}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void handleSaveCustomUri()}
+                  loading={savingUri}
+                  disabled={!customUri.trim()}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Privacy and security tab
 // ---------------------------------------------------------------------------
 
@@ -934,6 +1134,8 @@ function PrivacyTab({ openDialog, onDialogChange }: PrivacyTabProps): React.Reac
           </label>
         </div>
       </Card>
+
+      <SecureDnsSection />
 
       <Card variant="default" padding="md" className="settings-card">
         <div className="settings-privacy-row">
