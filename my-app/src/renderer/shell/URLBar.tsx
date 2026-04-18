@@ -327,6 +327,11 @@ export function URLBar({
     setPageInfoOpen((v) => !v);
   }, [pageInfoOpen]);
 
+  // Close popover on navigation (URL change)
+  useEffect(() => {
+    setPageInfoOpen(false);
+  }, [url]);
+
   // Close popover when clicking outside
   useEffect(() => {
     if (!pageInfoOpen) return;
