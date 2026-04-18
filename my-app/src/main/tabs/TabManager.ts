@@ -147,6 +147,8 @@ const SKIP_HISTORY_RE = /^(data:|about:|chrome:|devtools:|view-source:)/i;
 const NEWTAB_URL_RE = /newtab\.html$/;
 
 export class TabManager {
+  static readonly instances = new Map<number, TabManager>();
+
   private win: BrowserWindow;
   private tabs: Map<string, WebContentsView> = new Map();
   private tabOrder: string[] = [];
@@ -160,6 +162,7 @@ export class TabManager {
   private onClosedTabsChanged: (() => void) | null = null;
   private onTabClosed: ((tabId: string) => void) | null = null;
   private onWebContentsCreated: ((wc: import("electron").WebContents) => void) | null = null;
+  private onMoveTabToNewWindow: ((url: string, title: string) => void) | null = null;
   // Extra pixels the renderer added on top of the base chrome (e.g. 32 px
   // for a visible bookmarks bar). The page-hosting WebContentsView is then
   // positioned at CHROME_HEIGHT + chromeOffset.
@@ -187,8 +190,14 @@ export class TabManager {
   readonly isGuest: boolean;
   private readonly partition: string | null;
 
+  /** Returns the Electron session partition name used by this TabManager's tabs, or null for the default session. */
+  getGuestPartition(): string | null {
+    return this.partition;
+  }
+
   constructor(win: BrowserWindow, opts?: { dataDir?: string; partition?: string; guest?: boolean }) {
     this.win = win;
+    TabManager.instances.set(win.id, this);
     this.isGuest = opts?.guest ?? false;
     this.partition = opts?.partition ?? null;
     this.sessionStore = new SessionStore(opts?.dataDir);
@@ -221,6 +230,10 @@ export class TabManager {
 
   setTabGroupStore(store: TabGroupStore | null): void {
     this.tabGroupStore = store;
+  }
+
+  setOnMoveTabToNewWindow(cb: ((url: string, title: string) => void) | null): void {
+    this.onMoveTabToNewWindow = cb;
   }
 
   setHistoryStore(store: HistoryStore): void {
@@ -2226,6 +2239,20 @@ export class TabManager {
       },
     }));
 
+    if (this.onMoveTabToNewWindow) {
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(new MenuItem({
+        label: 'Move Tab to New Window',
+        enabled: tabCount > 1,
+        click: () => {
+          const tabUrl = view.webContents.getURL();
+          const tabTitle = view.webContents.getTitle();
+          this.closeTab(tabId);
+          this.onMoveTabToNewWindow?.(tabUrl, tabTitle);
+        },
+      }));
+    }
+
     menu.popup({ window: this.win });
   }
 
@@ -2520,6 +2547,20 @@ export class TabManager {
   }
 
   destroy(): void {
+    TabManager.instances.delete(this.win.id);
+
+    // Only unregister process-wide IPC handlers when the last TabManager
+    // instance is being destroyed. With multiple windows open (e.g. from
+    // tab-detach), closing one window must not tear down IPC handlers that
+    // are still needed by the remaining windows.
+    if (TabManager.instances.size > 0) {
+      mainLogger.info('TabManager.destroy.skipIpcRemoval', {
+        remainingInstances: TabManager.instances.size,
+        msg: 'Other windows still open — preserving shared IPC handlers',
+      });
+      return;
+    }
+
     ipcMain.removeHandler('tabs:create');
     ipcMain.removeHandler('tabs:close');
     ipcMain.removeHandler('tabs:activate');

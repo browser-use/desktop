@@ -22,7 +22,10 @@ declare const electronAPI: {
     close: (tabId: string, force?: boolean) => Promise<void>;
     showContextMenu: (tabId: string) => Promise<void>;
     muteTab: (tabId: string) => Promise<void>;
+    pin: (tabId: string) => Promise<void>;
+    unpin: (tabId: string) => Promise<void>;
     captureThumbnail: (tabId: string) => Promise<string | null>;
+    moveToNewWindow: (tabId: string) => Promise<boolean>;
   };
   tabGroups: {
     list: () => Promise<TabGroup[]>;
@@ -77,8 +80,9 @@ interface TabItemProps {
   tab: TabState;
   index: number;
   isActive: boolean;
+  isSelected: boolean;
   isIconOnly: boolean;
-  onActivate: () => void;
+  onTabClick: (e: React.MouseEvent) => void;
   onClose: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent, tabId: string, index: number) => void;
   onDragOver: (e: React.DragEvent, index: number) => void;
@@ -97,8 +101,9 @@ function TabItem({
   tab,
   index,
   isActive,
+  isSelected,
   isIconOnly,
-  onActivate,
+  onTabClick,
   onClose,
   onDragStart,
   onDragOver,
@@ -145,15 +150,17 @@ function TabItem({
         isPinned ? 'tab-item--pinned' : '',
         isIconOnly && !isPinned ? 'tab-item--icon-only' : '',
         groupColor ? 'tab-item--grouped' : '',
+        isSelected ? 'tab-item--selected' : '',
       ]
         .filter(Boolean)
         .join(' ')}
       style={groupColor ? { '--tab-group-color': groupColor } as React.CSSProperties : undefined}
       role="tab"
       aria-selected={isActive}
+      data-selected={isSelected || undefined}
       tabIndex={isActive ? 0 : -1}
       draggable
-      onClick={onActivate}
+      onClick={onTabClick}
       onAuxClick={(e) => { if (e.button === 1) { e.stopPropagation(); onClose(e); } }}
       onKeyDown={onKeyDown}
       onDragStart={(e) => onDragStart(e, tab.id, index)}
@@ -390,6 +397,8 @@ export function TabStrip({
   const [groups, setGroups] = useState<TabGroup[]>([]);
   const [renameGroupId, setRenameGroupId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [selectedTabIds, setSelectedTabIds] = useState<Set<string>>(new Set());
+  const [lastClickedTabId, setLastClickedTabId] = useState<string | null>(null);
   const [hoverState, setHoverState] = useState<HoverState | null>(null);
   const dragTabId = useRef<string | null>(null);
   const tabRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -403,6 +412,19 @@ export function TabStrip({
       tabRefs.current.delete(index);
     }
   }, []);
+
+  // Prune stale selections and reset anchor index when tabs are removed.
+  useEffect(() => {
+    const currentIds = new Set(tabs.map((t) => t.id));
+    setSelectedTabIds((prev) => {
+      const next = new Set([...prev].filter((id) => currentIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+    setLastClickedTabId((prev) => {
+      if (prev === null) return null;
+      return tabs.some((t) => t.id === prev) ? prev : null;
+    });
+  }, [tabs]);
 
   // ---------------------------------------------------------------------------
   // ResizeObserver: measure each tab's rendered width and update icon-only state
@@ -454,6 +476,18 @@ export function TabStrip({
     return show || iconOnlySet.size > 0;
   })();
 
+  // Escape clears multi-selection
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedTabIds.size > 0) {
+        setSelectedTabIds(new Set());
+        setLastClickedTabId(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [selectedTabIds]);
+
   // Close search dropdown when clicking outside
   useEffect(() => {
     if (!searchOpen) return;
@@ -467,6 +501,54 @@ export function TabStrip({
     window.addEventListener('mousedown', handler);
     return () => window.removeEventListener('mousedown', handler);
   }, [searchOpen]);
+
+  const handleTabClick = useCallback(
+    (e: React.MouseEvent, tab: TabState, index: number) => {
+      if (navigator.userAgent.includes('Mac') ? e.metaKey : e.ctrlKey) {
+        // Toggle this tab in the selection without changing active tab
+        e.stopPropagation();
+        setSelectedTabIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(tab.id)) {
+            next.delete(tab.id);
+          } else {
+            next.add(tab.id);
+          }
+          return next;
+        });
+        setLastClickedTabId(tab.id);
+      } else if (e.shiftKey && lastClickedTabId !== null) {
+        // Select range from anchor tab to current tab
+        e.stopPropagation();
+        const anchorIndex = tabs.findIndex((t) => t.id === lastClickedTabId);
+        if (anchorIndex !== -1) {
+          const start = Math.min(anchorIndex, index);
+          const end = Math.max(anchorIndex, index);
+          const rangeIds = new Set<string>();
+          for (let i = start; i <= end; i++) {
+            if (tabs[i]) rangeIds.add(tabs[i].id);
+          }
+          setSelectedTabIds(rangeIds);
+        }
+      } else {
+        // Normal click: clear selection and activate
+        setSelectedTabIds(new Set());
+        setLastClickedTabId(tab.id);
+        onActivate(tab.id);
+      }
+    },
+    [tabs, lastClickedTabId, onActivate],
+  );
+
+  const handleCloseSelected = useCallback(() => {
+    // Pinned tabs cannot be closed via bulk close — filter them out.
+    const closableIds = tabs
+      .filter((t) => selectedTabIds.has(t.id) && !t.pinned)
+      .map((t) => t.id);
+    closableIds.forEach((id) => onClose(id));
+    setSelectedTabIds(new Set());
+    setLastClickedTabId(null);
+  }, [tabs, selectedTabIds, onClose]);
 
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent, tab: TabState, index: number) => {
@@ -554,10 +636,13 @@ export function TabStrip({
     [],
   );
 
+  const droppedRef = useRef(false);
+
   const handleDrop = useCallback(
     (e: React.DragEvent, toIndex: number) => {
       e.preventDefault();
       setDragOverIndex(null);
+      droppedRef.current = true;
       if (dragTabId.current) {
         onMove(dragTabId.current, toIndex);
         dragTabId.current = null;
@@ -566,9 +651,19 @@ export function TabStrip({
     [onMove],
   );
 
-  const handleDragEnd = useCallback(() => {
+  // Detach threshold: if the drag ends more than 80px below the tab strip top, treat it as detach.
+  const DETACH_Y_THRESHOLD = 80;
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    const tabId = dragTabId.current;
+    const wasDroppedInStrip = droppedRef.current;
     setDragOverIndex(null);
     dragTabId.current = null;
+    droppedRef.current = false;
+
+    if (tabId && !wasDroppedInStrip && e.clientY > DETACH_Y_THRESHOLD) {
+      electronAPI.tabs.moveToNewWindow(tabId).catch(() => {/* ignore */});
+    }
   }, []);
 
   const handleGroupContextMenu = useCallback((e: React.MouseEvent, group: TabGroup) => {
@@ -633,7 +728,7 @@ export function TabStrip({
   }, [onClose]);
 
   return (
-    <div className="tab-strip" role="presentation" onDragEnd={handleDragEnd}>
+    <div className="tab-strip" role="presentation" onDragEnd={(e) => handleDragEnd(e)}>
       <div
         ref={tabsContainerRef}
         className="tab-strip__tabs"
@@ -681,8 +776,9 @@ export function TabStrip({
                 tab={tab}
                 index={index}
                 isActive={tab.id === activeTabId}
+                isSelected={selectedTabIds.has(tab.id)}
                 isIconOnly={iconOnlySet.has(tab.id)}
-                onActivate={() => onActivate(tab.id)}
+                onTabClick={(e) => handleTabClick(e, tab, index)}
                 onClose={(e) => {
                   e.stopPropagation();
                   onClose(tab.id);
@@ -729,6 +825,57 @@ export function TabStrip({
           </svg>
         </button>
       </div>
+
+      {/* Multi-select bulk-action toolbar — appears when 2+ tabs are selected */}
+      {selectedTabIds.size > 0 && (
+        <div className="tab-strip__multiselect-bar">
+          <span className="tab-strip__multiselect-count">
+            {selectedTabIds.size} selected
+          </span>
+          <button
+            type="button"
+            className="tab-strip__multiselect-btn"
+            onClick={handleCloseSelected}
+            title={`Close ${selectedTabIds.size} tab${selectedTabIds.size > 1 ? 's' : ''}`}
+          >
+            Close {selectedTabIds.size} tab{selectedTabIds.size > 1 ? 's' : ''}
+          </button>
+          <button
+            type="button"
+            className="tab-strip__multiselect-btn tab-strip__multiselect-btn--secondary"
+            onClick={() => {
+              const selected = tabs.filter((t) => selectedTabIds.has(t.id));
+              const anyUnmuted = selected.some((t) => !t.muted);
+              selected.forEach((t) => {
+                if (anyUnmuted ? !t.muted : t.muted) {
+                  electronAPI.tabs.muteTab(t.id).catch(() => {});
+                }
+              });
+              setSelectedTabIds(new Set());
+            }}
+            title="Mute/unmute selected tabs"
+          >
+            {tabs.filter((t) => selectedTabIds.has(t.id)).some((t) => !t.muted) ? 'Mute' : 'Unmute'}
+          </button>
+          <button
+            type="button"
+            className="tab-strip__multiselect-btn tab-strip__multiselect-btn--secondary"
+            onClick={() => {
+              const selected = tabs.filter((t) => selectedTabIds.has(t.id));
+              const anyUnpinned = selected.some((t) => !t.pinned);
+              selected.forEach((t) => {
+                if (anyUnpinned ? !t.pinned : t.pinned) {
+                  (anyUnpinned ? electronAPI.tabs.pin : electronAPI.tabs.unpin)(t.id).catch(() => {});
+                }
+              });
+              setSelectedTabIds(new Set());
+            }}
+            title="Pin/unpin selected tabs"
+          >
+            {tabs.filter((t) => selectedTabIds.has(t.id)).some((t) => !t.pinned) ? 'Pin' : 'Unpin'}
+          </button>
+        </div>
+      )}
 
       {/* Tab search button — appears when tabs are too narrow to read titles */}
       {showSearchBtn && (
