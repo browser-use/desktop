@@ -463,7 +463,7 @@ export function keywordProvider(input: string): OmniboxSuggestion[] {
           id: `keyword-autocomplete-${keyword}`,
           type: 'keyword',
           title: `Search ${engine.name}`,
-          url: engine.template.replace('%s', ''),
+          url: engine.template.replace('%s', encodeURIComponent('')),
           description: `Keyword: ${keyword}`,
           relevance: 800,
           allowTabCompletion: true,
