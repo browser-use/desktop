@@ -91,6 +91,7 @@ export class TabManager {
   // Main-process observer (e.g. menu rebuilder) that needs to know when the
   // closed-tabs stack mutates. Renderer gets a separate IPC broadcast.
   private onClosedTabsChanged: (() => void) | null = null;
+  private onTabClosed: ((tabId: string) => void) | null = null;
   // Extra pixels the renderer added on top of the base chrome (e.g. 32 px
   // for a visible bookmarks bar). The page-hosting WebContentsView is then
   // positioned at CHROME_HEIGHT + chromeOffset.
@@ -116,6 +117,10 @@ export class TabManager {
 
   setOnClosedTabsChanged(cb: (() => void) | null): void {
     this.onClosedTabsChanged = cb;
+  }
+
+  setOnTabClosed(cb: ((tabId: string) => void) | null): void {
+    this.onTabClosed = cb;
   }
 
   /**
@@ -300,6 +305,9 @@ export class TabManager {
     }
 
     mainLogger.info('TabManager.closeTab', { tabId });
+
+    // Notify permission manager to expire session grants for this tab
+    try { this.onTabClosed?.(tabId); } catch {}
 
     // Capture closed-tab record BEFORE destroying the view. Scroll capture is
     // best-effort (races with page destruction); history capture uses
@@ -928,6 +936,13 @@ export class TabManager {
     return view?.webContents ?? null;
   }
 
+  getTabIdForWebContentsId(wcId: number): string | null {
+    for (const [tabId, view] of this.tabs) {
+      if (view.webContents.id === wcId) return tabId;
+    }
+    return null;
+  }
+
   getTabCount(): number {
     return this.tabs.size;
   }
@@ -958,6 +973,7 @@ export class TabManager {
         isLoading: view.webContents.isLoading(),
         canGoBack: nav.canGoBack(),
         canGoForward: nav.canGoForward(),
+        zoomLevel: view.webContents.getZoomLevel(),
       };
     });
     return { tabs, activeTabId: this.activeTabId, cdpPort: this.cdpPort };

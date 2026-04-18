@@ -5,6 +5,11 @@
 
 import { WebContentsView } from 'electron';
 
+export interface HistoryEntry {
+  url: string;
+  title: string;
+}
+
 export class NavigationController {
   private view: WebContentsView;
 
@@ -51,5 +56,26 @@ export class NavigationController {
 
   getCurrentURL(): string {
     return this.view.webContents.getURL();
+  }
+
+  getActiveIndex(): number {
+    return this.view.webContents.navigationHistory.getActiveIndex();
+  }
+
+  getAllEntries(): HistoryEntry[] {
+    try {
+      const entries = this.view.webContents.navigationHistory.getAllEntries();
+      return entries.map((e: { url: string; title: string }) => ({
+        url: e.url,
+        title: e.title || e.url,
+      }));
+    } catch {
+      return [{ url: this.getCurrentURL(), title: '' }];
+    }
+  }
+
+  goToIndex(index: number): void {
+    console.log(`[NavigationController] Going to history index: ${index}`);
+    this.view.webContents.navigationHistory.goToIndex(index);
   }
 }

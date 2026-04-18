@@ -11,6 +11,8 @@ import type {
   PersistedBookmarks,
   Visibility,
 } from '../main/bookmarks/BookmarkStore';
+import type { PermissionRecord, PermissionType, PermissionState } from '../main/permissions/PermissionStore';
+import type { PermissionPromptRequest } from '../main/permissions/PermissionManager';
 
 // ---------------------------------------------------------------------------
 // Type re-exports for renderer consumption
@@ -23,6 +25,10 @@ export type {
   BookmarkNode,
   PersistedBookmarks,
   Visibility,
+  PermissionRecord,
+  PermissionType,
+  PermissionState,
+  PermissionPromptRequest,
 };
 
 // ---------------------------------------------------------------------------
@@ -76,6 +82,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     showContextMenu: (tabId: string): Promise<void> =>
       ipcRenderer.invoke('tabs:show-context-menu', tabId),
+
+    showBackHistory: (tabId: string): Promise<void> =>
+      ipcRenderer.invoke('tabs:show-back-history', tabId),
+
+    showForwardHistory: (tabId: string): Promise<void> =>
+      ipcRenderer.invoke('tabs:show-forward-history', tabId),
   },
 
   // CDP info for agent integration
@@ -123,6 +135,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('bookmarks:bookmark-all-tabs', payload),
   },
 
+  // Zoom controls — per-origin persistence + badge UI
+  zoom: {
+    getPercent: (): Promise<number> =>
+      ipcRenderer.invoke('zoom:get-percent'),
+    zoomIn: (): Promise<void> =>
+      ipcRenderer.invoke('zoom:in'),
+    zoomOut: (): Promise<void> =>
+      ipcRenderer.invoke('zoom:out'),
+    reset: (): Promise<void> =>
+      ipcRenderer.invoke('zoom:reset'),
+    listOverrides: (): Promise<Array<{ origin: string; zoomLevel: number }>> =>
+      ipcRenderer.invoke('zoom:list-overrides'),
+    removeOverride: (origin: string): Promise<boolean> =>
+      ipcRenderer.invoke('zoom:remove-override', origin),
+    clearAll: (): Promise<void> =>
+      ipcRenderer.invoke('zoom:clear-all'),
+  },
+
   // Find-in-page. Main owns the search state on webContents; the renderer just
   // fires queries and renders results streamed back via on.findResult.
   find: {
@@ -133,6 +163,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stop: (): Promise<void> => ipcRenderer.invoke('find:stop'),
     getLastQuery: (): Promise<string> =>
       ipcRenderer.invoke('find:get-last-query'),
+  },
+
+  // Permissions — renderer -> main decision relay + query API
+  permissions: {
+    respond: (promptId: string, decision: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:respond', promptId, decision),
+
+    dismiss: (promptId: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:dismiss', promptId),
+
+    getSite: (origin: string): Promise<PermissionRecord[]> =>
+      ipcRenderer.invoke('permissions:get-site', origin),
+
+    setSite: (origin: string, permissionType: string, state: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:set-site', origin, permissionType, state),
+
+    removeSite: (origin: string, permissionType: string): Promise<boolean> =>
+      ipcRenderer.invoke('permissions:remove-site', origin, permissionType),
+
+    clearOrigin: (origin: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:clear-origin', origin),
+
+    getDefaults: (): Promise<Record<string, string>> =>
+      ipcRenderer.invoke('permissions:get-defaults'),
+
+    setDefault: (permissionType: string, state: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:set-default', permissionType, state),
+
+    getAll: (): Promise<PermissionRecord[]> =>
+      ipcRenderer.invoke('permissions:get-all'),
+
+    resetAll: (): Promise<void> =>
+      ipcRenderer.invoke('permissions:reset-all'),
   },
 
   // Shell-level signals (renderer → main)
@@ -270,5 +333,64 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('find-result', handler);
       return () => ipcRenderer.removeListener('find-result', handler);
     },
+
+    zoomChanged: (
+      cb: (payload: { percent: number }) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        payload: { percent: number },
+      ) => cb(payload);
+      ipcRenderer.on('zoom-changed', handler);
+      return () => ipcRenderer.removeListener('zoom-changed', handler);
+    },
+
+    permissionPrompt: (
+      cb: (data: PermissionPromptRequest) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        data: PermissionPromptRequest,
+      ) => cb(data);
+      ipcRenderer.on('permission-prompt', handler);
+      return () => ipcRenderer.removeListener('permission-prompt', handler);
+    },
+
+    permissionPromptDismiss: (
+      cb: (promptId: string) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        promptId: string,
+      ) => cb(promptId);
+      ipcRenderer.on('permission-prompt-dismiss', handler);
+      return () => ipcRenderer.removeListener('permission-prompt-dismiss', handler);
+    },
+
+    passwordFormDetected: (
+      cb: (payload: { tabId: string; origin: string; username: string; password: string }) => void,
+    ): (() => void) => {
+      const handler = (
+        _e: Electron.IpcRendererEvent,
+        payload: { tabId: string; origin: string; username: string; password: string },
+      ) => cb(payload);
+      ipcRenderer.on('password-form-detected', handler);
+      return () => ipcRenderer.removeListener('password-form-detected', handler);
+    },
+  },
+
+  // Passwords
+  passwords: {
+    save: (payload: { origin: string; username: string; password: string }): Promise<unknown> =>
+      ipcRenderer.invoke('passwords:save', payload),
+
+    isNeverSave: (origin: string): Promise<boolean> =>
+      ipcRenderer.invoke('passwords:is-never-save', origin),
+
+    addNeverSave: (origin: string): Promise<void> =>
+      ipcRenderer.invoke('passwords:add-never-save', origin),
+
+    findForOrigin: (origin: string): Promise<Array<{ id: string; origin: string; username: string }>> =>
+      ipcRenderer.invoke('passwords:find-for-origin', origin),
   },
 });

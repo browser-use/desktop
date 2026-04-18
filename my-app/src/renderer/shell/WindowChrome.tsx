@@ -11,6 +11,9 @@ import { URLBar } from './URLBar';
 import { BookmarksBar } from './BookmarksBar';
 import { BookmarkDialog } from './BookmarkDialog';
 import { FindBar } from './FindBar';
+import { PasswordPromptBar } from './PasswordPromptBar';
+import { PermissionBar } from './PermissionBar';
+import { ZoomBadge } from './ZoomBadge';
 import { ProfileMenu } from './ProfileMenu';
 import type {
   TabManagerState,
@@ -48,6 +51,8 @@ declare const electronAPI: {
     reopenClosedAt: (index: number) => Promise<void>;
     getClosedTabs: () => Promise<ClosedTabRecord[]>;
     showContextMenu: (tabId: string) => Promise<void>;
+    showBackHistory: (tabId: string) => Promise<void>;
+    showForwardHistory: (tabId: string) => Promise<void>;
   };
   cdp: {
     getActiveTabCdpUrl: () => Promise<string | null>;
@@ -59,6 +64,15 @@ declare const electronAPI: {
     findByUrl: (url: string) => Promise<BookmarkNode | null>;
     setVisibility: (state: Visibility) => Promise<Visibility>;
     getVisibility: () => Promise<Visibility>;
+  };
+  zoom: {
+    getPercent: () => Promise<number>;
+    zoomIn: () => Promise<void>;
+    zoomOut: () => Promise<void>;
+    reset: () => Promise<void>;
+    listOverrides: () => Promise<Array<{ origin: string; zoomLevel: number }>>;
+    removeOverride: (origin: string) => Promise<boolean>;
+    clearAll: () => Promise<void>;
   };
   shell: {
     setChromeHeight: (height: number) => Promise<void>;
@@ -78,6 +92,26 @@ declare const electronAPI: {
     openBookmarkDialog: (cb: () => void) => () => void;
     toggleBookmarksBar: (cb: () => void) => () => void;
     focusBookmarksBar: (cb: () => void) => () => void;
+    zoomChanged: (cb: (payload: { percent: number }) => void) => () => void;
+    permissionPrompt: (
+      cb: (data: { id: string; tabId: string | null; origin: string; permissionType: string; isMainFrame: boolean }) => void,
+    ) => () => void;
+    permissionPromptDismiss: (
+      cb: (promptId: string) => void,
+    ) => () => void;
+    passwordFormDetected: (
+      cb: (payload: { tabId: string; origin: string; username: string; password: string }) => void,
+    ) => () => void;
+  };
+  permissions: {
+    respond: (promptId: string, decision: string) => Promise<void>;
+    dismiss: (promptId: string) => Promise<void>;
+  };
+  passwords: {
+    save: (payload: { origin: string; username: string; password: string }) => Promise<unknown>;
+    isNeverSave: (origin: string) => Promise<boolean>;
+    addNeverSave: (origin: string) => Promise<void>;
+    findForOrigin: (origin: string) => Promise<Array<{ id: string; origin: string; username: string }>>;
   };
 };
 
@@ -88,6 +122,7 @@ export function WindowChrome(): React.ReactElement {
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [urlBarFocused, setUrlBarFocused] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState(100);
 
   // Bookmarks state
   const [bookmarksTree, setBookmarksTree] = useState<PersistedBookmarks | null>(null);
@@ -122,6 +157,7 @@ export function WindowChrome(): React.ReactElement {
       setTabs(state.tabs);
       setActiveTabId(state.activeTabId);
     });
+    electronAPI.zoom.getPercent().then((p) => setZoomPercent(p));
     electronAPI.bookmarks.list().then((tree) => {
       console.log('[WindowChrome] Bookmarks loaded:', tree.roots[0].children?.length ?? 0, 'bar items');
       setBookmarksTree(tree);
@@ -166,6 +202,10 @@ export function WindowChrome(): React.ReactElement {
       setUrlBarFocused(true);
     });
 
+    const unsubZoomChanged = electronAPI.on.zoomChanged(({ percent }) => {
+      setZoomPercent(percent);
+    });
+
     const unsubTargetLost = electronAPI.on.targetLost(({ tabId }) => {
       console.log('[WindowChrome] Target lost for tab:', tabId);
     });
@@ -197,6 +237,7 @@ export function WindowChrome(): React.ReactElement {
       unsubTabActivated();
       unsubFaviconUpdated();
       unsubFocusUrl();
+      unsubZoomChanged();
       unsubTargetLost();
       unsubBookmarksUpdated();
       unsubOpenDialog();
@@ -233,6 +274,14 @@ export function WindowChrome(): React.ReactElement {
 
   const handleForward = useCallback(() => {
     if (activeTabId) electronAPI.tabs.forward(activeTabId);
+  }, [activeTabId]);
+
+  const handleBackContextMenu = useCallback(() => {
+    if (activeTabId) electronAPI.tabs.showBackHistory(activeTabId);
+  }, [activeTabId]);
+
+  const handleForwardContextMenu = useCallback(() => {
+    if (activeTabId) electronAPI.tabs.showForwardHistory(activeTabId);
   }, [activeTabId]);
 
   // Issue #25 — Shift-click on the reload button performs a hard reload
@@ -291,6 +340,8 @@ export function WindowChrome(): React.ReactElement {
           onBack={handleBack}
           onForward={handleForward}
           onReload={handleReload}
+          onBackContextMenu={handleBackContextMenu}
+          onForwardContextMenu={handleForwardContextMenu}
         />
 
         <URLBar
@@ -330,6 +381,12 @@ export function WindowChrome(): React.ReactElement {
           onClose={() => setBookmarkDialogOpen(false)}
         />
       )}
+
+      {/* Permission prompt infobar */}
+      <PermissionBar activeTabId={activeTabId} />
+
+      {/* Password save prompt bar */}
+      <PasswordPromptBar activeTabId={activeTabId} />
 
       {/* Find-in-page overlay. Renders null unless Cmd+F was pressed. The
           overlay is absolutely positioned by CSS so it floats over content
