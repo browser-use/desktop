@@ -30,13 +30,16 @@ const TAB_APPEARANCE   = 'appearance'       as const;
 const TAB_SCOPES       = 'scopes'           as const;
 const TAB_DANGER       = 'danger'           as const;
 const TAB_PROFILES     = 'profiles'         as const;
+const TAB_SYNC         = 'sync'             as const;
 const TAB_PRIVACY      = 'privacy'          as const;
 const TAB_PASSWORDS    = 'passwords'        as const;
 const TAB_ZOOM         = 'site-zoom'        as const;
 const TAB_CONTENT      = 'content'          as const;
 const TAB_PERMISSIONS  = 'permissions'     as const;
-const TAB_ADDRESSES    = 'addresses'        as const;
-const TAB_PAYMENTS     = 'payments'         as const;
+const TAB_ADDRESSES      = 'addresses'        as const;
+const TAB_PAYMENTS       = 'payments'         as const;
+const TAB_DOWNLOADS      = 'downloads'         as const;
+const TAB_ACCESSIBILITY  = 'accessibility'     as const;
 
 type TabId =
   | typeof TAB_API_KEY
@@ -45,12 +48,15 @@ type TabId =
   | typeof TAB_SCOPES
   | typeof TAB_PASSWORDS
   | typeof TAB_PROFILES
+  | typeof TAB_SYNC
   | typeof TAB_PRIVACY
   | typeof TAB_ZOOM
   | typeof TAB_CONTENT
   | typeof TAB_PERMISSIONS
   | typeof TAB_ADDRESSES
   | typeof TAB_PAYMENTS
+  | typeof TAB_DOWNLOADS
+  | typeof TAB_ACCESSIBILITY
   | typeof TAB_DANGER;
 
 const TABS: Array<{ id: TabId; label: string }> = [
@@ -60,13 +66,16 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: TAB_SCOPES,     label: 'Google Scopes' },
   { id: TAB_PASSWORDS,  label: 'Passwords' },
   { id: TAB_PROFILES,   label: 'Profiles' },
+  { id: TAB_SYNC,       label: 'Sync' },
   { id: TAB_PRIVACY,    label: 'Privacy and security' },
   { id: TAB_ZOOM,       label: 'Site Zoom' },
   { id: TAB_CONTENT,    label: 'Content' },
   { id: TAB_PERMISSIONS, label: 'Permissions' },
-  { id: TAB_ADDRESSES,   label: 'Addresses' },
-  { id: TAB_PAYMENTS,    label: 'Payments' },
-  { id: TAB_DANGER,     label: 'Danger Zone' },
+  { id: TAB_ADDRESSES,      label: 'Addresses' },
+  { id: TAB_PAYMENTS,       label: 'Payments' },
+  { id: TAB_DOWNLOADS,      label: 'Downloads' },
+  { id: TAB_ACCESSIBILITY,  label: 'Accessibility' },
+  { id: TAB_DANGER,         label: 'Danger Zone' },
 ];
 
 const THEME_ONBOARDING = 'onboarding';
@@ -164,6 +173,8 @@ declare global {
       setDntEnabled: (enabled: boolean) => Promise<void>;
       getGpcEnabled: () => Promise<boolean>;
       setGpcEnabled: (enabled: boolean) => Promise<void>;
+      getLiveCaption: () => Promise<{ enabled: boolean; language: string }>;
+      setLiveCaption: (patch: { enabled?: boolean; language?: string }) => Promise<boolean>;
       getContentCategoryDefaults: () => Promise<Record<string, string>>;
       setContentCategoryDefault: (category: string, state: string) => Promise<void>;
       getContentCategorySite: (origin: string) => Promise<Array<{ origin: string; category: string; state: string; updatedAt: number }>>;
@@ -194,9 +205,46 @@ declare global {
       }>;
       applyAutoRevokePermissions: (revocations: Array<{ origin: string; permissionType: string }>) => Promise<number>;
       optOutAutoRevoke: (origin: string, permissionType: string) => Promise<void>;
+      getSyncPrefs: () => Promise<SyncPrefs>;
+      setSyncPrefs: (patch: object) => Promise<boolean>;
+      setSyncPassphrase: (passphrase: string) => Promise<boolean>;
+      verifySyncPassphrase: (passphrase: string) => Promise<boolean>;
+      clearSyncPassphrase: () => Promise<void>;
+      getDownloadFolder: () => Promise<string>;
+      setDownloadFolder: () => Promise<string>;
+      getAskBeforeSave: () => Promise<boolean>;
+      setAskBeforeSave: (enabled: boolean) => Promise<void>;
+      getFileTypeAssociations: () => Promise<Record<string, boolean>>;
+      setFileTypeAssociation: (ext: string, enabled: boolean) => Promise<void>;
+      removeFileTypeAssociation: (ext: string) => Promise<void>;
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Sync types and defaults
+// ---------------------------------------------------------------------------
+
+interface SyncPrefs {
+  enabled: boolean;
+  syncEverything: boolean;
+  bookmarks: boolean;
+  readingList: boolean;
+  passwords: boolean;
+  addresses: boolean;
+  payments: boolean;
+  historyAndTabs: boolean;
+  savedTabGroups: boolean;
+  extensions: boolean;
+  settings: boolean;
+  encryptionEnabled: boolean;
+}
+
+const DEFAULT_SYNC_PREFS: SyncPrefs = {
+  enabled: false, syncEverything: true, bookmarks: true, readingList: true,
+  passwords: true, addresses: true, payments: true, historyAndTabs: true,
+  savedTabGroups: true, extensions: true, settings: true, encryptionEnabled: false,
+};
 
 // ---------------------------------------------------------------------------
 // Eye icon (show/hide password)
@@ -2581,6 +2629,268 @@ function PaymentsTab(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// Downloads tab
+// ---------------------------------------------------------------------------
+
+const COMMON_FILE_TYPES: Array<{ ext: string; label: string }> = [
+  { ext: 'pdf',  label: 'PDF documents (.pdf)' },
+  { ext: 'zip',  label: 'ZIP archives (.zip)' },
+  { ext: 'dmg',  label: 'Disk images (.dmg)' },
+  { ext: 'pkg',  label: 'Installer packages (.pkg)' },
+  { ext: 'mp4',  label: 'Video files (.mp4)' },
+  { ext: 'mp3',  label: 'Audio files (.mp3)' },
+  { ext: 'csv',  label: 'CSV spreadsheets (.csv)' },
+  { ext: 'txt',  label: 'Text files (.txt)' },
+];
+
+function DownloadsTab(): React.ReactElement {
+  const toast = useToast();
+  const [downloadFolder, setDownloadFolder] = useState('');
+  const [askBeforeSave, setAskBeforeSave] = useState(false);
+  const [fileTypeAssoc, setFileTypeAssoc] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void Promise.all([
+      window.settingsAPI.getDownloadFolder(),
+      window.settingsAPI.getAskBeforeSave(),
+      window.settingsAPI.getFileTypeAssociations(),
+    ]).then(([folder, ask, assoc]) => {
+      setDownloadFolder(folder);
+      setAskBeforeSave(ask);
+      setFileTypeAssoc(assoc);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  async function handleChangeFolderClick(): Promise<void> {
+    try {
+      const newFolder = await window.settingsAPI.setDownloadFolder();
+      if (newFolder !== null) {
+        setDownloadFolder(newFolder);
+        toast.show({ variant: 'success', title: 'Download folder updated' });
+      }
+    } catch (err) {
+      toast.show({ variant: 'error', title: 'Failed to change folder', message: (err as Error).message });
+    }
+  }
+
+  async function handleAskBeforeSaveToggle(checked: boolean): Promise<void> {
+    setAskBeforeSave(checked);
+    try {
+      await window.settingsAPI.setAskBeforeSave(checked);
+      toast.show({
+        variant: 'success',
+        title: checked ? 'Will prompt for save location' : 'Saving to download folder automatically',
+      });
+    } catch (err) {
+      setAskBeforeSave(!checked);
+      toast.show({ variant: 'error', title: 'Failed to update setting', message: (err as Error).message });
+    }
+  }
+
+  async function handleFileTypeToggle(ext: string, checked: boolean): Promise<void> {
+    setFileTypeAssoc((prev) => ({ ...prev, [ext]: checked }));
+    try {
+      await window.settingsAPI.setFileTypeAssociation(ext, checked);
+    } catch (err) {
+      setFileTypeAssoc((prev) => ({ ...prev, [ext]: !checked }));
+      toast.show({ variant: 'error', title: 'Failed to update setting', message: (err as Error).message });
+    }
+  }
+
+  const displayFolder = downloadFolder || '(System default downloads folder)';
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Downloads</h2>
+      <p className="settings-section-desc">
+        Choose where downloads are saved and when to be prompted.
+      </p>
+
+      {loading ? (
+        <Spinner />
+      ) : (
+        <>
+          <Card variant="default" padding="md" className="settings-card">
+            <div className="settings-toggle-row">
+              <div className="settings-toggle-info">
+                <span className="settings-toggle-label">Download location</span>
+                <span className="settings-toggle-desc" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {displayFolder}
+                </span>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => void handleChangeFolderClick()}>
+                Change…
+              </Button>
+            </div>
+          </Card>
+
+          <Card variant="default" padding="md" className="settings-card">
+            <div className="settings-toggle-row">
+              <div className="settings-toggle-info">
+                <span className="settings-toggle-label">Ask where to save each file before downloading</span>
+                <span className="settings-toggle-desc">
+                  When enabled, a save dialog appears for every download. When disabled,
+                  files are saved directly to the download folder.
+                </span>
+              </div>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={askBeforeSave}
+                  onChange={(e) => void handleAskBeforeSaveToggle(e.target.checked)}
+                />
+                <span className="settings-toggle-track" />
+              </label>
+            </div>
+          </Card>
+
+          <Card variant="default" padding="md" className="settings-card">
+            <div style={{ marginBottom: 12 }}>
+              <span className="settings-toggle-label">Open files of these types automatically</span>
+              <p className="settings-toggle-desc" style={{ marginTop: 4 }}>
+                Files of the selected types will be opened after downloading completes.
+              </p>
+            </div>
+            {COMMON_FILE_TYPES.map(({ ext, label }) => (
+              <div key={ext} className="settings-toggle-row" style={{ paddingTop: 8, paddingBottom: 8 }}>
+                <div className="settings-toggle-info">
+                  <span className="settings-toggle-label" style={{ fontWeight: 400 }}>{label}</span>
+                </div>
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={fileTypeAssoc[ext] === true}
+                    onChange={(e) => void handleFileTypeToggle(ext, e.target.checked)}
+                  />
+                  <span className="settings-toggle-track" />
+                </label>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Accessibility tab
+// ---------------------------------------------------------------------------
+
+const LIVE_CAPTION_LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'en-US', label: 'English (US)' },
+  { value: 'en-GB', label: 'English (UK)' },
+  { value: 'de-DE', label: 'German' },
+  { value: 'fr-FR', label: 'French' },
+  { value: 'es-ES', label: 'Spanish' },
+  { value: 'ja-JP', label: 'Japanese' },
+];
+
+function AccessibilityTab(): React.ReactElement {
+  const toast = useToast();
+  const [liveCaptionEnabled, setLiveCaptionEnabled] = useState(false);
+  const [liveCaptionLanguage, setLiveCaptionLanguage] = useState('en-US');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void window.settingsAPI.getLiveCaption().then(({ enabled, language }) => {
+      setLiveCaptionEnabled(enabled);
+      setLiveCaptionLanguage(language);
+    }).catch(() => {
+      // ignore; leave defaults
+    }).finally(() => {
+      setLoading(false);
+    });
+  }, []);
+
+  async function handleLiveCaptionToggle(checked: boolean): Promise<void> {
+    setLiveCaptionEnabled(checked);
+    try {
+      const ok = await window.settingsAPI.setLiveCaption({ enabled: checked });
+      if (!ok) throw new Error('Settings update failed');
+      toast.show({
+        variant: 'success',
+        title: checked ? 'Live Caption enabled' : 'Live Caption disabled',
+      });
+    } catch (err) {
+      setLiveCaptionEnabled(!checked);
+      toast.show({
+        variant: 'error',
+        title: 'Failed to update setting',
+        message: (err as Error).message,
+      });
+    }
+  }
+
+  async function handleLanguageChange(language: string): Promise<void> {
+    const previous = liveCaptionLanguage;
+    setLiveCaptionLanguage(language);
+    try {
+      await window.settingsAPI.setLiveCaption({ language });
+    } catch (err) {
+      // Only roll back if the user hasn't already selected a different language.
+      setLiveCaptionLanguage((cur) => (cur === language ? previous : cur));
+      toast.show({
+        variant: 'error',
+        title: 'Failed to update language',
+        message: (err as Error).message,
+      });
+    }
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Accessibility</h2>
+      <p className="settings-section-desc">
+        Configure accessibility features to improve your browsing experience.
+      </p>
+
+      <Card variant="default" padding="md" className="settings-card">
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-info">
+            <span className="settings-toggle-label">Live Caption</span>
+            <span className="settings-toggle-desc">
+              Automatically caption speech in audio and video
+            </span>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={liveCaptionEnabled}
+              disabled={loading}
+              onChange={(e) => void handleLiveCaptionToggle(e.target.checked)}
+            />
+            <span className="settings-toggle-track" />
+          </label>
+        </div>
+
+        {liveCaptionEnabled && (
+          <div className="settings-field" style={{ marginTop: 12 }}>
+            <label htmlFor="live-caption-language" className="settings-label">
+              Caption language
+            </label>
+            <select
+              id="live-caption-language"
+              className="settings-input"
+              value={liveCaptionLanguage}
+              disabled={loading}
+              onChange={(e) => void handleLanguageChange(e.target.value)}
+            >
+              {LIVE_CAPTION_LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Inner app (uses useToast — must be inside ToastProvider)
 // ---------------------------------------------------------------------------
 
@@ -2639,13 +2949,16 @@ function SettingsInner(): React.ReactElement {
     [TAB_SCOPES]:     <GoogleScopesTab />,
     [TAB_PASSWORDS]:  <PasswordsTab />,
     [TAB_PROFILES]:   <ProfilesTab />,
+    [TAB_SYNC]:       <SyncTab />,
     [TAB_PRIVACY]:    <PrivacyTab openDialog={clearDataOpen} onDialogChange={setClearDataOpen} />,
     [TAB_ZOOM]:       <SiteZoomTab />,
     [TAB_PERMISSIONS]: <PermissionsTab />,
     [TAB_ADDRESSES]:   <AddressesTab />,
-    [TAB_PAYMENTS]:    <PaymentsTab />,
-    [TAB_CONTENT]:    <ContentCategoriesTab />,
-    [TAB_DANGER]:     <DangerZoneTab />,
+    [TAB_PAYMENTS]:       <PaymentsTab />,
+    [TAB_DOWNLOADS]:      <DownloadsTab />,
+    [TAB_CONTENT]:        <ContentCategoriesTab />,
+    [TAB_ACCESSIBILITY]:  <AccessibilityTab />,
+    [TAB_DANGER]:         <DangerZoneTab />,
   };
 
   return (
@@ -2710,6 +3023,225 @@ function SettingsInner(): React.ReactElement {
           {content[activeTab]}
         </main>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sync tab
+// ---------------------------------------------------------------------------
+
+function SyncTab(): React.ReactElement {
+  const toast = useToast();
+  const [syncPrefs, setSyncPrefsState] = useState<SyncPrefs>(DEFAULT_SYNC_PREFS);
+  const [saving, setSaving] = useState(false);
+  const [showPassphraseForm, setShowPassphraseForm] = useState(false);
+  const [newPassphrase, setNewPassphrase] = useState('');
+  const [confirmPassphrase, setConfirmPassphrase] = useState('');
+  const [passphraseError, setPassphraseError] = useState('');
+  const [passphraseSaved, setPassphraseSaved] = useState(false);
+
+  useEffect(() => {
+    void window.settingsAPI.getSyncPrefs().then((p: SyncPrefs) => setSyncPrefsState(p));
+  }, []);
+
+  const toggle = useCallback(async (key: keyof SyncPrefs) => {
+    const previous = syncPrefs;
+    const next = { ...syncPrefs, [key]: !syncPrefs[key] };
+    // If toggling syncEverything ON, enable all data categories (but not encryption settings)
+    const NON_CATEGORY_KEYS = new Set(['enabled', 'syncEverything', 'encryptionEnabled']);
+    if (key === 'syncEverything' && next.syncEverything) {
+      Object.keys(DEFAULT_SYNC_PREFS).forEach((k) => {
+        if (!NON_CATEGORY_KEYS.has(k)) {
+          (next as Record<string, boolean>)[k] = true;
+        }
+      });
+    }
+    setSyncPrefsState(next);
+    setSaving(true);
+    try {
+      await window.settingsAPI.setSyncPrefs(next);
+    } catch (err) {
+      setSyncPrefsState(previous);
+      toast.show({ variant: 'error', title: 'Failed to update sync setting', message: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }, [syncPrefs, toast]);
+
+  const categories: Array<{ key: keyof SyncPrefs; label: string; description: string }> = [
+    { key: 'bookmarks',      label: 'Bookmarks',             description: 'Sync bookmarks across devices' },
+    { key: 'readingList',    label: 'Reading list',          description: 'Sync reading list items' },
+    { key: 'passwords',      label: 'Passwords and passkeys', description: 'Sync saved passwords' },
+    { key: 'addresses',      label: 'Addresses and more',    description: 'Sync autofill data' },
+    { key: 'payments',       label: 'Payment methods',       description: 'Sync payment methods' },
+    { key: 'historyAndTabs', label: 'History and tabs',      description: 'Sync browsing history and open tabs' },
+    { key: 'savedTabGroups', label: 'Saved tab groups',      description: 'Sync saved tab groups' },
+    { key: 'extensions',     label: 'Extensions and apps',   description: 'Sync installed extensions' },
+    { key: 'settings',       label: 'Settings and theme',    description: 'Sync browser preferences' },
+  ];
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Sync</h2>
+      <p className="settings-section-desc">
+        Keep your data up-to-date across all your devices.
+        {saving && <span style={{ marginLeft: 8, color: 'var(--color-text-secondary, #666)', fontSize: 12 }}>Saving…</span>}
+      </p>
+
+      {/* Master enable toggle */}
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+          <div>
+            <div style={{ fontWeight: 500 }}>Sync is {syncPrefs.enabled ? 'on' : 'off'}</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #666)', marginTop: 2 }}>
+              {syncPrefs.enabled ? 'Your data is being synced.' : 'Turn on sync to keep your data up-to-date.'}
+            </div>
+          </div>
+          <button
+            className={`settings-sync-toggle ${syncPrefs.enabled ? 'settings-sync-toggle--on' : ''}`}
+            role="switch"
+            aria-checked={syncPrefs.enabled}
+            disabled={saving}
+            onClick={() => void toggle('enabled')}
+          />
+        </div>
+      </Card>
+
+      {syncPrefs.enabled && (
+        <>
+          {/* Sync everything toggle */}
+          <Card style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0' }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>Sync everything</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #666)', marginTop: 2 }}>
+                  Automatically sync all data types
+                </div>
+              </div>
+              <button
+                className={`settings-sync-toggle ${syncPrefs.syncEverything ? 'settings-sync-toggle--on' : ''}`}
+                role="switch"
+                aria-checked={syncPrefs.syncEverything}
+                disabled={saving}
+                onClick={() => void toggle('syncEverything')}
+              />
+            </div>
+          </Card>
+
+          {/* Individual category toggles */}
+          {!syncPrefs.syncEverything && (
+            <Card style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {categories.map(({ key, label, description }) => (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontWeight: 500, fontSize: 14 }}>{label}</div>
+                      <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #666)', marginTop: 2 }}>{description}</div>
+                    </div>
+                    <button
+                      className={`settings-sync-toggle ${syncPrefs[key] ? 'settings-sync-toggle--on' : ''}`}
+                      role="switch"
+                      aria-checked={Boolean(syncPrefs[key])}
+                      disabled={saving}
+                      onClick={() => void toggle(key)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Encryption passphrase section */}
+          <Card style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>Encrypt synced data with your own passphrase</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #666)', marginTop: 2 }}>
+                  {syncPrefs.encryptionEnabled
+                    ? 'Your synced data is encrypted with your passphrase. Payment methods are excluded.'
+                    : 'Add a passphrase to encrypt all synced data. Payment methods via Google Pay are not encrypted.'}
+                </div>
+              </div>
+              <button
+                className={`settings-sync-toggle ${syncPrefs.encryptionEnabled ? 'settings-sync-toggle--on' : ''}`}
+                role="switch"
+                aria-checked={syncPrefs.encryptionEnabled}
+                onClick={() => {
+                  if (syncPrefs.encryptionEnabled) {
+                    void window.settingsAPI.clearSyncPassphrase()
+                      .then(() => {
+                        setSyncPrefsState(prev => ({ ...prev, encryptionEnabled: false }));
+                        setPassphraseSaved(false);
+                        setShowPassphraseForm(false);
+                      })
+                      .catch((err: Error) => {
+                        toast.show({ variant: 'error', title: 'Failed to clear passphrase', message: err.message });
+                      });
+                  } else {
+                    setShowPassphraseForm(true);
+                  }
+                }}
+              />
+            </div>
+
+            {showPassphraseForm && !syncPrefs.encryptionEnabled && (
+              <div style={{ marginTop: 16, borderTop: '1px solid var(--color-border, #e0e0e0)', paddingTop: 16 }}>
+                <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 500 }}>Set encryption passphrase</div>
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="password"
+                    value={newPassphrase}
+                    onChange={(e) => { setNewPassphrase(e.target.value); setPassphraseError(''); }}
+                    placeholder="Passphrase (min 8 characters)"
+                    style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid var(--color-border, #ccc)', fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <input
+                    type="password"
+                    value={confirmPassphrase}
+                    onChange={(e) => { setConfirmPassphrase(e.target.value); setPassphraseError(''); }}
+                    placeholder="Confirm passphrase"
+                    style={{ width: '100%', padding: '6px 8px', borderRadius: 4, border: '1px solid var(--color-border, #ccc)', fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                </div>
+                {passphraseError && (
+                  <div style={{ color: 'var(--color-danger, #d32f2f)', fontSize: 12, marginBottom: 8 }}>{passphraseError}</div>
+                )}
+                {passphraseSaved && (
+                  <div style={{ color: 'var(--color-success, #2e7d32)', fontSize: 12, marginBottom: 8 }}>Passphrase saved successfully.</div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (newPassphrase.length < 8) { setPassphraseError('Passphrase must be at least 8 characters.'); return; }
+                      if (newPassphrase !== confirmPassphrase) { setPassphraseError('Passphrases do not match.'); return; }
+                      void window.settingsAPI.setSyncPassphrase(newPassphrase)
+                        .then((ok) => {
+                          if (ok) {
+                            setSyncPrefsState(prev => ({ ...prev, encryptionEnabled: true }));
+                            setShowPassphraseForm(false);
+                            setPassphraseSaved(true);
+                            setNewPassphrase('');
+                            setConfirmPassphrase('');
+                          } else {
+                            setPassphraseError('Failed to save passphrase. Try again.');
+                          }
+                        })
+                        .catch((err: Error) => {
+                          setPassphraseError(`Error: ${err.message}`);
+                        });
+                    }}
+                  >Save passphrase</Button>
+                  <Button size="sm" variant="secondary" onClick={() => { setShowPassphraseForm(false); setNewPassphrase(''); setConfirmPassphrase(''); setPassphraseError(''); }}>Cancel</Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 }
