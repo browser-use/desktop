@@ -61,6 +61,10 @@ import {
 import { PermissionStore } from './permissions/PermissionStore';
 import { PermissionManager } from './permissions/PermissionManager';
 import { registerPermissionHandlers, unregisterPermissionHandlers } from './permissions/ipc';
+import { PermissionAutoRevoker } from './permissions/PermissionAutoRevoker';
+// Issue #54 — Content category toggles
+import { ContentCategoryStore } from './content-categories/ContentCategoryStore';
+import { registerContentCategoryHandlers, unregisterContentCategoryHandlers } from './content-categories/ipc';
 // Issue #71 — Extensions
 import { ExtensionManager } from './extensions/ExtensionManager';
 import { registerExtensionsHandlers, unregisterExtensionsHandlers } from './extensions/ipc';
@@ -143,6 +147,8 @@ let passwordStore: PasswordStore | null = null;
 let profileStore: ProfileStore | null = null;
 let permissionStore: PermissionStore | null = null;
 let permissionManager: PermissionManager | null = null;
+let permissionAutoRevoker: PermissionAutoRevoker | null = null;
+let contentCategoryStore: ContentCategoryStore | null = null;
 let extensionManager: ExtensionManager | null = null;
 let historyStore: HistoryStore | null = null;
 let downloadManager: DownloadManager | null = null;
@@ -191,10 +197,14 @@ function openShellAndWire(profileId?: string): BrowserWindow {
     tm.setOnTabClosed((tabId: string) => {
       permissionManager?.expireSessionGrants(tabId);
     });
+    permissionAutoRevoker = historyStore
+      ? new PermissionAutoRevoker({ store: permissionStore, historyStore })
+      : null;
     registerPermissionHandlers({
       store: permissionStore,
       manager: permissionManager,
       getShellWindow: () => shellWindow,
+      autoRevoker: permissionAutoRevoker ?? undefined,
     });
   }
 
@@ -353,6 +363,8 @@ app.whenReady().then(async () => {
   // only PermissionStore accepts a data dir today.
   bookmarkStore = new BookmarkStore();
   permissionStore = new PermissionStore(getProfileDataDir(activeProfileId));
+  contentCategoryStore = new ContentCategoryStore();
+  registerContentCategoryHandlers({ store: contentCategoryStore });
   registerBookmarkHandlers({
     store: bookmarkStore,
     getShellWindow: () => shellWindow,
@@ -510,7 +522,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  // Issue #71 — Extensions: init manager + register IPC
+// Issue #71 — Extensions: init manager + register IPC
   extensionManager = new ExtensionManager();
   registerExtensionsHandlers(extensionManager);
   void extensionManager.loadAllEnabled();
@@ -598,6 +610,7 @@ app.whenReady().then(async () => {
       bookmarkStore?.flushSync();
       historyStore?.flushSync();
       permissionStore?.flushSync();
+      contentCategoryStore?.flushSync();
     }
     await teardownHl();
   });
@@ -616,6 +629,7 @@ app.whenReady().then(async () => {
     unregisterHistoryHandlers();
     unregisterChromeHandlers();
     unregisterProfileHandlers();
+    unregisterContentCategoryHandlers();
     unregisterPermissionHandlers();
     unregisterExtensionsHandlers();
     // ExtensionManager currently has no dispose()/destroy() hook; its

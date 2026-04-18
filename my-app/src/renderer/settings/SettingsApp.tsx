@@ -24,15 +24,16 @@ import { ClearDataDialog } from './ClearDataDialog';
 // Constants
 // ---------------------------------------------------------------------------
 
-const TAB_API_KEY      = 'api-key'     as const;
-const TAB_AGENT        = 'agent'       as const;
-const TAB_APPEARANCE   = 'appearance'  as const;
-const TAB_SCOPES       = 'scopes'      as const;
-const TAB_DANGER       = 'danger'      as const;
-const TAB_PROFILES     = 'profiles'    as const;
-const TAB_PRIVACY      = 'privacy'     as const;
-const TAB_PASSWORDS    = 'passwords'   as const;
-const TAB_ZOOM         = 'site-zoom'   as const;
+const TAB_API_KEY      = 'api-key'          as const;
+const TAB_AGENT        = 'agent'            as const;
+const TAB_APPEARANCE   = 'appearance'       as const;
+const TAB_SCOPES       = 'scopes'           as const;
+const TAB_DANGER       = 'danger'           as const;
+const TAB_PROFILES     = 'profiles'         as const;
+const TAB_PRIVACY      = 'privacy'          as const;
+const TAB_PASSWORDS    = 'passwords'        as const;
+const TAB_ZOOM         = 'site-zoom'        as const;
+const TAB_CONTENT      = 'content'          as const;
 
 type TabId =
   | typeof TAB_API_KEY
@@ -42,9 +43,8 @@ type TabId =
   | typeof TAB_PASSWORDS
   | typeof TAB_PROFILES
   | typeof TAB_PRIVACY
-  | typeof TAB_PASSWORDS
   | typeof TAB_ZOOM
-  | typeof TAB_PASSWORDS
+  | typeof TAB_CONTENT
   | typeof TAB_DANGER;
 
 const TABS: Array<{ id: TabId; label: string }> = [
@@ -56,6 +56,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: TAB_PROFILES,   label: 'Profiles' },
   { id: TAB_PRIVACY,    label: 'Privacy and security' },
   { id: TAB_ZOOM,       label: 'Site Zoom' },
+  { id: TAB_CONTENT,    label: 'Content' },
   { id: TAB_DANGER,     label: 'Danger Zone' },
 ];
 
@@ -154,6 +155,14 @@ declare global {
       setDntEnabled: (enabled: boolean) => Promise<void>;
       getGpcEnabled: () => Promise<boolean>;
       setGpcEnabled: (enabled: boolean) => Promise<void>;
+      getContentCategoryDefaults: () => Promise<Record<string, string>>;
+      setContentCategoryDefault: (category: string, state: string) => Promise<void>;
+      getContentCategorySite: (origin: string) => Promise<Array<{ origin: string; category: string; state: string; updatedAt: number }>>;
+      setContentCategorySite: (origin: string, category: string, state: string) => Promise<void>;
+      removeContentCategorySite: (origin: string, category: string) => Promise<boolean>;
+      getAllContentCategoryOverrides: () => Promise<Array<{ origin: string; category: string; state: string; updatedAt: number }>>;
+      clearContentCategoryOrigin: (origin: string) => Promise<void>;
+      resetAllContentCategoryOverrides: () => Promise<void>;
     };
   }
 }
@@ -1526,6 +1535,183 @@ function PasswordsTab(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// Content categories tab
+// ---------------------------------------------------------------------------
+
+type CategoryState = 'allow' | 'block' | 'ask';
+
+type ContentCategory =
+  | 'sound'
+  | 'images'
+  | 'javascript'
+  | 'popups'
+  | 'ads'
+  | 'automatic-downloads'
+  | 'protected-content'
+  | 'clipboard-read'
+  | 'clipboard-write';
+
+interface ContentCategoryRow {
+  category: ContentCategory;
+  label: string;
+  description: string;
+  defaultState: CategoryState;
+  allowedStates: CategoryState[];
+}
+
+const CONTENT_CATEGORY_ROWS: ContentCategoryRow[] = [
+  {
+    category: 'sound',
+    label: 'Sound',
+    description: 'Allow sites to play audio. Autoplay is subject to browser policy.',
+    defaultState: 'allow',
+    allowedStates: ['allow', 'block'],
+  },
+  {
+    category: 'images',
+    label: 'Images',
+    description: 'Allow sites to show images.',
+    defaultState: 'allow',
+    allowedStates: ['allow', 'block'],
+  },
+  {
+    category: 'javascript',
+    label: 'JavaScript',
+    description: 'Allow sites to run JavaScript.',
+    defaultState: 'allow',
+    allowedStates: ['allow', 'block'],
+  },
+  {
+    category: 'popups',
+    label: 'Pop-ups and redirects',
+    description: 'Block sites from opening new windows or redirecting you.',
+    defaultState: 'block',
+    allowedStates: ['allow', 'block'],
+  },
+  {
+    category: 'ads',
+    label: 'Intrusive ads',
+    description: 'Block ads on sites that show intrusive or misleading ads (Better Ads Standards).',
+    defaultState: 'block',
+    allowedStates: ['allow', 'block'],
+  },
+  {
+    category: 'automatic-downloads',
+    label: 'Automatic downloads',
+    description: 'Ask before allowing sites to download multiple files automatically.',
+    defaultState: 'ask',
+    allowedStates: ['allow', 'ask', 'block'],
+  },
+  {
+    category: 'protected-content',
+    label: 'Protected content IDs',
+    description: 'Allow sites to check your device for a protected content license.',
+    defaultState: 'allow',
+    allowedStates: ['allow', 'block'],
+  },
+  {
+    category: 'clipboard-read',
+    label: 'Clipboard read',
+    description: 'Ask before allowing sites to read data you copied.',
+    defaultState: 'ask',
+    allowedStates: ['allow', 'ask', 'block'],
+  },
+  {
+    category: 'clipboard-write',
+    label: 'Clipboard write',
+    description: 'Allow sites to write data to your clipboard when you interact with the page.',
+    defaultState: 'allow',
+    allowedStates: ['allow', 'block'],
+  },
+];
+
+const STATE_LABELS: Record<CategoryState, string> = {
+  allow: 'Allow',
+  block: 'Block',
+  ask: 'Ask',
+};
+
+function ContentCategoriesTab(): React.ReactElement {
+  const toast = useToast();
+  const [defaults, setDefaults] = React.useState<Record<ContentCategory, CategoryState> | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    void window.settingsAPI.getContentCategoryDefaults().then((d) => {
+      setDefaults(d as Record<ContentCategory, CategoryState>);
+      setLoading(false);
+    }).catch(() => {
+      setLoading(false);
+    });
+  }, []);
+
+  async function handleChange(category: ContentCategory, state: CategoryState): Promise<void> {
+    if (!defaults) return;
+    const prev = defaults[category];
+    setDefaults((d) => d ? { ...d, [category]: state } : d);
+    try {
+      await window.settingsAPI.setContentCategoryDefault(category, state);
+      toast.show({ variant: 'success', title: `${CONTENT_CATEGORY_ROWS.find((r) => r.category === category)?.label ?? category} set to ${STATE_LABELS[state]}` });
+    } catch (err) {
+      setDefaults((d) => d ? { ...d, [category]: prev } : d);
+      toast.show({ variant: 'error', title: 'Failed to update setting', message: (err as Error).message });
+    }
+  }
+
+  if (loading || !defaults) {
+    return (
+      <div className="settings-section">
+        <h2 className="settings-section-title">Content</h2>
+        <div className="settings-loading">
+          <Spinner size="md" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Content</h2>
+      <p className="settings-section-desc">
+        Control what content sites can show or run. These are global defaults; per-site
+        overrides take priority.
+      </p>
+
+      <Card variant="default" padding="none" className="settings-card">
+        {CONTENT_CATEGORY_ROWS.map((row, idx) => {
+          const currentState = defaults[row.category] ?? row.defaultState;
+          return (
+            <div
+              key={row.category}
+              className={`settings-scope-row ${idx < CONTENT_CATEGORY_ROWS.length - 1 ? 'settings-scope-row--bordered' : ''}`}
+            >
+              <div className="settings-scope-info">
+                <span className="settings-scope-label">{row.label}</span>
+                <span className="settings-scope-name" style={{ fontFamily: 'var(--font-ui)', fontSize: 12 }}>
+                  {row.description}
+                </span>
+              </div>
+              <div className="settings-scope-actions">
+                <select
+                  className="settings-select"
+                  value={currentState}
+                  onChange={(e) => void handleChange(row.category, e.target.value as CategoryState)}
+                  style={{ minWidth: 80 }}
+                >
+                  {row.allowedStates.map((s) => (
+                    <option key={s} value={s}>{STATE_LABELS[s]}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Danger Zone tab
 // ---------------------------------------------------------------------------
 
@@ -1680,6 +1866,7 @@ function SettingsInner(): React.ReactElement {
     [TAB_PROFILES]:   <ProfilesTab />,
     [TAB_PRIVACY]:    <PrivacyTab openDialog={clearDataOpen} onDialogChange={setClearDataOpen} />,
     [TAB_ZOOM]:       <SiteZoomTab />,
+    [TAB_CONTENT]:    <ContentCategoriesTab />,
     [TAB_DANGER]:     <DangerZoneTab />,
   };
 

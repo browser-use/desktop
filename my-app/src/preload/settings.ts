@@ -49,10 +49,48 @@ export interface ClearDataResult {
 
 export type CheckupFlag = 'compromised' | 'reused' | 'weak';
 
+export interface AutoRevokeCandidate {
+  origin: string;
+  permissionType: string;
+  grantedAt: number;
+  daysSinceVisit: number | null;
+  lastVisit: number | null;
+}
+
+export interface AutoRevokeScanResult {
+  candidates: AutoRevokeCandidate[];
+  scannedAt: number;
+}
+
 export interface PasswordCheckupResult {
   id: string;
   flags: CheckupFlag[];
   breachCount: number;
+}
+
+
+// ---------------------------------------------------------------------------
+// Content category types
+// ---------------------------------------------------------------------------
+
+export type CategoryState = 'allow' | 'block' | 'ask';
+
+export type ContentCategory =
+  | 'sound'
+  | 'images'
+  | 'javascript'
+  | 'popups'
+  | 'ads'
+  | 'automatic-downloads'
+  | 'protected-content'
+  | 'clipboard-read'
+  | 'clipboard-write';
+
+export interface SiteCategoryOverride {
+  origin: string;
+  category: ContentCategory;
+  state: CategoryState;
+  updatedAt: number;
 }
 
 export interface SettingsAPI {
@@ -161,6 +199,30 @@ export interface SettingsAPI {
 
   /** Set whether Global Privacy Control header is enabled */
   setGpcEnabled: (enabled: boolean) => Promise<void>;
+
+  /** Get all global content category defaults */
+  getContentCategoryDefaults: () => Promise<Record<ContentCategory, CategoryState>>;
+
+  /** Set a global content category default */
+  setContentCategoryDefault: (category: ContentCategory, state: CategoryState) => Promise<void>;
+
+  /** Get per-site overrides for an origin */
+  getContentCategorySite: (origin: string) => Promise<SiteCategoryOverride[]>;
+
+  /** Set a per-site content category override */
+  setContentCategorySite: (origin: string, category: ContentCategory, state: CategoryState) => Promise<void>;
+
+  /** Remove a per-site content category override */
+  removeContentCategorySite: (origin: string, category: ContentCategory) => Promise<boolean>;
+
+  /** Get all per-site overrides */
+  getAllContentCategoryOverrides: () => Promise<SiteCategoryOverride[]>;
+
+  /** Clear all overrides for an origin */
+  clearContentCategoryOrigin: (origin: string) => Promise<void>;
+
+  /** Reset all per-site overrides */
+  resetAllContentCategoryOverrides: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +434,47 @@ const api: SettingsAPI = {
     console.debug('[settings-preload] setGpcEnabled', { enabled });
     await ipcRenderer.invoke('settings:set-gpc-enabled', enabled);
   },
+
+  getContentCategoryDefaults: async (): Promise<Record<ContentCategory, CategoryState>> => {
+    console.debug('[settings-preload] getContentCategoryDefaults');
+    return ipcRenderer.invoke('content-categories:get-defaults') as Promise<Record<ContentCategory, CategoryState>>;
+  },
+
+  setContentCategoryDefault: async (category: ContentCategory, state: CategoryState): Promise<void> => {
+    console.debug('[settings-preload] setContentCategoryDefault', { category, state });
+    await ipcRenderer.invoke('content-categories:set-default', category, state);
+  },
+
+  getContentCategorySite: async (origin: string): Promise<SiteCategoryOverride[]> => {
+    console.debug('[settings-preload] getContentCategorySite', { origin });
+    return ipcRenderer.invoke('content-categories:get-site', origin) as Promise<SiteCategoryOverride[]>;
+  },
+
+  setContentCategorySite: async (origin: string, category: ContentCategory, state: CategoryState): Promise<void> => {
+    console.debug('[settings-preload] setContentCategorySite', { origin, category, state });
+    await ipcRenderer.invoke('content-categories:set-site', origin, category, state);
+  },
+
+  removeContentCategorySite: async (origin: string, category: ContentCategory): Promise<boolean> => {
+    console.debug('[settings-preload] removeContentCategorySite', { origin, category });
+    return ipcRenderer.invoke('content-categories:remove-site', origin, category) as Promise<boolean>;
+  },
+
+  getAllContentCategoryOverrides: async (): Promise<SiteCategoryOverride[]> => {
+    console.debug('[settings-preload] getAllContentCategoryOverrides');
+    return ipcRenderer.invoke('content-categories:get-all') as Promise<SiteCategoryOverride[]>;
+  },
+
+  clearContentCategoryOrigin: async (origin: string): Promise<void> => {
+    console.debug('[settings-preload] clearContentCategoryOrigin', { origin });
+    await ipcRenderer.invoke('content-categories:clear-origin', origin);
+  },
+
+  resetAllContentCategoryOverrides: async (): Promise<void> => {
+    console.debug('[settings-preload] resetAllContentCategoryOverrides');
+    await ipcRenderer.invoke('content-categories:reset-all');
+  },
+
 };
 
 contextBridge.exposeInMainWorld('settingsAPI', api);
