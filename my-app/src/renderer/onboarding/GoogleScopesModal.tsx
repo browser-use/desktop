@@ -20,8 +20,7 @@ interface GoogleService {
   name: string;
   description: string;
   scope: GoogleOAuthScope;
-  iconColor: string;
-  iconLabel: string;
+  iconUrl: string;
 }
 
 const GOOGLE_SERVICES: GoogleService[] = [
@@ -30,40 +29,35 @@ const GOOGLE_SERVICES: GoogleService[] = [
     name: 'Gmail',
     description: 'Read and send emails on your behalf',
     scope: 'https://www.googleapis.com/auth/gmail.readonly',
-    iconColor: 'var(--color-google-gmail)',
-    iconLabel: 'M',
+    iconUrl: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
   },
   {
     id: 'calendar',
     name: 'Google Calendar',
     description: 'View your calendar events',
     scope: 'https://www.googleapis.com/auth/calendar',
-    iconColor: 'var(--color-google-calendar)',
-    iconLabel: '▦',
+    iconUrl: 'https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_31.ico',
   },
   {
     id: 'sheets',
     name: 'Sheets',
     description: 'Read your spreadsheets',
     scope: 'https://www.googleapis.com/auth/spreadsheets',
-    iconColor: 'var(--color-google-sheets)',
-    iconLabel: '≡',
+    iconUrl: 'https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico',
   },
   {
     id: 'drive',
     name: 'Google Drive',
     description: 'Read your files and documents',
     scope: 'https://www.googleapis.com/auth/drive',
-    iconColor: 'var(--color-google-drive)',
-    iconLabel: '△',
+    iconUrl: 'https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_48dp.png',
   },
   {
     id: 'docs',
     name: 'Docs',
     description: 'Read your documents',
     scope: 'https://www.googleapis.com/auth/documents',
-    iconColor: 'var(--color-google-docs)',
-    iconLabel: '≡',
+    iconUrl: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico',
   },
 ];
 
@@ -134,21 +128,14 @@ export function GoogleScopesModal({ onConfirm, onCancel }: GoogleScopesModalProp
                 />
 
                 {/* Icon */}
-                <div
-                  className="google-service-icon"
-                  style={{ backgroundColor: service.iconColor }}
-                  aria-hidden="true"
-                >
-                  <span
-                    style={{
-                      color: '#ffffff',
-                      fontSize: 14,
-                      fontWeight: 700,
-                      lineHeight: 1,
-                    }}
-                  >
-                    {service.iconLabel}
-                  </span>
+                <div className="google-service-icon" aria-hidden="true">
+                  <img
+                    src={service.iconUrl}
+                    alt=""
+                    width={24}
+                    height={24}
+                    style={{ borderRadius: 4 }}
+                  />
                 </div>
 
                 {/* Info */}

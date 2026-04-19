@@ -20,7 +20,6 @@ import '../components/base/components.css';
 import './onboarding.css';
 
 import { Welcome } from './Welcome';
-import { NamingFlow } from './NamingFlow';
 import { AccountCreation } from './AccountCreation';
 
 import type { GoogleOAuthScope, AccountInfo } from '../../shared/types';
@@ -43,7 +42,7 @@ window.addEventListener('unhandledrejection', (e) => {
 // Types
 // ---------------------------------------------------------------------------
 
-type OnboardingStep = 'welcome' | 'naming' | 'account' | 'complete';
+type OnboardingStep = 'welcome' | 'account' | 'complete';
 
 interface OnboardingState {
   step: OnboardingStep;
@@ -169,20 +168,9 @@ function OnboardingApp(): React.ReactElement {
   // -------------------------------------------------------------------------
 
   function handleWelcomeNext(): void {
-    setState((prev) => ({ ...prev, step: 'naming' }));
-  }
-
-  async function handleNamingNext(name: string): Promise<void> {
-    setState((prev) => ({ ...prev, agentName: name }));
-    try {
-      if (window.onboardingAPI) {
-        await window.onboardingAPI.setAgentName(name);
-      }
-    } catch (err) {
-      console.warn('[onboarding] setAgentName failed', err);
-    }
     setState((prev) => ({ ...prev, step: 'account' }));
   }
+
 
   async function handleAccountComplete(
     account: AccountInfo,
@@ -210,7 +198,7 @@ function OnboardingApp(): React.ReactElement {
   if (step === 'account') {
     return (
       <AccountCreation
-        onBack={() => setState((prev) => ({ ...prev, step: 'naming', oauthError: null }))}
+        onBack={() => setState((prev) => ({ ...prev, step: 'welcome', oauthError: null }))}
         onComplete={(account, scopes) => void handleAccountComplete(account, scopes)}
         onScopesSelected={(scopes) => setState((prev) => ({ ...prev, oauthScopes: scopes }))}
         oauthError={oauthError}
@@ -218,14 +206,6 @@ function OnboardingApp(): React.ReactElement {
     );
   }
 
-  if (step === 'naming') {
-    return (
-      <NamingFlow
-        onNext={(name) => void handleNamingNext(name)}
-        onBack={() => setState((prev) => ({ ...prev, step: 'welcome' }))}
-      />
-    );
-  }
 
   return <Welcome onNext={handleWelcomeNext} agentName={agentName} />;
 }
