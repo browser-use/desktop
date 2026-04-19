@@ -521,7 +521,10 @@ function buildApplicationMenu(): void {
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             mainLogger.debug('menu.openSettings');
-            openSettingsWindow();
+            if (shellWindow && !shellWindow.isDestroyed()) {
+              shellWindow.webContents.send('open-settings');
+              shellWindow.focus();
+            }
           },
         },
         { type: 'separator' },
