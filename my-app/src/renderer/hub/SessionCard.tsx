@@ -1,14 +1,6 @@
-/**
- * SessionCard — compact sidebar card showing session summary.
- * Status dot: green=running, blue=done, red=error.
- */
-
 import React from 'react';
-import type { AgentSession } from './HubApp';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { STATUS_LABEL } from './constants';
+import type { AgentSession } from './types';
 
 function formatElapsed(createdAt: number): string {
   const seconds = Math.floor((Date.now() - createdAt) / 1000);
@@ -19,29 +11,15 @@ function formatElapsed(createdAt: number): string {
   return `${hours}h`;
 }
 
-const STATUS_DOT_CLASS: Record<AgentSession['status'], string> = {
-  running: 'session-card__status-dot--running',
-  done:    'session-card__status-dot--done',
-  error:   'session-card__status-dot--error',
-};
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface SessionCardProps {
   session: AgentSession;
   isSelected: boolean;
   onClick: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export function SessionCard({ session, isSelected, onClick }: SessionCardProps): React.ReactElement {
-  const dotClass = STATUS_DOT_CLASS[session.status];
   const elapsed = formatElapsed(session.createdAt);
+  const label = STATUS_LABEL[session.status] ?? session.status;
 
   return (
     <button
@@ -50,15 +28,28 @@ export function SessionCard({ session, isSelected, onClick }: SessionCardProps):
       title={session.prompt}
       aria-selected={isSelected}
       aria-label={`Session: ${session.prompt}, status: ${session.status}`}
+      role="listitem"
     >
-      <span className={`session-card__status-dot ${dotClass}`} aria-hidden="true" />
+      <span className={`session-card__dot session-card__dot--${session.status}`} aria-hidden="true" />
       <span className="session-card__body">
         <span className="session-card__prompt">{session.prompt}</span>
         <span className="session-card__meta">
-          <span className="session-card__status-label">{session.status}</span>
+          <span className="session-card__status">{label}</span>
+          <span className="session-card__sep" aria-hidden="true" />
           <span className="session-card__elapsed">{elapsed}</span>
+          {session.toolCallCount > 0 && (
+            <>
+              <span className="session-card__sep" aria-hidden="true" />
+              <span className="session-card__tools">{session.toolCallCount} tools</span>
+            </>
+          )}
         </span>
       </span>
+      {session.status === 'running' && (
+        <span className="session-card__progress" aria-hidden="true">
+          <span className="session-card__progress-bar" />
+        </span>
+      )}
     </button>
   );
 }
