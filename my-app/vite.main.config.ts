@@ -20,7 +20,7 @@ export default defineConfig({
       // node_modules rather than bundled into main.js — Forge copies the
       // dependency tree into the asar, and bundling it would also drop the
       // lazy macOS auto-update HTTP server.
-      external: ['@anthropic-ai/sdk', 'dotenv', 'electron-updater', 'bufferutil', 'utf-8-validate'],
+      external: ['@anthropic-ai/sdk', 'dotenv', 'electron-updater', 'bufferutil', 'utf-8-validate', 'better-sqlite3'],
       output: {
         entryFileNames: 'main.js',
       },
