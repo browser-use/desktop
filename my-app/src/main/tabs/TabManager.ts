@@ -73,6 +73,8 @@ import { getAnnouncedCdpPort } from '../startup/cli';
 // Forge VitePlugin globals for the new-tab page (injected at build time)
 declare const NEWTAB_VITE_DEV_SERVER_URL: string | undefined;
 declare const NEWTAB_VITE_NAME: string | undefined;
+// Forge VitePlugin global for the shell renderer (injected at build time)
+declare const SHELL_VITE_DEV_SERVER_URL: string | undefined;
 
 function resolveNewTabUrl(): string {
   if (typeof NEWTAB_VITE_DEV_SERVER_URL !== 'undefined' && NEWTAB_VITE_DEV_SERVER_URL) {
@@ -203,6 +205,8 @@ export class TabManager {
   // the Settings > Content policies (popups, JS, sound) that were persisted
   // but previously unread.
   private contentPolicyEnforcer: ContentPolicyEnforcer | null = null;
+  private shellView: WebContentsView;
+  private overlayActive = false;
   readonly isGuest: boolean;
   private readonly partition: string | null;
 
@@ -222,6 +226,49 @@ export class TabManager {
     // follow-up with the rest of the profile-scoped stores.
     this.zoomStore = new ZoomStore();
     this.mutedSitesStore = new MutedSitesStore();
+
+    // Create the shell overlay view — sits on top of all tab views
+    this.shellView = new WebContentsView({
+      webPreferences: {
+        preload: path.join(__dirname, 'shell.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    this.shellView.setBackgroundColor('#00000000');
+    this.win.contentView.addChildView(this.shellView);
+    this.positionShellView();
+
+    // Load shell HTML
+    const shellDevUrl = typeof SHELL_VITE_DEV_SERVER_URL !== 'undefined' && SHELL_VITE_DEV_SERVER_URL
+      ? `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/shell/shell.html`
+      : null;
+    if (shellDevUrl) {
+      this.shellView.webContents.loadURL(shellDevUrl);
+      this.shellView.webContents.on('console-message', (_e, level, message, line, source) => {
+        mainLogger.info('shellRenderer.console', { level, source, line, message });
+      });
+    } else {
+      const htmlPath = path.join(__dirname, '../renderer/shell/src/renderer/shell/shell.html');
+      this.shellView.webContents.loadFile(htmlPath);
+    }
+
+    this.shellView.webContents.setZoomLevel(0);
+    this.shellView.webContents.on('zoom-changed', () => {
+      this.shellView.webContents.setZoomLevel(0);
+    });
+
+    // Shell overlay toggle — expand shell to full window when popups are open,
+    // shrink back to chrome-only when closed. This makes popups visible over
+    // page content while keeping the page interactive when no popup is open.
+    this.shellView.webContents.on('ipc-message', (_event, channel, active) => {
+      if (channel === 'shell:set-overlay') {
+        this.overlayActive = !!active;
+        this.positionShellView();
+      }
+    });
+
     this.registerIpcHandlers();
     this.registerCertErrorHandler();
     mainLogger.info('TabManager.init', {
@@ -229,6 +276,20 @@ export class TabManager {
       partition: this.partition,
       dataDir: opts?.dataDir ?? '(default)',
     });
+  }
+
+  get shellWebContents(): Electron.WebContents {
+    return this.shellView.webContents;
+  }
+
+  private positionShellView(): void {
+    const [winWidth, winHeight] = this.win.getContentSize();
+    if (this.overlayActive) {
+      this.shellView.setBounds({ x: 0, y: 0, width: winWidth, height: winHeight });
+    } else {
+      const top = this.isFullscreen ? 0 : CHROME_HEIGHT + this.chromeOffset;
+      this.shellView.setBounds({ x: 0, y: 0, width: winWidth, height: top });
+    }
   }
 
   setOnClosedTabsChanged(cb: (() => void) | null): void {
@@ -536,6 +597,8 @@ export class TabManager {
     const view = new WebContentsView({ webPreferences: webPrefs });
 
     this.win.contentView.addChildView(view);
+    // Keep shell overlay on top of all tab views
+    this.win.contentView.addChildView(this.shellView);
     this.tabs.set(tabId, view);
     this.tabOrder.push(tabId);
     this.navControllers.set(tabId, new NavigationController(view));
@@ -564,11 +627,11 @@ export class TabManager {
     // window and then fire the same IPC Cmd+L uses.
     // Re-send after did-finish-load because Electron refocuses the tab's
     // webContents when the page finishes loading, stealing focus back.
-    if (isUserInitiated && !this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
+    if (isUserInitiated && !this.win.isDestroyed() && !this.shellView.webContents.isDestroyed()) {
       const focusUrlBar = (): void => {
-        if (!this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
-          this.win.webContents.focus();
-          this.win.webContents.send("focus-url-bar");
+        if (!this.win.isDestroyed() && !this.shellView.webContents.isDestroyed()) {
+          this.shellView.webContents.focus();
+          this.shellView.webContents.send("focus-url-bar");
         }
       };
       focusUrlBar();
@@ -596,6 +659,8 @@ export class TabManager {
     }
     const view = new WebContentsView({ webPreferences: webPrefs });
     this.win.contentView.addChildView(view);
+    // Keep shell overlay on top of all tab views
+    this.win.contentView.addChildView(this.shellView);
     this.tabs.set(tabId, view);
     this.tabOrder.push(tabId);
     this.navControllers.set(tabId, new NavigationController(view));
@@ -750,7 +815,7 @@ export class TabManager {
     view.webContents.focus();
 
     mainLogger.info('TabManager.activateTab.ok', { tabId });
-    this.win.webContents.send('tab-activated', tabId);
+    this.shellView.webContents.send('tab-activated', tabId);
     this.broadcastState();
     this.broadcastZoom();
     this.onActiveTabChanged?.(tabId);
@@ -960,6 +1025,8 @@ export class TabManager {
 
     const tabId = uuidv4();
     this.win.contentView.addChildView(view);
+    // Keep shell overlay on top of all tab views
+    this.win.contentView.addChildView(this.shellView);
     this.tabs.set(tabId, view);
     this.tabOrder.push(tabId);
     this.navControllers.set(tabId, new NavigationController(view));
@@ -1621,6 +1688,7 @@ export class TabManager {
         this.positionView(view);
       }
     }
+    this.positionShellView();
   }
 
   private positionView(view: WebContentsView): void {
@@ -1960,8 +2028,8 @@ export class TabManager {
     // Handle target_lost for active tab agent enforcement
     wc.on('destroyed', () => {
       mainLogger.info('TabManager.tab.destroyed', { tabId });
-      if (!this.win.isDestroyed() && !this.win.webContents.isDestroyed()) {
-        this.win.webContents.send('target-lost', { tabId });
+      if (!this.win.isDestroyed() && !this.shellView.webContents.isDestroyed()) {
+        this.shellView.webContents.send('target-lost', { tabId });
       }
     });
 
@@ -2040,7 +2108,7 @@ export class TabManager {
         const forward = !input.shift;
         mainLogger.debug('TabManager.beforeInput.F6', { forward, url: wc.getURL() });
         if (!this.win.isDestroyed()) {
-          this.win.webContents.send('region-cycle', { forward });
+          this.shellView.webContents.send('region-cycle', { forward });
         }
         return;
       }
@@ -2117,17 +2185,17 @@ export class TabManager {
   }
 
   private safeSend(channel: string, payload: unknown): void {
-    if (this.win.isDestroyed() || this.win.webContents.isDestroyed()) return;
-    this.win.webContents.send(channel, payload);
+    if (this.win.isDestroyed() || this.shellView.webContents.isDestroyed()) return;
+    this.shellView.webContents.send(channel, payload);
   }
 
   /** Broadcast tab-group updates to every open window so all shells stay in sync. */
   private broadcastTabGroups(): void {
     if (!this.tabGroupStore) return;
     const groups = this.tabGroupStore.listGroups();
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('tab-groups:updated', groups);
+    for (const instance of TabManager.instances.values()) {
+      if (!instance.win.isDestroyed()) {
+        instance.shellWebContents.send('tab-groups:updated', groups);
       }
     }
   }

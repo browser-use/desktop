@@ -86,7 +86,6 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: incognito ? '#1a1a2e' : '#0d0d0d',
     webPreferences: {
-      preload: path.join(__dirname, 'shell.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -96,44 +95,6 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
   if (titleSuffix) {
     win.setTitle(win.getTitle() + titleSuffix);
   }
-
-  // Load the shell renderer
-  if (
-    typeof SHELL_VITE_DEV_SERVER_URL !== 'undefined' &&
-    SHELL_VITE_DEV_SERVER_URL
-  ) {
-    const shellDevUrl = `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/shell/shell.html`;
-    mainLogger.debug('window.loadURL', { url: shellDevUrl });
-    win.loadURL(shellDevUrl);
-    win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-      mainLogger.error('window.did-fail-load', { code, desc, url });
-    });
-    win.webContents.on('did-finish-load', () => {
-      mainLogger.info('window.did-finish-load', { url: win.webContents.getURL() });
-    });
-    win.webContents.on('console-message', (_e, level, message, line, source) => {
-      mainLogger.info('shellRenderer.console', { level, source, line, message });
-    });
-    win.webContents.openDevTools({ mode: 'detach' });
-  } else {
-    // Forge VitePlugin preserves the HTML's location relative to Vite's `root`
-    // (which defaults to the project root when not overridden). The HTML is
-    // declared as src/renderer/shell/shell.html, so the built asset lands at
-    //   .vite/renderer/shell/src/renderer/shell/shell.html
-    // __dirname = .vite/build, so the path is:
-    //   ../renderer/shell/src/renderer/shell/shell.html
-    const htmlPath = path.join(
-      __dirname,
-      `../renderer/shell/src/renderer/shell/shell.html`,
-    );
-    mainLogger.debug('window.loadFile', { filePath: htmlPath });
-    win.loadFile(htmlPath);
-  }
-
-  win.webContents.setZoomLevel(0);
-  win.webContents.on('zoom-changed', () => {
-    win.webContents.setZoomLevel(0);
-  });
 
   // Debounced bounds persistence — incognito windows do NOT persist bounds
   // to avoid leaking usage patterns.
@@ -153,9 +114,6 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
   });
   win.on('closed', () => {
     mainLogger.info('window.closed', { msg: 'Shell window destroyed', incognito });
-  });
-  win.webContents.on('crashed' as any, (_e: Event, killed: boolean) => {
-    mainLogger.error('window.crashed', { windowId: win.id, killed });
   });
 
   return win;

@@ -32,6 +32,7 @@ import { KeychainStore } from './identity/KeychainStore';
 import { initOAuthHandler } from './oauth';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers, unregisterOnboardingHandlers } from './identity/onboardingHandlers';
+import { registerChromeImportHandlers, unregisterChromeImportHandlers } from './chrome-import/ipc';
 import { performSignOut, turnOffSync } from './identity/SignOutController';
 import type { SignOutMode, LocalDataStores } from './identity/SignOutController';
 import { mainLogger } from './logger';
@@ -362,9 +363,9 @@ function openShellAndWire(profileId?: string): BrowserWindow {
 
   rebuildApplicationMenu();
 
-  shellWindow.webContents.once('did-finish-load', () => {
+  tabManager.shellWebContents.once('did-finish-load', () => {
     mainLogger.info('main.shellReady', { windowId: shellWindow?.id });
-    shellWindow?.webContents.send('window-ready');
+    tabManager?.shellWebContents.send('window-ready');
   });
 
   shellWindow.on('resize', () => tabManager?.relayout());
@@ -472,10 +473,10 @@ function openGuestShell(): BrowserWindow {
 
   rebuildApplicationMenu();
 
-  shellWindow.webContents.once('did-finish-load', () => {
+  tabManager.shellWebContents.once('did-finish-load', () => {
     mainLogger.info('main.guestShellReady', { windowId: shellWindow?.id });
-    shellWindow?.webContents.send('window-ready');
-    shellWindow?.webContents.send('guest-mode', true);
+    tabManager?.shellWebContents.send('window-ready');
+    tabManager?.shellWebContents.send('guest-mode', true);
   });
 
   shellWindow.on('resize', () => tabManager?.relayout());
@@ -537,9 +538,9 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
     openNewWindow(url);
   });
 
-  win.webContents.once('did-finish-load', () => {
+  tm.shellWebContents.once('did-finish-load', () => {
     mainLogger.info('main.newWindow.ready', { windowId: win.id });
-    win.webContents.send('window-ready');
+    tm.shellWebContents.send('window-ready');
   });
 
   win.on('resize', () => tm.relayout());
@@ -581,10 +582,10 @@ function openIncognitoWindow(initialUrl?: string): BrowserWindow {
     openIncognitoWindow(url);
   });
 
-  win.webContents.once('did-finish-load', () => {
+  tm.shellWebContents.once('did-finish-load', () => {
     mainLogger.info('main.incognitoWindow.ready', { windowId: win.id });
-    win.webContents.send('window-ready');
-    win.webContents.send('incognito-mode', true);
+    tm.shellWebContents.send('window-ready');
+    tm.shellWebContents.send('incognito-mode', true);
   });
 
   win.on('resize', () => tm.relayout());
@@ -635,10 +636,10 @@ function openGuestWindow(partition: string, initialUrl?: string): BrowserWindow 
     openGuestWindow(partition, url);
   });
 
-  win.webContents.once('did-finish-load', () => {
+  tm.shellWebContents.once('did-finish-load', () => {
     mainLogger.info('main.guestWindow.ready', { windowId: win.id });
-    win.webContents.send('window-ready');
-    win.webContents.send('guest-mode', true);
+    tm.shellWebContents.send('window-ready');
+    tm.shellWebContents.send('guest-mode', true);
   });
 
   win.on('resize', () => tm.relayout());
@@ -1081,8 +1082,11 @@ app.whenReady().then(async () => {
       accountStore,
       oauthClient,
       onboardingWindow,
+      profileStore: profileStore ?? undefined,
       openShellWindow: () => openShellAndWire(),
     });
+
+    registerChromeImportHandlers(onboardingWindow);
 
     initOAuthHandler({
       client: oauthClient,
@@ -1094,6 +1098,7 @@ app.whenReady().then(async () => {
     onboardingWindow.on('closed', () => {
       mainLogger.info('main.onboardingWindow.closed');
       unregisterOnboardingHandlers();
+      unregisterChromeImportHandlers();
       onboardingWindow = null;
     });
 
