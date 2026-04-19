@@ -97,6 +97,10 @@ function displayUrl(url: string): string {
   return host + path + parsed.search + parsed.hash;
 }
 
+interface PermissionEntry {
+  permissionType: string;
+  state: 'allow' | 'deny' | 'ask';
+}
 
 interface PageInfo {
   url: string;

@@ -671,22 +671,31 @@ function checkOnboardingStructure(capturePath: string, stateName: string): strin
       issues.push('Step indicator region is very dark — dots may not be rendering');
     }
 
-    // 3. Right panel should be rendered — sample for non-pure-black pixel values
-    const rightPanel = sampleRegionRgb(
+    // 3. Right side of image should have the mascot area — sample for non-background color
+    const mascotRegion = sampleRegionRgb(
       png,
       Math.floor(png.width * 0.6),
       Math.floor(png.height * 0.25),
       Math.floor(png.width * 0.35),
       Math.floor(png.height * 0.5),
     );
-    const rightPanelLuminance = 0.2126 * rightPanel.r + 0.7152 * rightPanel.g + 0.0722 * rightPanel.b;
-    log('info', 'Right panel region sample', {
+    const mascotLuminance = 0.2126 * mascotRegion.r + 0.7152 * mascotRegion.g + 0.0722 * mascotRegion.b;
+    const bgSample = sampleRegionRgb(png, 0, 0, 80, 80);
+    const bgLuminance = 0.2126 * bgSample.r + 0.7152 * bgSample.g + 0.0722 * bgSample.b;
+
+    // Mascot area should be somewhat different from background
+    const mascotContrast = Math.abs(mascotLuminance - bgLuminance);
+    log('info', 'Mascot region contrast', {
       state: stateName,
-      luminance: rightPanelLuminance.toFixed(1),
+      mascotLuminance: mascotLuminance.toFixed(1),
+      bgLuminance: bgLuminance.toFixed(1),
+      contrast: mascotContrast.toFixed(1),
     });
 
-    if (rightPanelLuminance < 5) {
-      issues.push('Right panel region is pure black — panel may not be rendering');
+    if (mascotContrast < 8) {
+      issues.push(
+        `Mascot region has low contrast vs background (${mascotContrast.toFixed(1)}) — character mascot may be absent`,
+      );
     }
 
     // 4. Left panel should have text content — check for varied pixel values
