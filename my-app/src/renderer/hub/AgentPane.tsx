@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { STATUS_LABEL, OUTPUT_TYPE_LABEL } from './constants';
 import { ContentRenderer, getPreview } from './ContentRenderer';
+import { adaptSession } from './types';
 import type { AgentSession, OutputEntry } from './types';
 
 function formatElapsed(createdAt: number): string {
@@ -100,6 +101,13 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
         {entry.duration != null && (
           <span className="entry__dur">{formatDuration(entry.duration)}</span>
         )}
+        <button
+          className="entry__copy"
+          title="Copy"
+          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(entry.content); }}
+        >
+          <CopyIcon />
+        </button>
         <span className="entry__ts">{formatTimestamp(entry.timestamp)}</span>
         {canCollapse && (
           <span className={`entry__chev${collapsed ? '' : ' entry__chev--open'}`}>
@@ -118,32 +126,77 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
   );
 }
 
-interface AgentPaneProps {
-  session: AgentSession;
+function CopyIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+      <rect x="4.5" y="4.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M9.5 4.5V3a1.5 1.5 0 00-1.5-1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h1.5" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
 }
 
-export function AgentPane({ session }: AgentPaneProps): React.ReactElement {
+function RerunIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+      <path d="M2 7a5 5 0 019.33-2.5M12 7a5 5 0 01-9.33 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M11 2v3h-3M3 12V9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+interface AgentPaneProps {
+  session: AgentSession;
+  focused?: boolean;
+  onRerun?: (prompt: string) => void;
+}
+
+export function AgentPane({ session, focused, onRerun }: AgentPaneProps): React.ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { entries } = useMemo(() => adaptSession(session), [session]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [session.output.length]);
+  }, [entries.length]);
 
   const elapsed = formatElapsed(session.createdAt);
   const statusText = STATUS_LABEL[session.status] ?? session.status;
 
   return (
-    <div className={`pane pane--${session.status}`}>
+    <div className={`pane pane--${session.status}${focused ? ' pane--focused' : ''}`}>
       <div className="pane__header">
         <span className={`pane__dot pane__dot--${session.status}`} />
         <span className="pane__prompt">{session.prompt}</span>
+        <div className="pane__actions">
+          <button
+            className="pane__action"
+            title="Copy prompt"
+            onClick={() => navigator.clipboard.writeText(session.prompt)}
+          >
+            <CopyIcon />
+          </button>
+          {onRerun && (
+            <button
+              className="pane__action"
+              title="Rerun"
+              onClick={() => onRerun(session.prompt)}
+            >
+              <RerunIcon />
+            </button>
+          )}
+        </div>
       </div>
       <div className="pane__meta">
         <span className="pane__status">{statusText}</span>
         <span className="pane__sep" />
         <span className="pane__elapsed">{elapsed}</span>
+        {session.group && (
+          <>
+            <span className="pane__sep" />
+            <span className="pane__group">{session.group}</span>
+          </>
+        )}
       </div>
 
       {session.status === 'running' && (
@@ -153,21 +206,21 @@ export function AgentPane({ session }: AgentPaneProps): React.ReactElement {
       )}
 
       <div className="pane__output" ref={scrollRef}>
-        {session.output.length === 0 && session.status === 'draft' && (
+        {entries.length === 0 && session.status === 'draft' && (
           <div className="pane__output-empty">
             <p className="pane__output-empty-text">Not started yet</p>
           </div>
         )}
-        {session.output.length === 0 && session.status === 'running' && (
+        {entries.length === 0 && session.status === 'running' && (
           <div className="pane__output-empty">
             <span className="pane__spinner" />
             <p className="pane__output-empty-text">Starting...</p>
           </div>
         )}
-        {session.output.map((entry) => (
+        {entries.map((entry) => (
           <OutputRow key={entry.id} entry={entry} />
         ))}
-        {session.status === 'running' && session.output.length > 0 && (
+        {session.status === 'running' && entries.length > 0 && (
           <div className="pane__cursor-row">
             <span className="pane__cursor" />
           </div>

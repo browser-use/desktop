@@ -1,10 +1,25 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentPane } from './AgentPane';
 import { ListView } from './ListView';
 import { Dashboard } from './Dashboard';
 import { CommandBar } from './CommandBar';
+import { KeybindingsOverlay } from './KeybindingsOverlay';
+import { SettingsPane } from './SettingsPane';
+import { useVimKeys } from './useVimKeys';
 import { MOCK_SESSIONS } from './mock-data';
-import type { AgentSession, OutputEntry } from './types';
+import type { AgentSession, HlEvent } from './types';
+import type { ActionId } from './keybindings';
+
+function groupSessions(sessions: AgentSession[]): { group: string; sessions: AgentSession[] }[] {
+  const groups = new Map<string, AgentSession[]>();
+  for (const s of sessions) {
+    const key = s.group ?? 'ungrouped';
+    const arr = groups.get(key);
+    if (arr) arr.push(s);
+    else groups.set(key, [s]);
+  }
+  return Array.from(groups, ([group, items]) => ({ group, sessions: items }));
+}
 
 type ViewMode = 'dashboard' | 'grid' | 'list';
 
@@ -56,16 +71,57 @@ export function HubApp(): React.ReactElement {
   const [sessions, setSessions] = useState<AgentSession[]>(MOCK_SESSIONS);
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
   const [cmdBarOpen, setCmdBarOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [focusIndex, setFocusIndex] = useState(0);
+
+  const vimHandlers = useMemo<Partial<Record<ActionId, () => void>>>(() => ({
+    'nav.down': () => setFocusIndex((i) => Math.min(i + 1, sessions.length - 1)),
+    'nav.up': () => setFocusIndex((i) => Math.max(i - 1, 0)),
+    'nav.top': () => setFocusIndex(0),
+    'nav.bottom': () => setFocusIndex(sessions.length - 1),
+    'nav.open': () => {
+      console.log('[VimKeys] open session', sessions[focusIndex]?.id);
+    },
+
+    'goto.dashboard': () => setViewMode('dashboard'),
+    'goto.agents': () => setViewMode('grid'),
+    'goto.list': () => setViewMode('list'),
+    'goto.settings': () => setSettingsOpen(true),
+
+    'search.open': () => setCmdBarOpen(true),
+
+    'action.create': () => setCmdBarOpen(true),
+
+    'scroll.halfDown': () => {
+      const el = document.querySelector('.hub-grid, .list-view__body, .dashboard');
+      if (el) el.scrollBy({ top: el.clientHeight / 2, behavior: 'smooth' });
+    },
+    'scroll.halfUp': () => {
+      const el = document.querySelector('.hub-grid, .list-view__body, .dashboard');
+      if (el) el.scrollBy({ top: -(el.clientHeight / 2), behavior: 'smooth' });
+    },
+
+    'meta.help': () => setHelpOpen((prev) => !prev),
+    'meta.commandPalette': () => setCmdBarOpen((prev) => !prev),
+    'meta.escape': () => {
+      if (helpOpen) { setHelpOpen(false); return; }
+      if (settingsOpen) { setSettingsOpen(false); return; }
+      if (cmdBarOpen) { setCmdBarOpen(false); return; }
+    },
+  }), [sessions, focusIndex, helpOpen, settingsOpen, cmdBarOpen]);
+
+  const vim = useVimKeys(vimHandlers);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setCmdBarOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const api = (window as unknown as { electronAPI?: { on?: { openSettings?: (cb: () => void) => () => void } } }).electronAPI;
+    if (api?.on?.openSettings) {
+      const unsub = api.on.openSettings(() => {
+        console.log('[HubApp] open-settings via IPC');
+        setSettingsOpen(true);
+      });
+      return unsub;
+    }
   }, []);
 
   const handleCreateSession = useCallback((prompt: string) => {
@@ -77,123 +133,40 @@ export function HubApp(): React.ReactElement {
       prompt,
       status: 'running',
       createdAt: now,
-      elapsedMs: 0,
-      toolCallCount: 0,
       output: [
-        {
-          id: uid('e'),
-          type: 'thinking',
-          timestamp: now,
-          content: `Analyzing the task: "${prompt}". Let me break this down and determine the best approach.`,
-        },
+        { type: 'thinking', text: `Analyzing the task: "${prompt}". Let me break this down and determine the best approach.` },
       ],
     };
 
     console.log('[HubApp] createSession', { id, prompt });
     setSessions((prev) => [...prev, newSession]);
 
-    setTimeout(() => {
+    const pushEvent = (event: HlEvent, statusOverride?: AgentSession['status']) => {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== id) return s;
-          const entry: OutputEntry = {
-            id: uid('e'),
-            type: 'tool_call',
-            timestamp: Date.now(),
-            tool: 'file.search',
-            content: `{ "pattern": "**/*.ts", "query": "${prompt.split(' ').slice(0, 3).join(' ')}" }`,
-          };
-          return { ...s, output: [...s.output, entry], toolCallCount: 1, elapsedMs: 2000 };
+          const updated = { ...s, output: [...s.output, event] };
+          if (statusOverride) updated.status = statusOverride;
+          return updated;
         }),
       );
-    }, 2000);
+    };
 
-    setTimeout(() => {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          const entry: OutputEntry = {
-            id: uid('e'),
-            type: 'tool_result',
-            timestamp: Date.now(),
-            tool: 'file.search',
-            content: 'Found 7 relevant files across 3 directories.',
-            duration: 1500,
-          };
-          return { ...s, output: [...s.output, entry], elapsedMs: 3500 };
-        }),
-      );
-    }, 3500);
-
-    setTimeout(() => {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          const entry: OutputEntry = {
-            id: uid('e'),
-            type: 'thinking',
-            timestamp: Date.now(),
-            content: 'I\'ve found the relevant files. Now analyzing the code structure and planning modifications.',
-          };
-          return { ...s, output: [...s.output, entry], elapsedMs: 5000 };
-        }),
-      );
-    }, 5000);
-
-    setTimeout(() => {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          const entry: OutputEntry = {
-            id: uid('e'),
-            type: 'tool_call',
-            timestamp: Date.now(),
-            tool: 'file.read',
-            content: '{ "path": "src/main/index.ts", "lines": "1-50" }',
-          };
-          return { ...s, output: [...s.output, entry], toolCallCount: 2, elapsedMs: 7000 };
-        }),
-      );
-    }, 7000);
-
-    setTimeout(() => {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          const entry: OutputEntry = {
-            id: uid('e'),
-            type: 'tool_result',
-            timestamp: Date.now(),
-            tool: 'file.read',
-            content: 'Read 50 lines from src/main/index.ts. Found the entry point configuration and module initialization.',
-            duration: 800,
-          };
-          return { ...s, output: [...s.output, entry], elapsedMs: 8000 };
-        }),
-      );
-    }, 8000);
-
-    setTimeout(() => {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          const entry: OutputEntry = {
-            id: uid('e'),
-            type: 'text',
-            timestamp: Date.now(),
-            content: 'Implementation complete. I\'ve made the following changes:\n\n1. Updated the module configuration\n2. Added proper error handling\n3. Refactored the initialization sequence\n\nAll changes have been saved.',
-          };
-          return { ...s, output: [...s.output, entry], status: 'stopped', elapsedMs: 10000 };
-        }),
-      );
-    }, 10000);
+    setTimeout(() => pushEvent({ type: 'tool_call', name: 'file.search', args: { pattern: '**/*.ts', query: prompt.split(' ').slice(0, 3).join(' ') }, iteration: 1 }), 2000);
+    setTimeout(() => pushEvent({ type: 'tool_result', name: 'file.search', ok: true, preview: 'Found 7 relevant files across 3 directories.', ms: 1500 }), 3500);
+    setTimeout(() => pushEvent({ type: 'thinking', text: 'I\'ve found the relevant files. Now analyzing the code structure and planning modifications.' }), 5000);
+    setTimeout(() => pushEvent({ type: 'tool_call', name: 'file.read', args: { path: 'src/main/index.ts', lines: '1-50' }, iteration: 2 }), 7000);
+    setTimeout(() => pushEvent({ type: 'tool_result', name: 'file.read', ok: true, preview: 'Read 50 lines from src/main/index.ts. Found the entry point configuration and module initialization.', ms: 800 }), 8000);
+    setTimeout(() => pushEvent({ type: 'done', summary: 'Implementation complete. I\'ve made the following changes:\n\n1. Updated the module configuration\n2. Added proper error handling\n3. Refactored the initialization sequence\n\nAll changes have been saved.', iterations: 2 }, 'stopped'), 10000);
   }, []);
 
   const hasNoSessions = sessions.length === 0;
 
   const handleSelectSession = useCallback((id: string) => {
+    const idx = sessions.findIndex((s) => s.id === id);
+    if (idx >= 0) setFocusIndex(idx);
     console.log('[HubApp] selectSession', { id });
-  }, []);
+  }, [sessions]);
 
   return (
     <div className="hub-root">
@@ -253,19 +226,68 @@ export function HubApp(): React.ReactElement {
       ) : viewMode === 'dashboard' ? (
         <Dashboard sessions={sessions} onSwitchToGrid={() => setViewMode('grid')} />
       ) : viewMode === 'grid' ? (
-        <div className="hub-grid" data-count={Math.min(sessions.length, 4)}>
-          {sessions.map((session) => (
-            <AgentPane key={session.id} session={session} />
+        <div className="hub-grouped-grid">
+          {groupSessions(sessions).map(({ group, sessions: groupSessions_ }) => (
+            <div key={group} className="hub-group">
+              <div className="hub-group__header">
+                <span className="hub-group__name">{group}</span>
+                <span className="hub-group__count">{groupSessions_.length}</span>
+              </div>
+              <div className="hub-grid" data-count={Math.min(groupSessions_.length, 4)}>
+                {groupSessions_.map((session) => {
+                  const globalIdx = sessions.findIndex((s) => s.id === session.id);
+                  return (
+                    <AgentPane
+                      key={session.id}
+                      session={session}
+                      focused={globalIdx === focusIndex}
+                      onRerun={handleCreateSession}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </div>
       ) : (
-        <ListView sessions={sessions} onSelectSession={handleSelectSession} />
+        <ListView
+          sessions={sessions}
+          onSelectSession={handleSelectSession}
+          focusIndex={focusIndex}
+        />
+      )}
+
+      {vim.chordPrefix && (
+        <div className="chord-indicator">
+          <kbd className="chord-indicator__key">{vim.chordPrefix}</kbd>
+          <span className="chord-indicator__hint">...</span>
+        </div>
       )}
 
       <CommandBar
         open={cmdBarOpen}
         onClose={() => setCmdBarOpen(false)}
         onSubmit={handleCreateSession}
+      />
+
+      <KeybindingsOverlay
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        keybindings={vim.keybindings}
+        onOpenSettings={() => {
+          setHelpOpen(false);
+          setSettingsOpen(true);
+        }}
+      />
+
+      <SettingsPane
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        keybindings={vim.keybindings}
+        overrides={vim.overrides}
+        onUpdateBinding={vim.updateBinding}
+        onResetBinding={vim.resetBinding}
+        onResetAll={vim.resetAll}
       />
     </div>
   );

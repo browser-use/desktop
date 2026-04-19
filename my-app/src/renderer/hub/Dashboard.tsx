@@ -198,6 +198,7 @@ export function Dashboard({ sessions, onSwitchToGrid }: DashboardProps): React.R
             <div key={session.id} className="dashboard__recent-row">
               <span className={`dashboard__recent-dot dashboard__recent-dot--${session.status}`} />
               <span className="dashboard__recent-status">{STATUS_LABEL[session.status]}</span>
+              {session.group && <span className="dashboard__recent-group">{session.group}</span>}
               <span className="dashboard__recent-prompt">{session.prompt}</span>
               <span className="dashboard__recent-elapsed">{formatElapsed(session.createdAt)}</span>
             </div>
