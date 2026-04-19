@@ -20,8 +20,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const { loggerSpy, MockMenu, MockMenuItem, mockClipboard, mockCaptured } = vi.hoisted(() => {
-  let capturedMenu: unknown = null;
-
   class MockMenuItemClass {
     label?: string;
     type?: string;
@@ -32,9 +30,10 @@ const { loggerSpy, MockMenu, MockMenuItem, mockClipboard, mockCaptured } = vi.ho
   }
 
   class MockMenuClass {
+    static last: MockMenuClass | null = null;
     items: MockMenuItemClass[] = [];
     append(item: MockMenuItemClass) { this.items.push(item); }
-    popup() { capturedMenu = this; }
+    popup() { MockMenuClass.last = this; }
   }
 
   return {
@@ -42,7 +41,7 @@ const { loggerSpy, MockMenu, MockMenuItem, mockClipboard, mockCaptured } = vi.ho
     MockMenu: MockMenuClass,
     MockMenuItem: MockMenuItemClass,
     mockClipboard: { writeText: vi.fn() },
-    mockCaptured: { get: () => capturedMenu as InstanceType<typeof MockMenuClass> | null, clear: () => { capturedMenu = null; } },
+    mockCaptured: { get: () => MockMenuClass.last, clear: () => { MockMenuClass.last = null; } },
   };
 });
 
