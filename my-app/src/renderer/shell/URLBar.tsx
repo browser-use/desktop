@@ -23,7 +23,8 @@ const SECURE_RE = /^https:\/\//i;
 const INSECURE_RE = /^http:\/\//i;
 // New-tab data: URLs and about:blank are internal placeholders; the omnibox
 // renders them as empty so the "Search or enter address" placeholder shows.
-const BLANK_RE = /^(data:|about:blank$)/i;
+// Only match the app's own internal new-tab page, not arbitrary external URLs.
+const BLANK_RE = /^(data:|about:blank$|[a-z][a-z0-9+.-]*:\/\/[^/]*\/newtab\/newtab\.html)/i;
 const NEWTAB_RE = /\/newtab\/newtab\.html/i;
 
 // Subdomains that Chrome elides from display (trivial/redundant prefixes).
@@ -326,13 +327,15 @@ export function URLBar({
   }, []);
 
   const closeDropdown = useCallback((): void => {
-    setDropdownOpen(false);
-    setSuggestions([]);
-    setSelectedIndex(-1);
+    // Cancel any pending debounced suggestion request so stale results don't
+    // reopen the dropdown after it has been explicitly closed.
     if (suggestTimerRef.current) {
       clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = null;
     }
+    setDropdownOpen(false);
+    setSuggestions([]);
+    setSelectedIndex(-1);
   }, []);
 
 
@@ -402,22 +405,25 @@ export function URLBar({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (dropdownOpen && suggestions.length > 0) {
-        if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown') {
+        if (dropdownOpen && suggestions.length > 0) {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
-          return;
+          setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
         }
-        if (e.key === 'ArrowUp') {
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        if (dropdownOpen && suggestions.length > 0) {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.max(prev - 1, -1));
-          return;
+          setSelectedIndex((i) => Math.max(i - 1, -1));
         }
-        if (e.key === 'Enter' && selectedIndex >= 0) {
-          e.preventDefault();
-          commitSuggestion(suggestions[selectedIndex]);
-          return;
-        }
+        return;
+      }
+
+      if (dropdownOpen && e.key === 'Enter' && selectedIndex >= 0) {
+        e.preventDefault();
+        commitSuggestion(suggestions[selectedIndex]);
+        return;
       }
 
       if (e.key === 'Enter') {
