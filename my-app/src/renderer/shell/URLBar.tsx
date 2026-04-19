@@ -10,7 +10,6 @@ import React, {
   useState,
 } from 'react';
 import { OmniboxDropdown } from './OmniboxDropdown';
-import { usePopupLayer } from './PopupLayerContext';
 import type { OmniboxSuggestion } from '../../main/omnibox/providers';
 
 // ---------------------------------------------------------------------------
@@ -167,12 +166,6 @@ export function URLBar({
     }
   }, []);
 
-  usePopupLayer({
-    id: 'omnibox-dropdown',
-    type: 'dropdown',
-    onDismiss: closeDropdown,
-    isOpen: dropdownOpen,
-  });
 
   const commitSuggestion = useCallback((suggestion: OmniboxSuggestion): void => {
     console.log('[URLBar] omnibox selection committed:', suggestion.url);
