@@ -30,6 +30,7 @@ const TAB_APPEARANCE     = 'appearance'       as const;
 const TAB_SCOPES         = 'scopes'           as const;
 const TAB_DANGER         = 'danger'           as const;
 const TAB_PROFILES       = 'profiles'         as const;
+const TAB_SYNC           = 'sync'             as const;
 const TAB_PRIVACY        = 'privacy'          as const;
 const TAB_PASSWORDS      = 'passwords'        as const;
 const TAB_ZOOM           = 'site-zoom'        as const;
@@ -37,6 +38,8 @@ const TAB_CONTENT        = 'content'          as const;
 const TAB_PERMISSIONS    = 'permissions'      as const;
 const TAB_ADDRESSES      = 'addresses'        as const;
 const TAB_PAYMENTS       = 'payments'         as const;
+const TAB_DOWNLOADS      = 'downloads'        as const;
+const TAB_ACCESSIBILITY  = 'accessibility'    as const;
 const TAB_SEARCH_ENGINES = 'search-engines'   as const;
 
 type TabId =
@@ -53,6 +56,8 @@ type TabId =
   | typeof TAB_PERMISSIONS
   | typeof TAB_ADDRESSES
   | typeof TAB_PAYMENTS
+  | typeof TAB_DOWNLOADS
+  | typeof TAB_ACCESSIBILITY
   | typeof TAB_SEARCH_ENGINES
   | typeof TAB_DANGER;
 
@@ -63,12 +68,15 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: TAB_SCOPES,         label: 'Google Scopes' },
   { id: TAB_PASSWORDS,      label: 'Passwords' },
   { id: TAB_PROFILES,       label: 'Profiles' },
+  { id: TAB_SYNC,           label: 'Sync' },
   { id: TAB_PRIVACY,        label: 'Privacy and security' },
   { id: TAB_ZOOM,           label: 'Site Zoom' },
   { id: TAB_CONTENT,        label: 'Content' },
   { id: TAB_PERMISSIONS,    label: 'Permissions' },
   { id: TAB_ADDRESSES,      label: 'Addresses' },
   { id: TAB_PAYMENTS,       label: 'Payments' },
+  { id: TAB_DOWNLOADS,      label: 'Downloads' },
+  { id: TAB_ACCESSIBILITY,  label: 'Accessibility' },
   { id: TAB_SEARCH_ENGINES, label: 'Search Engines' },
   { id: TAB_DANGER,         label: 'Danger Zone' },
 ];
@@ -210,6 +218,18 @@ declare global {
       }>;
       applyAutoRevokePermissions: (revocations: Array<{ origin: string; permissionType: string }>) => Promise<number>;
       optOutAutoRevoke: (origin: string, permissionType: string) => Promise<void>;
+      getSyncPrefs: () => Promise<SyncPrefs>;
+      setSyncPrefs: (patch: object) => Promise<boolean>;
+      setSyncPassphrase: (passphrase: string) => Promise<boolean>;
+      verifySyncPassphrase: (passphrase: string) => Promise<boolean>;
+      clearSyncPassphrase: () => Promise<void>;
+      getDownloadFolder: () => Promise<string>;
+      setDownloadFolder: () => Promise<string>;
+      getAskBeforeSave: () => Promise<boolean>;
+      setAskBeforeSave: (enabled: boolean) => Promise<void>;
+      getFileTypeAssociations: () => Promise<Record<string, boolean>>;
+      setFileTypeAssociation: (ext: string, enabled: boolean) => Promise<void>;
+      removeFileTypeAssociation: (ext: string) => Promise<void>;
       listSearchEngines: () => Promise<SearchEngineEntry[]>;
       getDefaultSearchEngine: () => Promise<SearchEngineEntry>;
       setDefaultSearchEngine: (id: string) => Promise<void>;
@@ -3205,12 +3225,15 @@ function SettingsInner(): React.ReactElement {
     [TAB_SCOPES]:         <GoogleScopesTab />,
     [TAB_PASSWORDS]:      <PasswordsTab />,
     [TAB_PROFILES]:       <ProfilesTab />,
+    [TAB_SYNC]:           <SyncTab />,
     [TAB_PRIVACY]:        <PrivacyTab openDialog={clearDataOpen} onDialogChange={setClearDataOpen} />,
     [TAB_ZOOM]:           <SiteZoomTab />,
     [TAB_PERMISSIONS]:    <PermissionsTab />,
     [TAB_ADDRESSES]:      <AddressesTab />,
     [TAB_PAYMENTS]:       <PaymentsTab />,
+    [TAB_DOWNLOADS]:      <DownloadsTab />,
     [TAB_CONTENT]:        <ContentCategoriesTab />,
+    [TAB_ACCESSIBILITY]:  <AccessibilityTab />,
     [TAB_SEARCH_ENGINES]: <SearchEnginesTab />,
     [TAB_DANGER]:         <DangerZoneTab />,
   };

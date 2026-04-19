@@ -439,10 +439,6 @@ function openGuestShell(): BrowserWindow {
     tabManager.setContentPolicyEnforcer(contentPolicyEnforcer);
   }
 
-  if (searchEngineStore) {
-    tabManager.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
-  }
-
   tabManager.restoreSession();
 
   tabManager.setOnClosedTabsChanged(() => {
@@ -518,6 +514,9 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
 
   const win = createShellWindow();
   const tm = new TabManager(win, { dataDir: profileDataDir, partition: profilePartition });
+  // Secondary windows do not share the global tab-group store — each window
+  // manages its own tab set and restores its own session IDs, so mixing them
+  // into a shared store would silently mis-assign tab memberships.
   if (searchEngineStore) tm.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
 
   if (historyStore) tm.setHistoryStore(historyStore);
@@ -545,7 +544,11 @@ function openNewWindow(initialUrl?: string): BrowserWindow {
   });
 
   win.on('resize', () => tm.relayout());
-  win.on('closed', () => tm.destroy());
+  const newWinId = win.id;
+  win.on('closed', () => {
+    windowDefaultTitles.delete(newWinId);
+    tm.destroy();
+  });
 
   mainLogger.info('main.openNewWindow.done', { windowId: win.id });
   return win;
@@ -565,8 +568,15 @@ function openIncognitoWindow(initialUrl?: string): BrowserWindow {
 
   const win = createShellWindow({ titleSuffix: ' (Incognito)', incognito: true });
   const tm = new TabManager(win, { guest: true, partition });
+  // Incognito windows do not share the persistent group store — privacy isolation.
   if (searchEngineStore) tm.setSearchUrlTemplate(searchEngineStore.getDefault().searchUrl);
-  tm.restoreSession();
+  // Issue #222 — incognito sessions still honor content-category policies.
+  if (contentPolicyEnforcer) tm.setContentPolicyEnforcer(contentPolicyEnforcer);
+  if (initialUrl) {
+    tm.createTab(initialUrl);
+  } else {
+    tm.restoreSession();
+  }
   tm.setOnClosedTabsChanged(() => rebuildApplicationMenu());
   tm.setOnMoveTabToNewWindow((url: string) => {
     openIncognitoWindow(url);
@@ -585,6 +595,7 @@ function openIncognitoWindow(initialUrl?: string): BrowserWindow {
 
   const incogWinId = win.id;
   win.on('closed', () => {
+    windowDefaultTitles.delete(incogWinId);
     tm.destroy();
     incognitoWindows.delete(win);
     mainLogger.info('main.incognitoWindow.closed', {
@@ -788,12 +799,18 @@ app.whenReady().then(async () => {
     },
   });
 
-  // Wave1 P3 — Bookmarks: init store + register IPC before the shell loads.
-  // NOTE: BookmarkStore/PasswordStore/HistoryStore currently key off
-  // `app.getPath('userData')` internally and ignore the active profile.
-  // Profile-scoped persistence for those stores is tracked as a follow-up;
-  // only PermissionStore accepts a data dir today.
-  bookmarkStore = new BookmarkStore();
+  // Issue #45 — Profile picker store must exist BEFORE the profile-scoped
+  // stores so we can resolve `activeProfileId` from the last-selected entry
+  // (or the --profile-id= CLI arg passed by relaunch).
+  profileStore = new ProfileStore();
+  activeProfileId = resolveInitialProfileId(process.argv, profileStore);
+  mainLogger.info('main.initialProfile', { activeProfileId });
+
+  // Issue #208: construct profile-scoped stores with the active profile's
+  // data dir so switching profiles actually isolates bookmarks / history /
+  // passwords / autofill. Re-runs on in-process profile switch.
+  initProfileScopedStores(activeProfileId);
+
   permissionStore = new PermissionStore(getProfileDataDir(activeProfileId));
   protocolHandlerStore = new ProtocolHandlerStore(getProfileDataDir(activeProfileId));
   deviceStore = new DeviceStore(getProfileDataDir(activeProfileId));
@@ -1144,6 +1161,7 @@ app.whenReady().then(async () => {
     unregisterShareHandlers();
     unregisterBookmarkHandlers();
     unregisterHistoryHandlers();
+    shortcutsStore?.flushSync();
     unregisterSearchEngineHandlers();
     unregisterOmniboxHandlers();
     unregisterChromeHandlers();

@@ -35,6 +35,36 @@ const buildSearch = (query: string, searchUrl?: string): string => {
 };
 
 // ---------------------------------------------------------------------------
+// Keyword search engines (Tab-to-search / keyword mode).
+// Maps keyword → %s URL template. Populated from SearchEngineStore at runtime;
+// falls back to built-in defaults when the store is unavailable.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_KEYWORD_ENGINES: Map<string, string> = new Map([
+  ['g', 'https://www.google.com/search?q=%s'],
+  ['b', 'https://www.bing.com/search?q=%s'],
+  ['d', 'https://duckduckgo.com/?q=%s'],
+  ['y', 'https://search.yahoo.com/search?p=%s'],
+  ['e', 'https://www.ecosia.org/search?q=%s'],
+  ['br', 'https://search.brave.com/search?q=%s'],
+  // @-prefixed entries mirror SEARCH_ENGINES in omnibox/providers.ts so that
+  // keyword-mode inputs like "@bing cats" are resolved correctly.
+  ['@bing', 'https://www.bing.com/search?q=%s'],
+  ['@duckduckgo', 'https://duckduckgo.com/?q=%s'],
+  ['@yahoo', 'https://search.yahoo.com/search?p=%s'],
+]);
+
+let keywordEngines: Map<string, string> = new Map(DEFAULT_KEYWORD_ENGINES);
+
+export function setKeywordEngines(engines: Map<string, string>): void {
+  keywordEngines = engines;
+}
+
+export function getKeywordEngines(): Map<string, string> {
+  return keywordEngines;
+}
+
+// ---------------------------------------------------------------------------
 // Bookmark / history lookup callback
 // ---------------------------------------------------------------------------
 

@@ -661,6 +661,25 @@ const api: SettingsAPI = {
     await ipcRenderer.invoke('autofill:delete-all');
   },
 
+  getSyncPrefs: (): Promise<object> => {
+    console.debug('[settings-preload] getSyncPrefs');
+    return ipcRenderer.invoke('settings:get-sync-prefs') as Promise<object>;
+  },
+
+  setSyncPrefs: (patch: object): Promise<boolean> => {
+    console.debug('[settings-preload] setSyncPrefs');
+    return ipcRenderer.invoke('settings:set-sync-prefs', patch) as Promise<boolean>;
+  },
+
+  setSyncPassphrase: (passphrase: string): Promise<boolean> =>
+    ipcRenderer.invoke('settings:set-sync-passphrase', passphrase) as Promise<boolean>,
+
+  verifySyncPassphrase: (passphrase: string): Promise<boolean> =>
+    ipcRenderer.invoke('settings:verify-sync-passphrase', passphrase) as Promise<boolean>,
+
+  clearSyncPassphrase: (): Promise<void> =>
+    ipcRenderer.invoke('settings:clear-sync-passphrase') as Promise<void>,
+
   // Search engines — issue #21
   listSearchEngines: async (): Promise<SearchEngine[]> => {
     console.debug('[settings-preload] listSearchEngines');

@@ -152,12 +152,13 @@ const NEWTAB_URL_RE = /newtab\.html$/;
 
 export class TabManager {
   // ---------------------------------------------------------------------------
-  // Static instance registry — lets callers broadcast to all active windows.
+  // Static instance registry — lets callers look up by window id and broadcast
+  // to all active windows.
   // ---------------------------------------------------------------------------
-  private static readonly _instances: Set<TabManager> = new Set();
+  static readonly instances = new Map<number, TabManager>();
 
   static getAllInstances(): TabManager[] {
-    return Array.from(TabManager._instances);
+    return Array.from(TabManager.instances.values());
   }
 
   private win: BrowserWindow;
@@ -270,7 +271,6 @@ export class TabManager {
 
     this.registerIpcHandlers();
     this.registerCertErrorHandler();
-    TabManager._instances.add(this);
     mainLogger.info('TabManager.init', {
       isGuest: this.isGuest,
       partition: this.partition,
@@ -387,6 +387,24 @@ export class TabManager {
     this.searchUrlTemplate = url;
     mainLogger.info('TabManager.setSearchUrlTemplate', { url: url ?? '(reset to default)' });
   }
+
+  private isFullscreen = false;
+
+  setFullscreen(fullscreen: boolean): void {
+    if (this.isFullscreen === fullscreen) return;
+    this.isFullscreen = fullscreen;
+    mainLogger.debug('TabManager.setFullscreen', { fullscreen });
+    this.relayout();
+  }
+
+  setContentVisible(visible: boolean): void {
+    if (!this.activeTabId) return;
+    const view = this.tabs.get(this.activeTabId);
+    if (!view) return;
+    mainLogger.debug('TabManager.setContentVisible', { visible, activeTabId: this.activeTabId });
+    view.setVisible(visible);
+  }
+
 
   setChromeOffset(offset: number): void {
     const next = Math.max(0, Math.min(512, Math.round(offset)));
@@ -2697,14 +2715,15 @@ export class TabManager {
   }
 
   destroy(): void {
-    TabManager._instances.delete(this);
+    TabManager.instances.delete(this.win.id);
 
     // Only unregister process-wide IPC handlers when the last TabManager
-    // instance is being destroyed. With multiple windows open, closing one
-    // window must not tear down IPC handlers still needed by remaining windows.
-    if (TabManager._instances.size > 0) {
+    // instance is being destroyed. With multiple windows open (e.g. from
+    // tab-detach), closing one window must not tear down IPC handlers that
+    // are still needed by the remaining windows.
+    if (TabManager.instances.size > 0) {
       mainLogger.info('TabManager.destroy.skipIpcRemoval', {
-        remainingInstances: TabManager._instances.size,
+        remainingInstances: TabManager.instances.size,
         msg: 'Other windows still open — preserving shared IPC handlers',
       });
       return;
