@@ -50,11 +50,14 @@ import type { NtpCustomizationStore, NtpCustomization } from '../../../src/main/
 
 const BASE_CUSTOMIZATION: NtpCustomization = {
   backgroundType: 'default',
-  backgroundImageDataUrl: null,
-  clockFormat: '12h',
-  showGreeting: true,
+  backgroundColor: '#202124',
+  backgroundImageDataUrl: '',
+  accentColor: '#6D8196',
+  colorScheme: 'system',
+  shortcutMode: 'most-visited',
+  shortcutsVisible: true,
   customShortcuts: [],
-  showShortcuts: true,
+  cardsVisible: true,
 };
 
 function makeStore(data: NtpCustomization = { ...BASE_CUSTOMIZATION }) {
@@ -86,11 +89,12 @@ describe('ntp/ipc.ts', () => {
     store = makeStore();
     notifyShell = vi.fn();
     notifyNewTab = vi.fn();
-    registerNtpHandlers({
+    const opts: RegisterNtpHandlersOptions = {
       store: store as unknown as NtpCustomizationStore,
-      notifyShell,
-      notifyNewTab,
-    });
+      notifyShell: notifyShell as unknown as (data: NtpCustomization) => void,
+      notifyNewTab: notifyNewTab as unknown as (data: NtpCustomization) => void,
+    };
+    registerNtpHandlers(opts);
   });
 
   // ---------------------------------------------------------------------------
@@ -124,7 +128,7 @@ describe('ntp/ipc.ts', () => {
 
   describe('ntp:get-customization', () => {
     it('returns result from store.load()', async () => {
-      const data = { ...BASE_CUSTOMIZATION, clockFormat: '24h' as const };
+      const data = { ...BASE_CUSTOMIZATION, colorScheme: 'dark' as const };
       (store.load as ReturnType<typeof vi.fn>).mockReturnValue(data);
       const result = await invokeHandler('ntp:get-customization');
       expect(result).toEqual(data);
@@ -137,22 +141,22 @@ describe('ntp/ipc.ts', () => {
 
   describe('ntp:set-customization', () => {
     it('calls store.save with the patch', async () => {
-      await invokeHandler('ntp:set-customization', { clockFormat: '24h' });
-      expect(store.save).toHaveBeenCalledWith({ clockFormat: '24h' });
+      await invokeHandler('ntp:set-customization', { colorScheme: 'dark' });
+      expect(store.save).toHaveBeenCalledWith({ colorScheme: 'dark' });
     });
 
     it('broadcasts the result to notifyShell and notifyNewTab', async () => {
-      const saved = { ...BASE_CUSTOMIZATION, clockFormat: '24h' as const };
+      const saved = { ...BASE_CUSTOMIZATION, colorScheme: 'dark' as const };
       (store.save as ReturnType<typeof vi.fn>).mockReturnValue(saved);
-      await invokeHandler('ntp:set-customization', { clockFormat: '24h' });
+      await invokeHandler('ntp:set-customization', { colorScheme: 'dark' });
       expect(notifyShell).toHaveBeenCalledWith(saved);
       expect(notifyNewTab).toHaveBeenCalledWith(saved);
     });
 
     it('returns the saved customization', async () => {
-      const saved = { ...BASE_CUSTOMIZATION, showGreeting: false };
+      const saved = { ...BASE_CUSTOMIZATION, shortcutsVisible: false };
       (store.save as ReturnType<typeof vi.fn>).mockReturnValue(saved);
-      const result = await invokeHandler('ntp:set-customization', { showGreeting: false });
+      const result = await invokeHandler('ntp:set-customization', { shortcutsVisible: false });
       expect(result).toEqual(saved);
     });
   });
