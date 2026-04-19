@@ -162,12 +162,6 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.ts',
           target: 'preload',
         },
-        {
-          // Onboarding preload
-          entry: 'src/preload/onboarding.ts',
-          config: 'vite.preload.config.ts',
-          target: 'preload',
-        },
       ],
       renderer: [
         {
@@ -179,11 +173,6 @@ const config: ForgeConfig = {
           // Pill renderer (src/renderer/pill/pill.html)
           name: 'pill',
           config: 'vite.pill.config.mts',
-        },
-        {
-          // Onboarding renderer (src/renderer/onboarding/onboarding.html)
-          name: 'onboarding',
-          config: 'vite.onboarding.config.mts',
         },
       ],
     }),

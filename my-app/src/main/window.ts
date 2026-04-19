@@ -8,6 +8,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { mainLogger } from './logger';
 
+declare const SHELL_VITE_DEV_SERVER_URL: string | undefined;
+
 const BOUNDS_FILE_NAME = 'window-bounds.json';
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
@@ -86,6 +88,7 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: incognito ? '#1a1a2e' : '#0d0d0d',
     webPreferences: {
+      preload: path.join(__dirname, 'shell.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -94,6 +97,24 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
 
   if (titleSuffix) {
     win.setTitle(win.getTitle() + titleSuffix);
+  }
+
+  // Load the hub renderer
+  if (
+    typeof SHELL_VITE_DEV_SERVER_URL !== 'undefined' &&
+    SHELL_VITE_DEV_SERVER_URL
+  ) {
+    const hubDevUrl = `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/hub/hub.html`;
+    mainLogger.debug('window.loadURL', { url: hubDevUrl });
+    win.loadURL(hubDevUrl);
+    win.webContents.openDevTools({ mode: 'detach' });
+  } else {
+    const htmlPath = path.join(
+      __dirname,
+      '../renderer/shell/src/renderer/hub/hub.html',
+    );
+    mainLogger.debug('window.loadFile', { filePath: htmlPath });
+    win.loadFile(htmlPath);
   }
 
   // Debounced bounds persistence — incognito windows do NOT persist bounds
