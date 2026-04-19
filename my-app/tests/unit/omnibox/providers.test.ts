@@ -74,11 +74,11 @@ function makeBookmark(
   name: string,
   url: string,
 ): BookmarkNode {
-  return { id, type: 'bookmark', name, url };
+  return { id, type: 'bookmark', name, url, parentId: null, createdAt: Date.now() };
 }
 
 function makeFolder(id: string, name: string, children: BookmarkNode[]): BookmarkNode {
-  return { id, type: 'folder', name, children };
+  return { id, type: 'folder', name, children, parentId: null, createdAt: Date.now() };
 }
 
 function makeCtx(overrides: Partial<ProviderContext> = {}): ProviderContext {
