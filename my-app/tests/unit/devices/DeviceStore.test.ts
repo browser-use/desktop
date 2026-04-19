@@ -38,9 +38,9 @@ function newStore(dir = tmpDir): DeviceStore {
   return new DeviceStore(dir);
 }
 
-const USB_A = { apiType: 'usb' as const, origin: 'https://a.com', deviceId: 'device-1', name: 'USB Device', vendorId: 0x1234, productId: 0x5678 };
-const HID_A = { apiType: 'hid' as const, origin: 'https://a.com', deviceId: 'hid-1', name: 'HID Device', vendorId: 0xabcd, productId: 0xef01 };
-const USB_B = { apiType: 'usb' as const, origin: 'https://b.com', deviceId: 'device-2', name: 'USB Device B', vendorId: 0x4321, productId: 0x8765 };
+const USB_A = { apiType: 'usb' as const, origin: 'https://a.com', deviceId: 'device-1', name: 'USB Device', vendorId: '0x1234', productId: '0x5678' };
+const HID_A = { apiType: 'hid' as const, origin: 'https://a.com', deviceId: 'hid-1', name: 'HID Device', vendorId: '0xabcd', productId: '0xef01' };
+const USB_B = { apiType: 'usb' as const, origin: 'https://b.com', deviceId: 'device-2', name: 'USB Device B', vendorId: '0x4321', productId: '0x8765' };
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -141,12 +141,12 @@ describe('DeviceStore', () => {
       const firstGrantedAt = store.getAll()[0].grantedAt;
 
       vi.spyOn(Date, 'now').mockReturnValueOnce(firstGrantedAt + 5000);
-      store.grant({ ...USB_A, name: 'Updated Name', vendorId: 0x9999 });
+      store.grant({ ...USB_A, name: 'Updated Name', vendorId: '0x9999' });
 
       const all = store.getAll();
       expect(all).toHaveLength(1); // no duplicate
       expect(all[0].name).toBe('Updated Name');
-      expect(all[0].vendorId).toBe(0x9999);
+      expect(all[0].vendorId).toBe('0x9999');
       expect(all[0].grantedAt).toBe(firstGrantedAt + 5000);
     });
 
