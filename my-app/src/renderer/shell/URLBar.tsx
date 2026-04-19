@@ -13,27 +13,6 @@ import { OmniboxDropdown } from './OmniboxDropdown';
 import { usePopupLayer } from './PopupLayerContext';
 import type { OmniboxSuggestion } from '../../main/omnibox/providers';
 
-// ---------------------------------------------------------------------------
-// Omnibox types (mirrored from main/omnibox/providers.ts)
-// ---------------------------------------------------------------------------
-interface OmniboxSuggestion {
-  id: string;
-  type: 'history' | 'bookmark' | 'tab' | 'shortcut' | 'search';
-  title: string;
-  url: string;
-  description?: string;
-  favicon?: string;
-  relevance: number;
-}
-
-declare const electronAPI: {
-  omnibox: {
-    suggest: (p: { input: string }) => Promise<OmniboxSuggestion[]>;
-    recordSelection: (p: { inputText: string; url: string; title: string }) => Promise<boolean>;
-    removeHistory: (id: string) => Promise<boolean>;
-  };
-};
-
 const GOOGLE_FAVICON_API = 'https://www.google.com/s2/favicons?sz=32&domain_url=';
 
 // ---------------------------------------------------------------------------
@@ -132,13 +111,6 @@ export function URLBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState(() => displayUrl(url));
   const [isEditing, setIsEditing] = useState(false);
-  const [suggestions, setSuggestions] = useState<OmniboxSuggestion[]>([]);
-  const [selectedIdx, setSelectedIdx] = useState(-1);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suggestGenRef = useRef(0);
-  // Track the input text used when the user started editing (for recordSelection)
-  const editInputRef = useRef('');
 
   // Omnibox autocomplete state
   const [suggestions, setSuggestions] = useState<OmniboxSuggestion[]>([]);
@@ -222,7 +194,6 @@ export function URLBar({
 
   const handleFocus = useCallback(() => {
     setIsEditing(true);
-    editInputRef.current = inputValue;
     // On focus, show the full URL so the user can edit it — except for blank
     // new-tab placeholders, where the input stays empty so typing is fresh.
     const val = (BLANK_RE.test(url) || NEWTAB_RE.test(url)) ? '' : url;
