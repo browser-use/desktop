@@ -78,11 +78,13 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getLastMockWin(): MockBrowserWindow | null {
+type MockWin = InstanceType<typeof MockBrowserWindow>;
+
+function getLastMockWin(): MockWin | null {
   return MockBrowserWindow.last;
 }
 
-function fireEvent(_win: MockBrowserWindow, event: string): void {
+function fireEvent(_win: MockWin, event: string): void {
   const handler = MockBrowserWindow.eventHandlers.get(event);
   if (handler) handler();
 }
@@ -116,7 +118,7 @@ describe('settings/SettingsWindow.ts', () => {
   // ---------------------------------------------------------------------------
 
   describe('after openSettingsWindow() is called', () => {
-    let win: MockBrowserWindow;
+    let win: MockWin;
 
     beforeEach(() => {
       if (getSettingsWindow() === null) {
