@@ -23,8 +23,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const { loggerSpy, MockBrowserWindowClass, getLastMockWin } = vi.hoisted(() => {
-  let lastWin: InstanceType<typeof MockBrowserWindowClass> | null = null;
-
   class MockBrowserWindowClass {
     static last: MockBrowserWindowClass | null = null;
     id = 1;
@@ -53,14 +51,13 @@ const { loggerSpy, MockBrowserWindowClass, getLastMockWin } = vi.hoisted(() => {
     on = vi.fn();
     constructor(_opts?: unknown) {
       MockBrowserWindowClass.last = this;
-      lastWin = this;
     }
   }
 
   return {
     loggerSpy: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     MockBrowserWindowClass,
-    getLastMockWin: () => lastWin,
+    getLastMockWin: () => MockBrowserWindowClass.last,
   };
 });
 
