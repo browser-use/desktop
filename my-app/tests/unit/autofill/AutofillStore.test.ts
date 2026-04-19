@@ -214,6 +214,7 @@ describe('AutofillStore', () => {
         nameOnCard: 'John Doe',
         expiryMonth: '12',
         expiryYear: '2030',
+        nickname: '',
       });
       expect(card.network).toBe('Visa');
       expect(card.lastFour).toBe('1111');
@@ -221,7 +222,7 @@ describe('AutofillStore', () => {
 
     it('listCards omits numberEncrypted field', () => {
       const store = newStore();
-      store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'John', expiryMonth: '12', expiryYear: '2030' });
+      store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'John', expiryMonth: '12', expiryYear: '2030', nickname: '' });
       const list = store.listCards();
       expect(list[0]).not.toHaveProperty('numberEncrypted');
       expect(list[0].lastFour).toBe('1111');
@@ -229,7 +230,7 @@ describe('AutofillStore', () => {
 
     it('revealCardNumber returns decrypted card number', () => {
       const store = newStore();
-      const card = store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'John', expiryMonth: '12', expiryYear: '2030' });
+      const card = store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'John', expiryMonth: '12', expiryYear: '2030', nickname: '' });
       // safeStorage.isEncryptionAvailable() = false → base64 stored
       expect(store.revealCardNumber(card.id)).toBe('4111111111111111');
     });
@@ -240,7 +241,7 @@ describe('AutofillStore', () => {
 
     it('updateCard patches fields', () => {
       const store = newStore();
-      const card = store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'Old Name', expiryMonth: '01', expiryYear: '2025' });
+      const card = store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'Old Name', expiryMonth: '01', expiryYear: '2025', nickname: '' });
       store.updateCard(card.id, { nameOnCard: 'New Name', expiryYear: '2030' });
       const updated = store.listCards().find((c) => c.id === card.id)!;
       expect(updated.nameOnCard).toBe('New Name');
@@ -254,7 +255,7 @@ describe('AutofillStore', () => {
 
     it('deleteCard removes entry and returns true', () => {
       const store = newStore();
-      const card = store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'J', expiryMonth: '1', expiryYear: '2030' });
+      const card = store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'J', expiryMonth: '1', expiryYear: '2030', nickname: '' });
       expect(store.deleteCard(card.id)).toBe(true);
       expect(store.listCards()).toHaveLength(0);
     });
@@ -268,7 +269,7 @@ describe('AutofillStore', () => {
     it('clears addresses and cards', () => {
       const store = newStore();
       store.saveAddress(ADDR_FIELDS);
-      store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'J', expiryMonth: '1', expiryYear: '2030' });
+      store.saveCard({ cardNumber: '4111111111111111', nameOnCard: 'J', expiryMonth: '1', expiryYear: '2030', nickname: '' });
       store.deleteAll();
       expect(store.listAddresses()).toHaveLength(0);
       expect(store.listCards()).toHaveLength(0);
