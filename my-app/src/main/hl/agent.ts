@@ -33,7 +33,8 @@ export type HlEvent =
   | { type: 'done';       summary: string; iterations: number }
   | { type: 'error';      message: string }
   | { type: 'user_input'; text: string }
-  | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number };
+  | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number }
+  | { type: 'notify'; message: string; level: 'info' | 'blocking' };
 
 export interface RunAgentOptions {
   ctx: HlContext;
@@ -60,7 +61,7 @@ You are working inside a desktop browser app; the attached tab is the user's cur
 - **Verification**: page_info() is the simplest "is this alive?" check, but screenshots are the default way to verify.
 - **DOM reads**: use js(...) for inspection and extraction when screenshots show coordinates are the wrong tool.
 - **Iframe sites**: click(x, y) passes through; only drop to iframe DOM work when coordinate clicks are the wrong tool.
-- **Auth wall**: redirected to login → stop and ask the user. Don't type credentials from screenshots.
+- **Auth wall**: redirected to login → call notify({message: "Please log in to <site>", level: "blocking"}). Don't type credentials.
 - **Raw CDP** for anything helpers don't cover: cdp("Domain.method", params).
 
 ## Browser interaction details
@@ -98,6 +99,7 @@ Do NOT write: raw pixel coordinates, run narration, secrets/cookies, or user-spe
 
 - After every meaningful action, re-screenshot before assuming it worked.
 - Prefer compositor-level actions over framework hacks.
+- Use notify({level: "blocking"}) when you need user action (login, CAPTCHA, ambiguous choice). Use notify({level: "info"}) for non-blocking FYI messages. Keep messages short and actionable.
 - Call the \`done\` tool with a short user-facing summary when the task is complete.
 - Be concise. Act, don't narrate.`;
 
@@ -232,6 +234,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<MessageParam[]> {
             const rObj = r as Record<string, unknown>;
             const bytes = typeof rObj.bytes === 'number' ? rObj.bytes : 0;
             onEvent({ type: 'skill_written', path: writtenPath, domain: skillMatch[1], topic: skillMatch[2], bytes });
+          }
+        }
+        if (tu.name === 'notify' && r && typeof r === 'object' && 'message' in r) {
+          const n = r as { message: string; level: string };
+          const level = n.level === 'blocking' ? 'blocking' as const : 'info' as const;
+          onEvent({ type: 'notify', message: n.message, level });
+          if (level === 'blocking') {
+            onEvent({ type: 'done', summary: `Blocked: ${n.message}`, iterations: iter });
+            return messages;
           }
         }
       } catch (err) {

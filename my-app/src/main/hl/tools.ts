@@ -262,6 +262,16 @@ export const HL_TOOLS: HlTool[] = [
     run: (ctx, a) => H.shellExec(ctx, str(a, 'command'), (a.cwd as string | undefined)),
   },
   {
+    name: 'notify',
+    description: 'Send a notification to the user. level=info for FYI (agent keeps going), level=blocking for things that need user action (auth walls, CAPTCHAs). Blocking notifications halt the agent after sending.',
+    input_schema: {
+      type: 'object',
+      properties: { message: { type: 'string' }, level: { type: 'string', enum: ['info', 'blocking'] } },
+      required: ['message', 'level'],
+    },
+    run: async (_ctx, a) => ({ notified: true, message: str(a, 'message'), level: str(a, 'level') }),
+  },
+  {
     name: 'done',
     description: 'Call this when the task is complete. Pass a short user-facing summary of the outcome.',
     input_schema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] },

@@ -114,11 +114,13 @@ export class WhatsAppAdapter implements ChannelAdapter {
         hasExistingCreds: !!state.creds.me,
       });
 
+      const silentLogger = { level: 'silent', info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, trace: () => {}, fatal: () => {}, child: () => silentLogger } as unknown as Parameters<typeof makeWASocket>[0]['logger'];
       this.sock = makeWASocket({
         version,
+        logger: silentLogger,
         auth: {
           creds: state.creds,
-          keys: makeCacheableSignalKeyStore(state.keys, undefined as unknown as any),
+          keys: makeCacheableSignalKeyStore(state.keys, silentLogger as any),
         },
         browser: Browsers.ubuntu('AgentHub'),
         markOnlineOnConnect: false,

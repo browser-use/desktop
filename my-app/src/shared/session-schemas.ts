@@ -55,6 +55,12 @@ export const HlEventSkillWrittenSchema = z.object({
   bytes: z.number(),
 });
 
+export const HlEventNotifySchema = z.object({
+  type: z.literal('notify'),
+  message: z.string(),
+  level: z.enum(['info', 'blocking']),
+});
+
 export const HlEventSchema = z.discriminatedUnion('type', [
   HlEventThinkingSchema,
   HlEventToolCallSchema,
@@ -63,6 +69,7 @@ export const HlEventSchema = z.discriminatedUnion('type', [
   HlEventErrorSchema,
   HlEventUserInputSchema,
   HlEventSkillWrittenSchema,
+  HlEventNotifySchema,
 ]);
 
 export type HlEvent = z.infer<typeof HlEventSchema>;
