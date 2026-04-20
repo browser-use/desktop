@@ -15,7 +15,6 @@ function formatValue(val: unknown, depth: number): React.ReactNode {
   if (typeof val === 'boolean') return <span className="cr__bool">{val ? 'on' : 'off'}</span>;
   if (typeof val === 'number') return <span className="cr__num">{val.toLocaleString()}</span>;
   if (typeof val === 'string') {
-    if (val.length > 200) return <span className="cr__str">{val.slice(0, 200)}…</span>;
     return <span className="cr__str">{val}</span>;
   }
   if (Array.isArray(val)) {
@@ -50,17 +49,35 @@ function formatValue(val: unknown, depth: number): React.ReactNode {
   return <span className="cr__str">{String(val)}</span>;
 }
 
+function isGarbage(str: string): boolean {
+  const trimmed = str.trim();
+  if (/^[0-9A-Fa-f]{16,}$/.test(trimmed)) return true;
+  if (trimmed.startsWith('iVBOR') || trimmed.startsWith('data:image')) return true;
+  if (trimmed.startsWith('Skip to main content')) return true;
+  if (/^[0-9]+$/.test(trimmed)) return true;
+  if (trimmed.startsWith('{') && trimmed.includes('"body":"<!doctype')) return true;
+  if (trimmed.startsWith('"') && trimmed.includes('\\n')) return true;
+  const lower = trimmed.toLowerCase();
+  if (lower === 'true' || lower === 'false' || lower === 'not supported' || lower === 'null') return true;
+  return false;
+}
+
 export function getPreview(content: string): string {
   const parsed = tryParseJSON(content);
   if (!parsed) {
-    return content.length > 80 ? content.slice(0, 80) + '…' : content;
+    if (isGarbage(content)) return '';
+    const clean = content.replace(/\n/g, ' ').trim();
+    return clean.length > 60 ? clean.slice(0, 60) + '…' : clean;
   }
   const vals = Object.values(parsed);
-  const firstStr = vals.find((v) => typeof v === 'string') as string | undefined;
-  if (firstStr) return firstStr.length > 80 ? firstStr.slice(0, 80) + '…' : firstStr;
+  const firstStr = vals.find((v) => typeof v === 'string' && !isGarbage(v as string)) as string | undefined;
+  if (firstStr) {
+    const clean = firstStr.replace(/\n/g, ' ').trim();
+    return clean.length > 60 ? clean.slice(0, 60) + '…' : clean;
+  }
   const firstNum = vals.find((v) => typeof v === 'number');
   if (firstNum !== undefined) return String(firstNum);
-  return content.length > 80 ? content.slice(0, 80) + '…' : content;
+  return '';
 }
 
 interface ContentRendererProps {
