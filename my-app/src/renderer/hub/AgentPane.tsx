@@ -359,17 +359,21 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
   const { entries } = useMemo(() => adaptSession(session), [session]);
 
   useEffect(() => {
+    if (session.status === 'running') {
+      setBrowserDead(false);
+    }
     const api = window.electronAPI;
     if (!api) return;
     api.sessions.viewIsAttached(session.id).then((attached) => {
       if (attached) setShowBrowser(true);
     }).catch(() => {});
-    api.sessions.get(session.id).then((s) => {
-      if (s && s.hasBrowser === false && session.status !== 'draft') {
-        console.log('[AgentPane] browser dead on mount', { id: session.id, hasBrowser: false });
-        setBrowserDead(true);
-      }
-    }).catch(() => {});
+    if (session.status !== 'running' && session.status !== 'draft') {
+      api.sessions.get(session.id).then((s) => {
+        if (s && s.hasBrowser === false) {
+          setBrowserDead(true);
+        }
+      }).catch(() => {});
+    }
   }, [session.id, session.status]);
 
   const toggleBrowser = useCallback(async () => {
