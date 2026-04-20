@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.send('shell:set-overlay', active);
     },
   },
+  pill: {
+    toggle: (): Promise<void> => ipcRenderer.invoke('pill:toggle'),
+  },
   sessions: {
     create: (prompt: string): Promise<string> => ipcRenderer.invoke('sessions:create', prompt),
     start: (id: string): Promise<void> => ipcRenderer.invoke('sessions:start', id),

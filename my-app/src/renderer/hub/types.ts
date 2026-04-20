@@ -7,7 +7,8 @@ export type HlEvent =
   | { type: 'done';        summary: string; iterations: number }
   | { type: 'error';       message: string }
   | { type: 'user_input';  text: string }
-  | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number };
+  | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number }
+  | { type: 'notify'; message: string; level: 'info' | 'blocking' };
 
 export interface AgentSession {
   id: string;
@@ -29,12 +30,13 @@ export interface ToolResult {
 
 export interface OutputEntry {
   id: string;
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written' | 'notify';
   timestamp: number;
   content: string;
   tool?: string;
   duration?: number;
   result?: ToolResult;
+  level?: 'info' | 'blocking';
   groupCount?: number;
   groupEntries?: OutputEntry[];
 }
@@ -68,6 +70,8 @@ export function hlEventToOutputEntry(event: HlEvent, timestamp: number): OutputE
       return { id, type: 'user_input', timestamp, content: event.text };
     case 'skill_written':
       return { id, type: 'skill_written', timestamp, content: `${event.domain}/${event.topic}`, tool: event.path };
+    case 'notify':
+      return { id, type: 'notify', timestamp, content: event.message, level: event.level };
   }
 }
 

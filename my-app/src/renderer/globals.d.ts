@@ -75,7 +75,12 @@ interface ElectronOnAPI {
   channelStatus?: (cb: (channelId: string, status: string, detail?: string) => void) => () => void;
 }
 
+interface ElectronPillAPI {
+  toggle: () => Promise<void>;
+}
+
 interface ElectronAPI {
+  pill: ElectronPillAPI;
   sessions: ElectronSessionAPI;
   channels: ElectronChannelsAPI;
   on: ElectronOnAPI;

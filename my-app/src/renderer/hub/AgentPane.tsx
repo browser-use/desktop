@@ -219,6 +219,15 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
     );
   }
 
+  if (entry.type === 'notify') {
+    const isBlocking = entry.level === 'blocking';
+    return (
+      <div className={`step step--notify${isBlocking ? ' step--notify-blocking' : ' step--notify-info'}`}>
+        <span className="step__text">{entry.content}</span>
+      </div>
+    );
+  }
+
   if (entry.type === 'user_input') {
     return (
       <div className="step step--user-input">

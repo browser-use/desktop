@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentPane } from './AgentPane';
 import { ListView } from './ListView';
 import { Dashboard } from './Dashboard';
-import { CommandBar } from './CommandBar';
 import { KeybindingsOverlay } from './KeybindingsOverlay';
 import { SettingsPane } from './SettingsPane';
 import { useVimKeys } from './useVimKeys';
@@ -83,8 +82,7 @@ export function HubApp(): React.ReactElement {
   }, [sessions.length]);
 
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
-  const [cmdBarOpen, setCmdBarOpen] = useState(false);
-  const [cmdBarMode, setCmdBarMode] = useState<'create' | 'followup'>('create');
+  const openPill = useCallback(() => { window.electronAPI?.pill.toggle(); }, []);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
@@ -104,8 +102,8 @@ export function HubApp(): React.ReactElement {
     'goto.agents': () => setViewMode('grid'),
     'goto.list': () => setViewMode('list'),
     'goto.settings': () => { hideBrowserViews(); setSettingsOpen(true); },
-    'search.open': () => { hideBrowserViews(); setCmdBarOpen(true); },
-    'action.create': () => { hideBrowserViews(); setCmdBarOpen(true); },
+    'search.open': () => { window.electronAPI?.pill.toggle(); },
+    'action.create': () => { window.electronAPI?.pill.toggle(); },
     'action.dismiss': () => {
       const s = sessions[focusIndex];
       if (!s) return;
@@ -139,14 +137,13 @@ export function HubApp(): React.ReactElement {
       if (el) el.scrollBy({ top: -(el.clientHeight / 2), behavior: 'smooth' });
     },
     'meta.help': () => { hideBrowserViews(); setHelpOpen((prev) => !prev); },
-    'meta.commandPalette': () => { hideBrowserViews(); setCmdBarOpen((prev) => !prev); },
+    'meta.commandPalette': () => { window.electronAPI?.pill.toggle(); },
     'meta.escape': () => {
       if (helpOpen) { setHelpOpen(false); showBrowserViews(); return; }
       if (settingsOpen) { setSettingsOpen(false); showBrowserViews(); return; }
-      if (cmdBarOpen) { setCmdBarOpen(false); showBrowserViews(); return; }
       setFocusIndex(-1);
     },
-  }), [sessions, focusIndex, helpOpen, settingsOpen, cmdBarOpen]);
+  }), [sessions, focusIndex, helpOpen, settingsOpen]);
 
   const vim = useVimKeys(vimHandlers);
 
@@ -288,7 +285,7 @@ export function HubApp(): React.ReactElement {
         <div className="hub-toolbar__right">
           <button
             className="hub-toolbar__new-btn"
-            onClick={() => setCmdBarOpen(true)}
+            onClick={() => openPill()}
             aria-label="New agent"
             data-tip={tip('New agent', 'action.create')}
           >
@@ -387,7 +384,7 @@ export function HubApp(): React.ReactElement {
       )}
 
       {hasNoSessions ? (
-        <div className="hub-empty-state" onClick={() => setCmdBarOpen(true)} style={{ cursor: 'pointer' }}>
+        <div className="hub-empty-state" onClick={() => openPill()} style={{ cursor: 'pointer' }}>
           <div className="hub-empty-state__icon" aria-hidden="true">
             <PlusIcon />
           </div>
@@ -439,9 +436,7 @@ export function HubApp(): React.ReactElement {
                       }}
                       onSelect={handleSelectSession}
                       onOpenFollowUp={() => {
-                        sessions.forEach((s) => window.electronAPI?.sessions.viewDetach(s.id).catch(() => {}));
-                        setCmdBarMode('followup');
-                        setCmdBarOpen(true);
+                        openPill();
                       }}
                     />
                   );
@@ -483,29 +478,6 @@ export function HubApp(): React.ReactElement {
           <span className="chord-indicator__hint">...</span>
         </div>
       )}
-
-      <CommandBar
-        open={cmdBarOpen}
-        onClose={() => { setCmdBarOpen(false); setCmdBarMode('create'); showBrowserViews(); }}
-        onSubmit={(prompt) => {
-          if (cmdBarMode === 'followup') {
-            const s = sessions[focusIndex];
-            if (s && handleFollowUp) handleFollowUp(s.id, prompt);
-          } else {
-            handleCreateSession(prompt);
-          }
-        }}
-        mode={cmdBarMode}
-        sessions={sessions}
-        onSelectSession={(id) => {
-          window.electronAPI?.sessions.unhide(id).catch(() => {});
-          handleSelectSession(id);
-          sessionsQuery.refetch();
-          const idx = sessions.findIndex((s) => s.id === id);
-          if (idx >= 0) setGridPage(Math.floor(idx / 4));
-          setViewMode('grid');
-        }}
-      />
 
       <KeybindingsOverlay
         open={helpOpen}

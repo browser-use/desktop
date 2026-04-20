@@ -975,6 +975,36 @@
   color: var(--color-accent-default);
 }
 
+/* Notify — info and blocking messages from agent */
+
+.step--notify {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin: var(--space-1) 0;
+}
+
+.step--notify .step__text {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.step--notify-info {
+  background-color: var(--color-bg-elevated);
+}
+
+.step--notify-info .step__text {
+  color: var(--color-fg-secondary);
+}
+
+.step--notify-blocking {
+  background-color: rgba(251, 191, 36, 0.08);
+}
+
+.step--notify-blocking .step__text {
+  color: var(--color-status-warning);
+  font-weight: var(--font-weight-medium);
+}
+
 /* User input — highlighted row like Claude Code */
 
 .step--user-input {
