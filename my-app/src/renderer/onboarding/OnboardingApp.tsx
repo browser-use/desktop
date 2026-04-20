@@ -251,38 +251,40 @@ export function OnboardingApp() {
 
             {!loadingProfiles && profiles.length > 0 && (
               <div className="profile-list">
-                {profiles.map((p) => (
+                {(importResult ? [] : profiles).map((p) => (
+                    <button
+                      key={p.directory}
+                      className="profile-card"
+                      onClick={() => handleImportProfile(p.directory)}
+                      disabled={importing !== null}
+                    >
+                      <div className="profile-avatar">
+                        {p.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="profile-info">
+                        <div className="profile-name">{p.name}</div>
+                        {p.email && <div className="profile-email">{p.email}</div>}
+                        <div className="profile-dir">{p.directory}</div>
+                      </div>
+                      {importing === p.directory && (
+                        <div className="profile-spinner" />
+                      )}
+                    </button>
+                  ))}
+
+                {!importResult && (
                   <button
-                    key={p.directory}
-                    className="profile-card"
-                    onClick={() => handleImportProfile(p.directory)}
+                    className="profile-card profile-card-skip"
+                    onClick={handleSkipProfile}
                     disabled={importing !== null}
                   >
-                    <div className="profile-avatar">
-                      {p.name.charAt(0).toUpperCase()}
-                    </div>
+                    <div className="profile-avatar profile-avatar-skip">+</div>
                     <div className="profile-info">
-                      <div className="profile-name">{p.name}</div>
-                      {p.email && <div className="profile-email">{p.email}</div>}
-                      <div className="profile-dir">{p.directory}</div>
+                      <div className="profile-name">Start fresh</div>
+                      <div className="profile-email">No cookie import</div>
                     </div>
-                    {importing === p.directory && (
-                      <div className="profile-spinner" />
-                    )}
                   </button>
-                ))}
-
-                <button
-                  className="profile-card profile-card-skip"
-                  onClick={handleSkipProfile}
-                  disabled={importing !== null}
-                >
-                  <div className="profile-avatar profile-avatar-skip">+</div>
-                  <div className="profile-info">
-                    <div className="profile-name">Start fresh</div>
-                    <div className="profile-email">No cookie import</div>
-                  </div>
-                </button>
+                )}
               </div>
             )}
 
@@ -315,12 +317,23 @@ export function OnboardingApp() {
                   </div>
                 )}
 
-                <button
-                  className="btn btn-primary import-continue-btn"
-                  onClick={() => setStep('apikey')}
-                >
-                  Continue
-                </button>
+                <div className="apikey-actions">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setImportResult(null);
+                      setImportError(null);
+                    }}
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setStep('apikey')}
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
             )}
 

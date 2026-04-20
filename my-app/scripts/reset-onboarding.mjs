@@ -2,19 +2,18 @@
 /**
  * reset-onboarding.mjs
  *
- * Deletes account.json (the onboarding gate) from the default Electron userData
- * directory so that `npm start` re-triggers the onboarding flow on next launch.
- * Does NOT touch the keychain or session.json (to preserve open tabs).
+ * Wipes onboarding state from userData so `npm start` re-triggers onboarding.
+ * Deletes: account.json, sessions.db (+ WAL/SHM), whatsapp-auth/.
  *
- * Run: node scripts/reset-onboarding.mjs
- *      (or `npm run start:reset-onboarding`)
+ * IMPORTANT: Quit the app first. If the app is running, SQLite holds the
+ * sessions.db inode open and unlinking does nothing to the live data.
  */
 
-import { readFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -36,17 +35,36 @@ function defaultUserDataDir(productName) {
   }
 }
 
+function isAppRunning(productName) {
+  if (process.platform !== "darwin") return false;
+  try {
+    const out = execSync(`pgrep -fl "${productName}.app" || true`, { encoding: "utf-8" });
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 const productName = readProductName();
 const userData = defaultUserDataDir(productName);
-const accountJson = join(userData, "account.json");
 
 console.log(`[reset-onboarding] productName=${productName}`);
 console.log(`[reset-onboarding] userData=${userData}`);
 
-const sessionsDb = join(userData, "sessions.db");
-const whatsappAuth = join(userData, "whatsapp-auth");
+if (isAppRunning(productName)) {
+  console.error(`[reset-onboarding] ERROR: ${productName} is still running. Quit it first (Cmd+Q) — otherwise SQLite keeps sessions.db alive via the open inode.`);
+  process.exit(1);
+}
 
-for (const [label, filePath] of [["account.json", accountJson], ["sessions.db", sessionsDb], ["whatsapp-auth", whatsappAuth]]) {
+const targets = [
+  ["account.json", join(userData, "account.json")],
+  ["sessions.db", join(userData, "sessions.db")],
+  ["sessions.db-wal", join(userData, "sessions.db-wal")],
+  ["sessions.db-shm", join(userData, "sessions.db-shm")],
+  ["whatsapp-auth", join(userData, "whatsapp-auth")],
+];
+
+for (const [label, filePath] of targets) {
   if (existsSync(filePath)) {
     rmSync(filePath, { recursive: true, force: true });
     console.log(`[reset-onboarding] deleted ${label}`);

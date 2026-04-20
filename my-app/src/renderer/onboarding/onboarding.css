@@ -489,19 +489,22 @@ html, body {
 .error-reasons {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 10px 12px;
   background: var(--color-bg-elevated);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-subtle);
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .error-reason-row {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   font-size: 11px;
   font-family: var(--font-mono);
+  line-height: 1.5;
 }
 
 .error-reason-count {
@@ -509,13 +512,13 @@ html, body {
   font-weight: 600;
   min-width: 32px;
   text-align: right;
+  flex-shrink: 0;
 }
 
 .error-reason-text {
   color: var(--color-fg-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
+  white-space: normal;
 }
 
 /* Domain list */
