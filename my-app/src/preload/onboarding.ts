@@ -12,6 +12,8 @@ export interface CookieImportResult {
   imported: number;
   failed: number;
   skipped: number;
+  domains: string[];
+  failedDomains: string[];
 }
 
 const onboardingAPI = {
@@ -29,6 +31,27 @@ const onboardingAPI = {
 
   complete: (): Promise<void> =>
     ipcRenderer.invoke('onboarding:complete'),
+
+  whatsapp: {
+    connect: (): Promise<{ status: string }> =>
+      ipcRenderer.invoke('channels:whatsapp:connect'),
+    disconnect: (): Promise<{ status: string }> =>
+      ipcRenderer.invoke('channels:whatsapp:disconnect'),
+    status: (): Promise<{ status: string; identity: string | null }> =>
+      ipcRenderer.invoke('channels:whatsapp:status'),
+  },
+
+  onWhatsappQr: (cb: (dataUrl: string) => void): (() => void) => {
+    const handler = (_event: unknown, dataUrl: string) => cb(dataUrl);
+    ipcRenderer.on('whatsapp-qr', handler);
+    return () => ipcRenderer.removeListener('whatsapp-qr', handler);
+  },
+
+  onChannelStatus: (cb: (channelId: string, status: string, detail?: string) => void): (() => void) => {
+    const handler = (_event: unknown, channelId: string, status: string, detail?: string) => cb(channelId, status, detail);
+    ipcRenderer.on('channel-status', handler);
+    return () => ipcRenderer.removeListener('channel-status', handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('onboardingAPI', onboardingAPI);

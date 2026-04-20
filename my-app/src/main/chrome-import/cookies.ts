@@ -101,6 +101,8 @@ export interface CookieImportResult {
   imported: number;
   failed: number;
   skipped: number;
+  domains: string[];
+  failedDomains: string[];
 }
 
 export async function importChromeProfileCookies(profileDir: string): Promise<CookieImportResult> {
@@ -152,6 +154,8 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   let imported = 0;
   let failed = 0;
   let skipped = 0;
+  const importedDomains = new Set<string>();
+  const failedDomainSet = new Set<string>();
 
   for (const row of rows) {
     let value = row.value;
@@ -183,8 +187,10 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
         ...(expirationDate > 0 ? { expirationDate } : {}),
       });
       imported++;
+      importedDomains.add(domain);
     } catch (err) {
       failed++;
+      failedDomainSet.add(domain);
       if (failed <= 5) {
         mainLogger.debug('chromeImport.importCookies.setCookieFailed', {
           name: row.name,
@@ -195,11 +201,16 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
     }
   }
 
+  const domains = Array.from(importedDomains);
+  const failedDomains = Array.from(failedDomainSet).filter((d) => !importedDomains.has(d));
+
   const result: CookieImportResult = {
     total: rows.length,
     imported,
     failed,
     skipped,
+    domains,
+    failedDomains,
   };
 
   mainLogger.info('chromeImport.importCookies.done', {
