@@ -20,6 +20,7 @@ export function useSessionsQuery() {
   const query = useQuery<AgentSession[]>({
     queryKey: SESSIONS_KEY,
     queryFn: async () => {
+      const t0 = performance.now();
       const api = window.electronAPI;
       if (!api) return [];
       const list = await api.sessions.list();
@@ -29,6 +30,7 @@ export function useSessionsQuery() {
         total: list.length,
         visible: visibleCount,
         hidden: hiddenCount,
+        fetchMs: Math.round(performance.now() - t0),
         ids: list.map((s) => ({ id: s.id.slice(0, 8), status: s.status, hidden: !!s.hidden })),
       });
       return list;
@@ -40,7 +42,7 @@ export function useSessionsQuery() {
     if (!api) return;
 
     const unsubUpdate = api.on.sessionUpdated((session) => {
-      console.log('[useSessionsQuery] session-updated', { id: session.id, status: session.status });
+      console.log('[useSessionsQuery] session-updated', { id: session.id, status: session.status, ts: Date.now() });
       qc.setQueryData<AgentSession[]>(SESSIONS_KEY, (prev = []) => {
         const idx = prev.findIndex((s) => s.id === session.id);
         if (idx >= 0) {
@@ -87,6 +89,27 @@ export function useUpdateSession() {
       prev.map((s) => (s.id === id ? { ...s, ...update } : s)),
     );
   };
+}
+
+export function useHydrateSession(id: string | null) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!id) return;
+    const api = window.electronAPI;
+    if (!api) return;
+
+    const cached = qc.getQueryData<AgentSession[]>(SESSIONS_KEY);
+    const existing = cached?.find((s) => s.id === id);
+    if (existing && existing.output.length > 0) return;
+
+    api.sessions.get(id).then((full) => {
+      if (!full || full.output.length === 0) return;
+      qc.setQueryData<AgentSession[]>(SESSIONS_KEY, (prev = []) =>
+        prev.map((s) => (s.id === id ? { ...s, output: full.output } : s)),
+      );
+    }).catch(() => {});
+  }, [id, qc]);
 }
 
 export function useInvalidateSessions() {

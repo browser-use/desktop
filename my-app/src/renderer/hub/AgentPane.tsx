@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/renderer/components/base/Toast';
+import { useHydrateSession } from './useSessionsQuery';
 import { STATUS_LABEL } from './constants';
 import { ContentRenderer, getPreview } from './ContentRenderer';
 import { adaptSession } from './types';
@@ -288,9 +289,15 @@ function RerunIcon(): React.ReactElement {
   );
 }
 
-function FollowUpInput({ sessionId, onUserInput }: { sessionId: string; onUserInput: (text: string) => void }): React.ReactElement {
+function FollowUpInput({ sessionId, onUserInput, autoFocus }: { sessionId: string; onUserInput: (text: string) => void; autoFocus?: boolean }): React.ReactElement {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [autoFocus]);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
@@ -301,7 +308,10 @@ function FollowUpInput({ sessionId, onUserInput }: { sessionId: string; onUserIn
   }, [value, sessionId, onUserInput]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      textareaRef.current?.blur();
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
@@ -351,6 +361,7 @@ interface AgentPaneProps {
 
 export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp }: AgentPaneProps): React.ReactElement {
   const toast = useToast();
+  useHydrateSession(session.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const [showBrowser, setShowBrowser] = useState(false);
@@ -524,7 +535,7 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
         </div>
       )}
 
-      <div className="pane__output" ref={scrollRef} style={showBrowser ? { visibility: 'hidden' } : undefined}>
+      <div className="pane__output" ref={scrollRef}>
         {entries.length === 0 && session.status === 'draft' && (
           <div className="pane__output-empty">
             <p className="pane__output-empty-text">Not started yet</p>
@@ -548,6 +559,7 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
           <FollowUpInput
             sessionId={session.id}
             onUserInput={(text) => onFollowUp(session.id, text)}
+            autoFocus={focused}
           />
         )}
         {session.error && entries.length <= 2 && (
