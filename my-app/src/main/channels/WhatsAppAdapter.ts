@@ -39,6 +39,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private seenMessages = new Set<string>();
   private identity: string | null = null;
+  private selfLid: string | null = null;
   private msgRetryCounterCache = new NodeCache();
   private intentionalDisconnect = false;
 
@@ -175,6 +176,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     if (connection === 'open') {
       this.reconnectAttempts = 0;
       this.identity = this.sock?.user?.id?.replace(/:.*$/, '') ?? null;
+      this.selfLid = this.sock?.user?.lid ?? null;
       this.setStatus('connected', this.identity ?? undefined);
       mainLogger.info('whatsapp.connected', { identity: this.identity });
     }
@@ -235,9 +237,16 @@ export class WhatsAppAdapter implements ChannelAdapter {
     if (type === 'append') return;
 
     for (const msg of messages) {
-      // Allow self-messages so the user can trigger agents from their own number
       if (msg.key.remoteJid === 'status@broadcast') continue;
       if (!msg.key.remoteJid || !msg.key.id) continue;
+      if (!msg.key.fromMe) continue;
+
+      mainLogger.debug('whatsapp.msg.candidate', {
+        remoteJid: msg.key.remoteJid,
+        fromMe: msg.key.fromMe,
+        selfLid: this.selfLid,
+        selfJid: this.sock?.user?.id,
+      });
 
       const dedupKey = `${msg.key.remoteJid}:${msg.key.id}`;
       if (this.seenMessages.has(dedupKey)) continue;
