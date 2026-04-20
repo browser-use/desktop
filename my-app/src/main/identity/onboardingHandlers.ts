@@ -156,6 +156,5 @@ export function unregisterOnboardingHandlers(): void {
   ipcMain.removeHandler('onboarding:test-api-key');
   ipcMain.removeHandler('onboarding:listen-shortcut');
   ipcMain.removeHandler('onboarding:complete');
-  globalShortcut.unregister(GLOBAL_SHORTCUT);
   mainLogger.info('onboardingHandlers.unregistered');
 }
