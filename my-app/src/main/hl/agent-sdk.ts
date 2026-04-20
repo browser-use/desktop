@@ -1,47 +1,14 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { WebContents } from 'electron';
 import { mainLogger } from '../logger';
-import { getAnnouncedCdpPort } from '../startup/cli';
 import { getHarnessDir, ensureHarness } from './harness';
+import { createCdpProxy, type CdpProxy } from './cdp-proxy';
 import type { HlEvent } from './agent';
-
-export async function getCdpWsUrl(webContents: WebContents): Promise<string> {
-  const port = getAnnouncedCdpPort();
-  const wcId = webContents.id;
-  const url = webContents.getURL();
-  const title = webContents.getTitle();
-
-  const resp = await fetch(`http://127.0.0.1:${port}/json/list`);
-  const targets = (await resp.json()) as Array<{ id: string; url: string; title: string; webSocketDebuggerUrl: string; type: string }>;
-
-  // Match by URL — the session's WebContentsView has a unique URL after loadURL
-  let target = targets.find((t) => t.type === 'page' && t.url === url && t.title === title);
-  // Fallback: match about:blank pages (freshly created sessions)
-  if (!target) target = targets.find((t) => t.type === 'page' && t.url === 'about:blank');
-  // Last resort: use the webContents debugger to get the target ID directly
-  if (!target) {
-    try {
-      if (!webContents.debugger.isAttached()) webContents.debugger.attach('1.3');
-      const info = await webContents.debugger.sendCommand('Target.getTargetInfo') as { targetInfo?: { targetId: string } };
-      const targetId = info.targetInfo?.targetId;
-      if (targetId) {
-        target = targets.find((t) => t.id === targetId);
-      }
-      webContents.debugger.detach();
-    } catch { /* debugger may already be attached */ }
-  }
-
-  if (!target?.webSocketDebuggerUrl) {
-    throw new Error(`No CDP target found on port ${port} for wcId ${wcId}, url=${url}`);
-  }
-  mainLogger.info('agentSdk.getCdpWsUrl', { port, wcId, targetId: target.id, targetUrl: target.url.slice(0, 50) });
-  return target.webSocketDebuggerUrl;
-}
 
 export interface RunAgentSdkOptions {
   prompt: string;
   apiKey: string;
-  cdpWsUrl: string;
+  webContents: WebContents;
   sessionName: string;
   signal?: AbortSignal;
   onEvent: (e: HlEvent) => void;
@@ -101,14 +68,24 @@ function parseToolResults(content: unknown[]): Array<{ toolUseId: string; conten
 }
 
 export async function runAgentSdk(opts: RunAgentSdkOptions): Promise<string | undefined> {
-  const { prompt, apiKey, cdpWsUrl, sessionName, signal, onEvent, model } = opts;
+  const { prompt, apiKey, webContents, sessionName, signal, onEvent, model } = opts;
 
   const harnessDir = ensureHarness();
+
+  let proxy: CdpProxy | undefined;
+  try {
+    proxy = await createCdpProxy(webContents, sessionName);
+  } catch (err) {
+    mainLogger.error('agentSdk.proxyFailed', { sessionName, error: (err as Error).message });
+    onEvent({ type: 'error', message: `CDP proxy failed: ${(err as Error).message}` });
+    return undefined;
+  }
+
   mainLogger.info('agentSdk.run', {
     sessionName,
     promptLength: prompt.length,
     harnessDir,
-    cdpWsUrl: cdpWsUrl.slice(0, 50),
+    cdpWsUrl: proxy.wsUrl,
     resume: !!opts.resumeSessionId,
   });
 
@@ -130,7 +107,7 @@ export async function runAgentSdk(opts: RunAgentSdkOptions): Promise<string | un
         env: {
           ...process.env,
           ANTHROPIC_API_KEY: apiKey,
-          BU_CDP_WS: cdpWsUrl,
+          BU_CDP_WS: proxy.wsUrl,
           BU_NAME: sessionName,
         },
         systemPrompt: {
@@ -212,6 +189,8 @@ export async function runAgentSdk(opts: RunAgentSdkOptions): Promise<string | un
       mainLogger.error('agentSdk.error', { sessionName, error: errorMsg });
       onEvent({ type: 'error', message: errorMsg });
     }
+  } finally {
+    proxy?.close();
   }
 
   return sessionId;

@@ -44,7 +44,7 @@ import {
 import { getApiKey } from './agentApiKey';
 import { assertString } from './ipc-validators';
 // Wave HL — Agent SDK
-import { runAgentSdk, getCdpWsUrl } from './hl/agent-sdk';
+import { runAgentSdk } from './hl/agent-sdk';
 import { getEngine, setEngine, type EngineId } from './hl/engine';
 import { forwardAgentEvent } from './pill';
 // Session management
@@ -351,24 +351,11 @@ app.whenReady().then(async () => {
     await view.webContents.loadURL('about:blank');
     mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'loadBlank', ms: Date.now() - t0 });
 
-    let cdpWsUrl: string;
-    try {
-      cdpWsUrl = await getCdpWsUrl(view.webContents);
-      mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'getCdpWsUrl', ms: Date.now() - t0 });
-    } catch (err) {
-      const msg = `CDP WebSocket URL failed: ${(err as Error).message}`;
-      mainLogger.warn('main.startSessionWithAgent.noCdp', { id, error: msg });
-      browserPool.destroy(id, shellWindow ?? undefined);
-      sessionManager.failSession(id, msg);
-      startingSessionIds.delete(id);
-      return;
-    }
-
     const session = sessionManager.getSession(id)!;
     runAgentSdk({
       prompt: session.prompt,
       apiKey,
-      cdpWsUrl,
+      webContents: view.webContents,
       sessionName: id,
       signal: abortController.signal,
       onEvent: (event) => {
@@ -428,23 +415,13 @@ app.whenReady().then(async () => {
 
     const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
 
-    let cdpWsUrl: string;
-    try {
-      cdpWsUrl = await getCdpWsUrl(webContents);
-    } catch (err) {
-      const msg = `CDP WebSocket URL failed: ${(err as Error).message}`;
-      mainLogger.warn('main.sessions:resume.noCdp', { id: validatedId, error: msg });
-      sessionManager.failSession(validatedId, msg);
-      return { error: msg };
-    }
-
     const sdkResumeId = sessionManager.getSdkSessionId(validatedId);
     mainLogger.info('main.sessions:resume.context', { id: validatedId, sdkResumeId });
 
     runAgentSdk({
       prompt: validatedPrompt,
       apiKey,
-      cdpWsUrl,
+      webContents,
       sessionName: validatedId,
       signal: abortController.signal,
       resumeSessionId: sdkResumeId ?? undefined,
@@ -497,20 +474,10 @@ app.whenReady().then(async () => {
 
     await view.webContents.loadURL('about:blank');
 
-    let cdpWsUrl: string;
-    try {
-      cdpWsUrl = await getCdpWsUrl(view.webContents);
-    } catch (err) {
-      const msg = `CDP WebSocket URL failed: ${(err as Error).message}`;
-      browserPool.destroy(validatedId, shellWindow ?? undefined);
-      sessionManager.failSession(validatedId, msg);
-      return { error: msg };
-    }
-
     runAgentSdk({
       prompt: session.prompt,
       apiKey,
-      cdpWsUrl,
+      webContents: view.webContents,
       sessionName: validatedId,
       signal: abortController.signal,
       onEvent: (event) => {
