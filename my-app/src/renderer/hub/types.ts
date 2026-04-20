@@ -17,6 +17,8 @@ export interface AgentSession {
   output: HlEvent[];
   error?: string;
   group?: string;
+  hasBrowser?: boolean;
+  hidden?: boolean;
 }
 
 export interface ToolResult {

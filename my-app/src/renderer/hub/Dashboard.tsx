@@ -49,10 +49,10 @@ function deriveBreakdown(sessions: AgentSession[]): StatusBreakdownEntry[] {
     if (s.status in counts) counts[s.status] += 1;
   }
   return [
-    { status: 'stopped', count: counts.stopped, label: 'Stopped' },
     { status: 'running', count: counts.running, label: 'Running' },
-    { status: 'stuck', count: counts.stuck, label: 'Stuck' },
     { status: 'idle', count: counts.idle, label: 'Idle' },
+    { status: 'stuck', count: counts.stuck, label: 'Stuck' },
+    { status: 'stopped', count: counts.stopped, label: 'Stopped' },
     { status: 'draft', count: counts.draft, label: 'Draft' },
   ];
 }
@@ -244,7 +244,7 @@ export function Dashboard({ sessions, onSwitchToGrid, onSelectSession }: Dashboa
     [isMock, sessions],
   );
 
-  const recentSessions = sessions.slice(0, 6);
+  const recentSessions = sessions;
 
   return (
     <div className="dashboard">

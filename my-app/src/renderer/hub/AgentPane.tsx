@@ -333,14 +333,17 @@ interface AgentPaneProps {
   onFollowUp?: (sessionId: string, prompt: string) => void;
   onDismiss?: (sessionId: string) => void;
   onCancel?: (sessionId: string) => void;
+  onSelect?: (sessionId: string) => void;
+  onOpenFollowUp?: () => void;
 }
 
-export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, onCancel }: AgentPaneProps): React.ReactElement {
+export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp }: AgentPaneProps): React.ReactElement {
   const toast = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const [showBrowser, setShowBrowser] = useState(false);
   const [browserDead, setBrowserDead] = useState(false);
+  const [showFollowUpBar, setShowFollowUpBar] = useState(false);
   const { entries } = useMemo(() => adaptSession(session), [session]);
 
   useEffect(() => {
@@ -349,7 +352,13 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     api.sessions.viewIsAttached(session.id).then((attached) => {
       if (attached) setShowBrowser(true);
     }).catch(() => {});
-  }, [session.id]);
+    api.sessions.get(session.id).then((s) => {
+      if (s && s.hasBrowser === false && session.status !== 'draft') {
+        console.log('[AgentPane] browser dead on mount', { id: session.id, hasBrowser: false });
+        setBrowserDead(true);
+      }
+    }).catch(() => {});
+  }, [session.id, session.status]);
 
   const toggleBrowser = useCallback(async () => {
     if (browserDead) {
@@ -412,7 +421,7 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
   const statusText = STATUS_LABEL[session.status] ?? session.status;
 
   return (
-    <div ref={paneRef} className={`pane pane--${session.status}${focused ? ' pane--focused' : ''}`}>
+    <div ref={paneRef} className={`pane pane--${session.status}${focused ? ' pane--focused' : ''}`} onClick={() => onSelect?.(session.id)}>
       <div className="pane__header">
         <span className={`pane__dot pane__dot--${session.status}`} />
         <span className="pane__prompt">{session.prompt}</span>
@@ -424,7 +433,7 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
             </span>
           ) : (
             <button
-              className={`pane__action-btn${showBrowser ? ' pane__action-btn--active' : ''}`}
+              className={`pane__action-btn pane__action-btn--primary${showBrowser ? ' pane__action-btn--active' : ''}`}
               onClick={toggleBrowser}
             >
               {showBrowser ? <OutputIcon /> : <BrowserIcon />}
@@ -457,6 +466,17 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
             >
               <CloseIcon />
               <span>Stop</span>
+            </button>
+          )}
+          {session.status === 'idle' && onOpenFollowUp && (
+            <button
+              className="pane__action-btn pane__action-btn--primary"
+              onClick={onOpenFollowUp}
+            >
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <span>Follow up</span>
             </button>
           )}
           {session.status !== 'running' && session.status !== 'stuck' && onDismiss && (
@@ -524,6 +544,18 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
           </div>
         )}
       </div>
+
+      {showFollowUpBar && showBrowser && session.status === 'idle' && onFollowUp && (
+        <div className="pane__browser-followup">
+          <FollowUpInput
+            sessionId={session.id}
+            onUserInput={(text) => {
+              onFollowUp(session.id, text);
+              setShowFollowUpBar(false);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

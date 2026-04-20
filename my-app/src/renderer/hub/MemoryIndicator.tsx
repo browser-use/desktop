@@ -69,7 +69,11 @@ export function MemoryIndicator(): React.ReactElement | null {
             </div>
             <div className="mem__processes">
               {(data.processes ?? [])
-                .sort((a, b) => b.mb - a.mb)
+                .sort((a, b) => {
+                  if (a.sessionId && !b.sessionId) return -1;
+                  if (!a.sessionId && b.sessionId) return 1;
+                  return b.mb - a.mb;
+                })
                 .map((p, i) => (
                   <div key={i} className="mem__session-row">
                     <span className={`mem__dot ${p.sessionId ? statusDotClass(data.sessions.find((s) => s.id === p.sessionId)?.status ?? 'stopped') : 'mem__dot--system'}`} />
@@ -77,6 +81,22 @@ export function MemoryIndicator(): React.ReactElement | null {
                       {p.label}
                     </span>
                     <span className="mem__session-mb">{Math.round(p.mb)} MB</span>
+                    {p.sessionId && (
+                      <button
+                        className="mem__kill-btn"
+                        onClick={() => {
+                          const api = window.electronAPI;
+                          if (!api || !p.sessionId) return;
+                          api.sessions.cancel(p.sessionId).catch(() => {});
+                          api.sessions.hide(p.sessionId).catch(() => {});
+                        }}
+                        aria-label="Stop session"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
+                          <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 ))}
             </div>

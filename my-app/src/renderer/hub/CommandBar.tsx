@@ -4,6 +4,7 @@ interface CommandBarProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (prompt: string) => void;
+  mode?: 'create' | 'followup';
 }
 
 function ArrowUpIcon(): React.ReactElement {
@@ -14,7 +15,7 @@ function ArrowUpIcon(): React.ReactElement {
   );
 }
 
-export function CommandBar({ open, onClose, onSubmit }: CommandBarProps): React.ReactElement | null {
+export function CommandBar({ open, onClose, onSubmit, mode = 'create' }: CommandBarProps): React.ReactElement | null {
   const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -59,9 +60,9 @@ export function CommandBar({ open, onClose, onSubmit }: CommandBarProps): React.
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="What should the agent do?"
+            placeholder={mode === 'followup' ? 'Follow up...' : 'What should the agent do?'}
             rows={1}
-            aria-label="New agent task"
+            aria-label={mode === 'followup' ? 'Follow up on session' : 'New agent task'}
           />
           <button
             className="cmdbar__send"

@@ -7,6 +7,7 @@ import { KeybindingsOverlay } from './KeybindingsOverlay';
 import { SettingsPane } from './SettingsPane';
 import { useVimKeys } from './useVimKeys';
 import { useSessionsQuery, useDismissSession, useUpdateSession } from './useSessionsQuery';
+import { MemoryIndicator } from './MemoryIndicator';
 import { MOCK_SESSIONS } from './mock-data';
 import type { AgentSession, HlEvent } from './types';
 import type { ActionId } from './keybindings';
@@ -78,6 +79,7 @@ export function HubApp(): React.ReactElement {
   const setSessions = isMock ? setMockSessions : () => {};
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
   const [cmdBarOpen, setCmdBarOpen] = useState(false);
+  const [cmdBarMode, setCmdBarMode] = useState<'create' | 'followup'>('create');
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
@@ -96,9 +98,9 @@ export function HubApp(): React.ReactElement {
     'goto.dashboard': () => setViewMode('dashboard'),
     'goto.agents': () => setViewMode('grid'),
     'goto.list': () => setViewMode('list'),
-    'goto.settings': () => setSettingsOpen(true),
-    'search.open': () => setCmdBarOpen(true),
-    'action.create': () => setCmdBarOpen(true),
+    'goto.settings': () => { hideBrowserViews(); setSettingsOpen(true); },
+    'search.open': () => { hideBrowserViews(); setCmdBarOpen(true); },
+    'action.create': () => { hideBrowserViews(); setCmdBarOpen(true); },
     'action.dismiss': () => {
       const s = sessions[focusIndex];
       if (!s) return;
@@ -131,12 +133,12 @@ export function HubApp(): React.ReactElement {
       const el = document.querySelector('.hub-grid, .list-view__body, .dashboard');
       if (el) el.scrollBy({ top: -(el.clientHeight / 2), behavior: 'smooth' });
     },
-    'meta.help': () => setHelpOpen((prev) => !prev),
-    'meta.commandPalette': () => setCmdBarOpen((prev) => !prev),
+    'meta.help': () => { hideBrowserViews(); setHelpOpen((prev) => !prev); },
+    'meta.commandPalette': () => { hideBrowserViews(); setCmdBarOpen((prev) => !prev); },
     'meta.escape': () => {
-      if (helpOpen) { setHelpOpen(false); return; }
-      if (settingsOpen) { setSettingsOpen(false); return; }
-      if (cmdBarOpen) { setCmdBarOpen(false); return; }
+      if (helpOpen) { setHelpOpen(false); showBrowserViews(); return; }
+      if (settingsOpen) { setSettingsOpen(false); showBrowserViews(); return; }
+      if (cmdBarOpen) { setCmdBarOpen(false); showBrowserViews(); return; }
     },
   }), [sessions, focusIndex, helpOpen, settingsOpen, cmdBarOpen]);
 
@@ -146,6 +148,14 @@ export function HubApp(): React.ReactElement {
     const kb = vim.keybindings.find((b) => b.id === actionId);
     return kb?.keys[0] ?? '';
   };
+
+  const hideBrowserViews = useCallback(() => {
+    window.electronAPI?.sessions.viewsSetVisible(false).catch(() => {});
+  }, []);
+
+  const showBrowserViews = useCallback(() => {
+    window.electronAPI?.sessions.viewsSetVisible(true).catch(() => {});
+  }, []);
 
   const tip = (label: string, actionId: ActionId): string => {
     const key = shortcutFor(actionId);
@@ -187,7 +197,7 @@ export function HubApp(): React.ReactElement {
     sessions.forEach((s) => {
       api.sessions.viewDetach(s.id).catch(() => {});
     });
-  }, [viewMode]);
+  }, [viewMode, gridColumns, gridPage]);
 
   const handleCreateSession = useCallback(async (prompt: string) => {
     if (isMock) {
@@ -217,6 +227,7 @@ export function HubApp(): React.ReactElement {
       setTimeout(() => pushEvent({ type: 'tool_result', name: 'file.read', ok: true, preview: 'Read 50 lines. Found entry point configuration.', ms: 800 }), 8000);
       setTimeout(() => pushEvent({ type: 'done', summary: 'Implementation complete.', iterations: 2 }, 'stopped'), 10000);
       setViewMode('grid');
+      setGridPage(Math.floor(sessions.length / 4));
       return;
     }
 
@@ -230,6 +241,7 @@ export function HubApp(): React.ReactElement {
       await api.sessions.start(id);
       console.log('[HubApp] session started', { id });
       setViewMode('grid');
+      setGridPage(Math.floor(sessions.length / 4));
     } catch (err) {
       console.error('[HubApp] createSession failed', err);
     }
@@ -265,6 +277,7 @@ export function HubApp(): React.ReactElement {
       <header className="hub-toolbar">
         <div className="hub-toolbar__left">
           <span className="hub-toolbar__title">Agent Hub</span>
+          <MemoryIndicator />
         </div>
         <div className="hub-toolbar__right">
           <button
@@ -277,32 +290,34 @@ export function HubApp(): React.ReactElement {
             <span className="hub-toolbar__new-label">New agent</span>
           </button>
           {sessions.length > 0 && (
-            <div className="hub-toolbar__view-toggle" role="radiogroup" aria-label="View mode">
-              <button
-                className={`hub-toolbar__view-btn${viewMode === 'dashboard' ? ' hub-toolbar__view-btn--active' : ''}`}
-                onClick={() => setViewMode('dashboard')}
-                aria-label="Dashboard"
-                data-tip={tip('Dashboard', 'goto.dashboard')}
-              >
-                <DashboardIcon />
-              </button>
-              <button
-                className={`hub-toolbar__view-btn${viewMode === 'grid' ? ' hub-toolbar__view-btn--active' : ''}`}
-                onClick={() => setViewMode('grid')}
-                aria-label="Grid view"
-                data-tip={tip('Grid view', 'goto.agents')}
-              >
-                <GridIcon />
-              </button>
-              <button
-                className={`hub-toolbar__view-btn${viewMode === 'list' ? ' hub-toolbar__view-btn--active' : ''}`}
-                onClick={() => setViewMode('list')}
-                aria-label="List view"
-                data-tip={tip('List view', 'goto.list')}
-              >
-                <ListIcon />
-              </button>
-            </div>
+            <>
+              <div className="hub-toolbar__view-toggle" role="radiogroup" aria-label="View mode">
+                <button
+                  className={`hub-toolbar__view-btn${viewMode === 'dashboard' ? ' hub-toolbar__view-btn--active' : ''}`}
+                  onClick={() => setViewMode('dashboard')}
+                  aria-label="Dashboard"
+                  data-tip={tip('Dashboard', 'goto.dashboard')}
+                >
+                  <DashboardIcon />
+                </button>
+                <button
+                  className={`hub-toolbar__view-btn${viewMode === 'grid' ? ' hub-toolbar__view-btn--active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                  aria-label="Grid view"
+                  data-tip={tip('Grid view', 'goto.agents')}
+                >
+                  <GridIcon />
+                </button>
+                <button
+                  className={`hub-toolbar__view-btn${viewMode === 'list' ? ' hub-toolbar__view-btn--active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                  aria-label="List view"
+                  data-tip={tip('List view', 'goto.list')}
+                >
+                  <ListIcon />
+                </button>
+              </div>
+            </>
           )}
           {zoomFactor !== 1.0 && (
             <button
@@ -319,6 +334,51 @@ export function HubApp(): React.ReactElement {
           )}
         </div>
       </header>
+
+      {viewMode === 'grid' && (
+        <div className="hub-layout-bar">
+          <div className="hub-layout-bar__group">
+            <button
+              className={`hub-layout-bar__btn${gridColumns === 1 ? ' hub-layout-bar__btn--active' : ''}`}
+              onClick={() => { setGridColumns(1); setGridPage(0); }}
+              aria-label="1x1 layout"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="2" y="2" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+            </button>
+            <button
+              className={`hub-layout-bar__btn${gridColumns === 4 ? ' hub-layout-bar__btn--active' : ''}`}
+              onClick={() => { setGridColumns(4); setGridPage(0); }}
+              aria-label="2x2 layout"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                <rect x="8" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+              </svg>
+            </button>
+            <button
+              className={`hub-layout-bar__btn${gridColumns === 9 ? ' hub-layout-bar__btn--active' : ''}`}
+              onClick={() => { setGridColumns(9); setGridPage(0); }}
+              aria-label="3x3 layout"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="1" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="5.5" y="1" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="10" y="1" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="1" y="5.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="5.5" y="5.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="10" y="5.5" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="1" y="10" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="5.5" y="10" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+                <rect x="10" y="10" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {hasNoSessions ? (
         <div className="hub-empty-state" onClick={() => setCmdBarOpen(true)} style={{ cursor: 'pointer' }}>
@@ -341,14 +401,15 @@ export function HubApp(): React.ReactElement {
         />
       ) : viewMode === 'grid' ? (
         (() => {
+          const visibleSessions = sessions.filter((s) => !s.hidden);
           const pageSize = gridColumns;
-          const totalPages = Math.max(1, Math.ceil(sessions.length / pageSize));
+          const totalPages = Math.max(1, Math.ceil(visibleSessions.length / pageSize));
           const safePage = Math.min(gridPage, totalPages - 1);
           const pageStart = safePage * pageSize;
-          const pageSessions = sessions.slice(pageStart, pageStart + pageSize);
+          const pageSessions = visibleSessions.slice(pageStart, pageStart + pageSize);
           return (
             <div className="hub-grid-container">
-              <div className="hub-grid" data-count="4">
+              <div className="hub-grid" data-count={String(gridColumns)}>
                 {pageSessions.map((session) => {
                   const globalIdx = sessions.findIndex((s) => s.id === session.id);
                   return (
@@ -365,6 +426,12 @@ export function HubApp(): React.ReactElement {
                       }}
                       onCancel={(id) => {
                         window.electronAPI?.sessions.cancel(id).catch(() => {});
+                      }}
+                      onSelect={handleSelectSession}
+                      onOpenFollowUp={() => {
+                        sessions.forEach((s) => window.electronAPI?.sessions.viewDetach(s.id).catch(() => {}));
+                        setCmdBarMode('followup');
+                        setCmdBarOpen(true);
                       }}
                     />
                   );
@@ -407,13 +474,21 @@ export function HubApp(): React.ReactElement {
 
       <CommandBar
         open={cmdBarOpen}
-        onClose={() => setCmdBarOpen(false)}
-        onSubmit={handleCreateSession}
+        onClose={() => { setCmdBarOpen(false); setCmdBarMode('create'); showBrowserViews(); }}
+        onSubmit={(prompt) => {
+          if (cmdBarMode === 'followup') {
+            const s = sessions[focusIndex];
+            if (s && handleFollowUp) handleFollowUp(s.id, prompt);
+          } else {
+            handleCreateSession(prompt);
+          }
+        }}
+        mode={cmdBarMode}
       />
 
       <KeybindingsOverlay
         open={helpOpen}
-        onClose={() => setHelpOpen(false)}
+        onClose={() => { setHelpOpen(false); showBrowserViews(); }}
         keybindings={vim.keybindings}
         onOpenSettings={() => {
           setHelpOpen(false);
@@ -423,7 +498,7 @@ export function HubApp(): React.ReactElement {
 
       <SettingsPane
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => { setSettingsOpen(false); showBrowserViews(); }}
         keybindings={vim.keybindings}
         overrides={vim.overrides}
         onUpdateBinding={vim.updateBinding}

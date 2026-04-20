@@ -23,7 +23,14 @@ export function useSessionsQuery() {
       const api = window.electronAPI;
       if (!api) return [];
       const list = await api.sessions.list();
-      console.log('[useSessionsQuery] fetched sessions', { count: list.length });
+      const hiddenCount = list.filter((s) => s.hidden).length;
+      const visibleCount = list.filter((s) => !s.hidden).length;
+      console.log('[useSessionsQuery] fetched sessions', {
+        total: list.length,
+        visible: visibleCount,
+        hidden: hiddenCount,
+        ids: list.map((s) => ({ id: s.id.slice(0, 8), status: s.status, hidden: !!s.hidden })),
+      });
       return list;
     },
   });
@@ -38,7 +45,7 @@ export function useSessionsQuery() {
         const idx = prev.findIndex((s) => s.id === session.id);
         if (idx >= 0) {
           const next = [...prev];
-          next[idx] = session;
+          next[idx] = { ...prev[idx], ...session, hasBrowser: session.hasBrowser ?? prev[idx].hasBrowser };
           return next;
         }
         return [...prev, session];
@@ -86,3 +93,4 @@ export function useInvalidateSessions() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: SESSIONS_KEY });
 }
+
