@@ -27,7 +27,7 @@ export class SessionManager extends EventEmitter {
       mainLogger.warn('SessionManager.loadPersistedSessions.recovered', { count: recoveredCount });
     }
 
-    const rows = this.db.listSessions({ limit: 50 });
+    const rows = this.db.listSessions({ limit: 50, includeHidden: true });
     for (const row of rows) {
       const events = this.db.getEvents(row.id);
       const session: AgentSession = {
@@ -38,6 +38,7 @@ export class SessionManager extends EventEmitter {
         output: events,
         error: row.error ?? undefined,
         group: row.group_name ?? undefined,
+        hidden: row.hidden === 1,
       };
       this.sessions.set(row.id, session);
     }
@@ -203,14 +204,19 @@ export class SessionManager extends EventEmitter {
   }
 
   hideSession(id: string): void {
+    const session = this.sessions.get(id);
+    if (session) (session as AgentSession & { hidden?: boolean }).hidden = true;
     this.db.hideSession(id);
-    this.sessions.delete(id);
     mainLogger.info('SessionManager.hideSession', { id });
+    if (session) this.emitEvent('session-updated', { ...session });
   }
 
   unhideSession(id: string): void {
+    const session = this.sessions.get(id);
+    if (session) (session as AgentSession & { hidden?: boolean }).hidden = false;
     this.db.unhideSession(id);
     mainLogger.info('SessionManager.unhideSession', { id });
+    if (session) this.emitEvent('session-updated', { ...session });
   }
 
   deleteSession(id: string): void {

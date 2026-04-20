@@ -79,6 +79,8 @@ export const AgentSessionSchema = z.object({
   output: z.array(HlEventSchema),
   error: z.string().optional(),
   group: z.string().optional(),
+  hasBrowser: z.boolean().optional(),
+  hidden: z.boolean().optional(),
 });
 
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
