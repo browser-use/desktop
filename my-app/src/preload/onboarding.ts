@@ -14,6 +14,7 @@ export interface CookieImportResult {
   skipped: number;
   domains: string[];
   failedDomains: string[];
+  errorReasons: Record<string, number>;
 }
 
 const onboardingAPI = {

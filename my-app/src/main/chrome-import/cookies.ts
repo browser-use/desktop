@@ -10,10 +10,6 @@ const PBKDF2_KEY_LEN = 16;
 const PBKDF2_SALT = 'saltysalt';
 const AES_IV = Buffer.alloc(16, 0x20);
 
-// Chrome epoch: microseconds since 1601-01-01
-// Unix epoch: seconds since 1970-01-01
-// Difference in microseconds: 11644473600 * 1_000_000
-const CHROME_EPOCH_OFFSET = 11644473600n;
 
 function getChromeSafeStoragePassword(): string {
   try {
@@ -67,13 +63,6 @@ function decryptCookieValue(encryptedValue: Buffer, key: Buffer): string {
   return encryptedValue.toString('utf-8');
 }
 
-function chromeTimestampToUnix(chromeTimestamp: bigint | number): number {
-  const ts = BigInt(chromeTimestamp);
-  if (ts === 0n) return 0;
-  const unixSeconds = Number(ts / 1000000n - CHROME_EPOCH_OFFSET);
-  return unixSeconds > 0 ? unixSeconds : 0;
-}
-
 function chromeSameSiteToElectron(value: number): 'unspecified' | 'no_restriction' | 'lax' | 'strict' {
   switch (value) {
     case -1: return 'unspecified';
@@ -92,7 +81,6 @@ interface ChromeCookieRow {
   value: string;
   is_secure: number;
   is_httponly: number;
-  expires_utc: number | bigint;
   samesite: number;
 }
 
@@ -103,6 +91,7 @@ export interface CookieImportResult {
   skipped: number;
   domains: string[];
   failedDomains: string[];
+  errorReasons: Record<string, number>;
 }
 
 export async function importChromeProfileCookies(profileDir: string): Promise<CookieImportResult> {
@@ -134,7 +123,7 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   let rows: ChromeCookieRow[];
   try {
     rows = db.prepare(
-      'SELECT host_key, name, path, encrypted_value, value, is_secure, is_httponly, expires_utc, samesite FROM cookies',
+      'SELECT host_key, name, path, encrypted_value, value, is_secure, is_httponly, samesite FROM cookies',
     ).all() as ChromeCookieRow[];
   } catch (err) {
     db.close();
@@ -156,6 +145,7 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   let skipped = 0;
   const importedDomains = new Set<string>();
   const failedDomainSet = new Set<string>();
+  const errorReasons: Record<string, number> = {};
 
   for (const row of rows) {
     let value = row.value;
@@ -172,15 +162,6 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
     const scheme = row.is_secure ? 'https' : 'http';
     const url = `${scheme}://${domain}${row.path}`;
 
-    const expirationDate = chromeTimestampToUnix(row.expires_utc);
-
-    // Skip expired cookies — Chrome keeps them but Electron rejects them
-    const now = Math.floor(Date.now() / 1000);
-    if (expirationDate > 0 && expirationDate < now) {
-      skipped++;
-      continue;
-    }
-
     try {
       await electronSession.cookies.set({
         url,
@@ -191,20 +172,22 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
         secure: row.is_secure === 1,
         httpOnly: row.is_httponly === 1,
         sameSite: chromeSameSiteToElectron(row.samesite),
-        ...(expirationDate > 0 ? { expirationDate } : {}),
       });
       imported++;
       importedDomains.add(domain);
     } catch (err) {
       failed++;
       failedDomainSet.add(domain);
+      const reason = (err as Error).message || 'Unknown error';
+      errorReasons[reason] = (errorReasons[reason] || 0) + 1;
       if (failed <= 20) {
         mainLogger.debug('chromeImport.importCookies.setCookieFailed', {
           name: row.name,
           domain: row.host_key,
           url,
           secure: row.is_secure,
-          error: (err as Error).message,
+          samesite: row.samesite,
+          error: reason,
         });
       }
     }
@@ -220,6 +203,7 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
     skipped,
     domains,
     failedDomains,
+    errorReasons,
   };
 
   mainLogger.info('chromeImport.importCookies.done', {

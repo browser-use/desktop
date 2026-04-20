@@ -379,6 +379,40 @@ html, body {
   margin-top: 4px;
 }
 
+/* Error reasons */
+
+.error-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.error-reason-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.error-reason-count {
+  color: var(--color-status-error);
+  font-weight: 600;
+  min-width: 32px;
+  text-align: right;
+}
+
+.error-reason-text {
+  color: var(--color-fg-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Domain list */
 
 .dl-container {

@@ -15,6 +15,7 @@ interface CookieImportResult {
   skipped: number;
   domains: string[];
   failedDomains: string[];
+  errorReasons: Record<string, number>;
 }
 
 declare global {
@@ -223,6 +224,18 @@ export function OnboardingApp() {
                     <div className="import-result import-result-error">
                       {importResult.failed} cookies failed from {importResult.failedDomains.length} domains
                     </div>
+                    {Object.keys(importResult.errorReasons).length > 0 && (
+                      <div className="error-reasons">
+                        {Object.entries(importResult.errorReasons)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([reason, count]) => (
+                            <div key={reason} className="error-reason-row">
+                              <span className="error-reason-count">{count}</span>
+                              <span className="error-reason-text">{reason}</span>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                     <DomainList domains={importResult.failedDomains} collapsible />
                   </div>
                 )}
