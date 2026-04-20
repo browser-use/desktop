@@ -498,6 +498,35 @@ html, body {
 
 /* Error reasons */
 
+.error-reasons-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.error-reasons-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-fg-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  align-self: flex-start;
+}
+
+.error-reasons-toggle:hover {
+  color: var(--color-fg-secondary);
+}
+
+.error-reasons-chevron {
+  font-size: 10px;
+  line-height: 1;
+}
+
 .error-reasons {
   display: flex;
   flex-direction: column;

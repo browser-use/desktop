@@ -71,6 +71,34 @@ function buildAccelerator(e: KeyboardEvent): string | null {
   return [...mods, key].join('+');
 }
 
+function ErrorReasonsDisclosure({ reasons }: { reasons: Record<string, number> }) {
+  const [open, setOpen] = useState(false);
+  const entries = Object.entries(reasons).sort(([, a], [, b]) => b - a);
+  if (entries.length === 0) return null;
+  return (
+    <div className="error-reasons-wrap">
+      <button
+        type="button"
+        className="error-reasons-toggle"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="error-reasons-chevron">{open ? '\u25B4' : '\u25BE'}</span>
+        <span>{open ? 'Hide error details' : 'Show error details'}</span>
+      </button>
+      {open && (
+        <div className="error-reasons">
+          {entries.map(([reason, count]) => (
+            <div key={reason} className="error-reason-row">
+              <span className="error-reason-count">{count}</span>
+              <span className="error-reason-text">{reason}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function OnboardingApp() {
   const [step, setStep] = useState<Step>('profile');
   const [profiles, setProfiles] = useState<ChromeProfile[]>([]);
@@ -310,18 +338,7 @@ export function OnboardingApp() {
                         {importResult.failed} failed from {importResult.failedDomains.length} domains
                       </span>
                     </div>
-                    {Object.keys(importResult.errorReasons).length > 0 && (
-                      <div className="error-reasons">
-                        {Object.entries(importResult.errorReasons)
-                          .sort(([, a], [, b]) => b - a)
-                          .map(([reason, count]) => (
-                            <div key={reason} className="error-reason-row">
-                              <span className="error-reason-count">{count}</span>
-                              <span className="error-reason-text">{reason}</span>
-                            </div>
-                          ))}
-                      </div>
-                    )}
+                    <ErrorReasonsDisclosure reasons={importResult.errorReasons} />
                     <DomainList domains={importResult.failedDomains} collapsible />
                   </div>
                 )}
