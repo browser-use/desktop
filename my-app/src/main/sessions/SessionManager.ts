@@ -230,6 +230,30 @@ export class SessionManager extends EventEmitter {
     mainLogger.info('SessionManager.deleteSession', { id });
   }
 
+  rerunSession(id: string): AbortController {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session not found: ${id}`);
+
+    const ctrl = this.abortControllers.get(id);
+    if (ctrl) { ctrl.abort(); this.abortControllers.delete(id); }
+    this.clearStuckTimer(id);
+
+    session.output = [];
+    session.error = undefined;
+    session.status = 'running';
+    this.db.updateSessionStatus(id, 'running');
+    this.db.saveMessages(id, []);
+    this.db.clearEvents(id);
+
+    const abortController = new AbortController();
+    this.abortControllers.set(id, abortController);
+    this.resetStuckTimer(id);
+
+    mainLogger.info('SessionManager.rerunSession', { id, prompt: session.prompt.slice(0, 50) });
+    this.emitEvent('session-updated', { ...session });
+    return abortController;
+  }
+
   saveMessages(id: string, messages: unknown[]): void {
     this.db.saveMessages(id, messages);
   }

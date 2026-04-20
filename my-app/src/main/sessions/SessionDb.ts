@@ -222,6 +222,12 @@ export class SessionDb {
     }
   }
 
+  clearEvents(id: string): void {
+    if (this.closed) return;
+    this.db.prepare('DELETE FROM session_events WHERE session_id = ?').run(id);
+    mainLogger.info('SessionDb.clearEvents', { id });
+  }
+
   deleteSession(id: string): void {
     try {
       this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);

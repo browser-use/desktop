@@ -50,6 +50,10 @@ import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
 // Settings window (no browser-feature IPC handlers)
 import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
+// Channels (WhatsApp)
+import { WhatsAppAdapter } from './channels/WhatsAppAdapter';
+import { ChannelRouter } from './channels/ChannelRouter';
+import { registerChannelHandlers, unregisterChannelHandlers } from './channels/ipc';
 // Auto-updater
 import { initUpdater, stopUpdater } from './updater';
 
@@ -113,6 +117,8 @@ const oauthClient = new OAuthClient({
   clientId: process.env.GOOGLE_CLIENT_ID ?? '42357852543-62lvdghq5hatidr3ovmq1rig9q5r5mcg.apps.googleusercontent.com',
 });
 const keychainStore = new KeychainStore();
+const whatsAppAdapter = new WhatsAppAdapter();
+const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
 
 // ---------------------------------------------------------------------------
 // Shell window factory
@@ -165,6 +171,23 @@ function openShellAndWire(): BrowserWindow {
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
   mainLogger.info('main.appReady', { msg: 'Electron app ready — initializing agent hub' });
+
+  // ---------------------------------------------------------------------------
+  // Channel IPC handlers (registered early so onboarding can use them too)
+  // ---------------------------------------------------------------------------
+  registerChannelHandlers(channelRouter, whatsAppAdapter);
+  whatsAppAdapter.onStatusChange((status, detail) => {
+    const target = shellWindow ?? onboardingWindow;
+    if (target && !target.isDestroyed()) {
+      target.webContents.send('channel-status', 'whatsapp', status, detail);
+    }
+  });
+  whatsAppAdapter.onQr((dataUrl) => {
+    const target = shellWindow ?? onboardingWindow;
+    if (target && !target.isDestroyed()) {
+      target.webContents.send('whatsapp-qr', dataUrl);
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // Pill IPC handlers
@@ -407,6 +430,67 @@ app.whenReady().then(async () => {
     return { resumed: true };
   });
 
+  ipcMain.handle('sessions:rerun', async (_event, id: string) => {
+    const validatedId = assertString(id, 'id', 100);
+    mainLogger.info('main.sessions:rerun', { id: validatedId });
+
+    const apiKey = await getApiKey({ accountEmail: accountStore.load()?.email });
+    if (!apiKey) return { error: 'No API key configured' };
+
+    const session = sessionManager.getSession(validatedId);
+    if (!session) return { error: 'Session not found' };
+
+    browserPool.destroy(validatedId, shellWindow ?? undefined);
+    sessionMessages.delete(validatedId);
+
+    const abortController = sessionManager.rerunSession(validatedId);
+
+    const view = browserPool.create(validatedId);
+    if (!view) {
+      sessionManager.failSession(validatedId, 'Browser pool full');
+      return { error: 'Browser pool full' };
+    }
+
+    let ctx;
+    try {
+      ctx = await createContext({ name: validatedId, webContents: view.webContents });
+    } catch (err) {
+      const msg = `CDP context creation failed: ${(err as Error).message}`;
+      browserPool.destroy(validatedId, shellWindow ?? undefined);
+      sessionManager.failSession(validatedId, msg);
+      return { error: msg };
+    }
+
+    runAgent({
+      ctx,
+      prompt: session.prompt,
+      apiKey,
+      signal: abortController.signal,
+      onEvent: (event) => {
+        if (event.type === 'done') {
+          sessionManager.appendOutput(validatedId, event);
+          sessionManager.completeSession(validatedId);
+        } else if (event.type === 'error') {
+          sessionManager.failSession(validatedId, event.message);
+          browserPool.destroy(validatedId, shellWindow ?? undefined);
+        } else {
+          sessionManager.appendOutput(validatedId, event);
+        }
+      },
+    }).then((msgs) => {
+      if (msgs) {
+        sessionMessages.set(validatedId, msgs as Array<{ role: string; content: unknown }>);
+        sessionManager.saveMessages(validatedId, msgs);
+      }
+    }).catch((err: Error) => {
+      mainLogger.error('main.sessions:rerun.agentError', { id: validatedId, error: err.message });
+      sessionManager.failSession(validatedId, err.message);
+      browserPool.destroy(validatedId, shellWindow ?? undefined);
+    });
+
+    return { rerun: true };
+  });
+
   ipcMain.handle('sessions:cancel', (_event, id: string) => {
     const validatedId = assertString(id, 'id', 100);
     mainLogger.info('main.sessions:cancel', { id: validatedId });
@@ -489,12 +573,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('sessions:views-set-visible', (_event, visible: boolean) => {
-    if (!shellWindow) return;
-    if (!visible) {
-      browserPool.sendAllToBack(shellWindow);
-    } else {
-      browserPool.bringAllToFront(shellWindow);
-    }
+    browserPool.setAllVisible(visible);
   });
 
   ipcMain.handle('sessions:get-tabs', async (_event, id: string) => {
@@ -644,6 +723,9 @@ app.whenReady().then(async () => {
     activeAgents.clear();
     browserPool.destroyAll(shellWindow ?? undefined);
     sessionManager.destroy();
+    whatsAppAdapter.disconnect().catch(() => {});
+    channelRouter.destroy();
+    unregisterChannelHandlers();
   });
 
   app.on('will-quit', () => {

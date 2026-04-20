@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     unhide: (id: string): Promise<void> => ipcRenderer.invoke('sessions:unhide', id),
     resume: (id: string, prompt: string): Promise<{ resumed?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:resume', { id, prompt }),
+    rerun: (id: string): Promise<{ rerun?: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:rerun', id),
     list: async (): Promise<AgentSession[]> => {
       const raw = await ipcRenderer.invoke('sessions:list');
       return validateSessionList(raw);
@@ -63,6 +65,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       processCount: number;
     }> => ipcRenderer.invoke('sessions:memory'),
   },
+  channels: {
+    whatsapp: {
+      connect: (): Promise<{ status: string }> => ipcRenderer.invoke('channels:whatsapp:connect'),
+      disconnect: (): Promise<{ status: string }> => ipcRenderer.invoke('channels:whatsapp:disconnect'),
+      status: (): Promise<{ status: string; identity: string | null }> => ipcRenderer.invoke('channels:whatsapp:status'),
+      clearAuth: (): Promise<{ status: string }> => ipcRenderer.invoke('channels:whatsapp:clear-auth'),
+    },
+  },
   on: {
     windowReady: (cb: () => void): (() => void) => {
       const handler = () => cb();
@@ -100,6 +110,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_event: unknown, factor: number) => cb(factor);
       ipcRenderer.on('zoom-changed', handler);
       return () => ipcRenderer.removeListener('zoom-changed', handler);
+    },
+    whatsappQr: (cb: (dataUrl: string) => void): (() => void) => {
+      const handler = (_event: unknown, dataUrl: string) => cb(dataUrl);
+      ipcRenderer.on('whatsapp-qr', handler);
+      return () => ipcRenderer.removeListener('whatsapp-qr', handler);
+    },
+    channelStatus: (cb: (channelId: string, status: string, detail?: string) => void): (() => void) => {
+      const handler = (_event: unknown, channelId: string, status: string, detail?: string) => cb(channelId, status, detail);
+      ipcRenderer.on('channel-status', handler);
+      return () => ipcRenderer.removeListener('channel-status', handler);
     },
   },
 });

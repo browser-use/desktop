@@ -41,6 +41,7 @@ interface ElectronSessionAPI {
   hide: (id: string) => Promise<void>;
   unhide: (id: string) => Promise<void>;
   resume: (id: string, prompt: string) => Promise<{ resumed?: boolean; error?: string }>;
+  rerun: (id: string) => Promise<{ rerun?: boolean; error?: string }>;
   list: () => Promise<import('./hub/types').AgentSession[]>;
   listAll: () => Promise<import('./hub/types').AgentSession[]>;
   get: (id: string) => Promise<import('./hub/types').AgentSession | null>;
@@ -54,14 +55,27 @@ interface ElectronSessionAPI {
   memory: () => Promise<{ totalMb: number; sessions: Array<{ id: string; mb: number; status: string }>; processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>; processCount: number }>;
 }
 
+interface ElectronChannelsAPI {
+  whatsapp: {
+    connect: () => Promise<{ status: string }>;
+    disconnect: () => Promise<{ status: string }>;
+    status: () => Promise<{ status: string; identity: string | null }>;
+    clearAuth: () => Promise<{ status: string }>;
+  };
+}
+
 interface ElectronOnAPI {
   sessionUpdated: (cb: (session: import('./hub/types').AgentSession) => void) => () => void;
   sessionOutput: (cb: (id: string, event: import('./hub/types').HlEvent) => void) => () => void;
   openSettings?: (cb: () => void) => () => void;
+  zoomChanged?: (cb: (factor: number) => void) => () => void;
+  whatsappQr?: (cb: (dataUrl: string) => void) => () => void;
+  channelStatus?: (cb: (channelId: string, status: string, detail?: string) => void) => () => void;
 }
 
 interface ElectronAPI {
   sessions: ElectronSessionAPI;
+  channels: ElectronChannelsAPI;
   on: ElectronOnAPI;
 }
 
