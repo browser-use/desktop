@@ -1,13 +1,13 @@
 # Agent Hub
 
-Desktop app for running AI browser automation agents in isolated Chromium contexts.
+Desktop app for running AI browser automation agents. Each agent gets its own sandboxed WebContentsView so multiple agents can work side-by-side without interfering with each other.
 
 ## Quick start
 
 ```bash
 cd my-app
 yarn install
-yarn start
+task start
 ```
 
 On first run, the onboarding flow walks through Google OAuth and API key setup (stored in OS keychain via keytar).
@@ -16,7 +16,7 @@ On first run, the onboarding flow walks through Google OAuth and API key setup (
 
 1. Open the command bar (`c` or click "New agent")
 2. Type a task
-3. An agent starts in its own isolated browser context (separate cookies, storage, history)
+3. An agent starts in its own sandboxed WebContentsView
 4. Watch the agent work in real time, or take over the browser to intervene
 5. Send follow-up prompts to running or stopped sessions
 
@@ -32,7 +32,7 @@ src/
     sessions/              # SessionManager, SessionDb (SQLite), BrowserPool
       SessionManager.ts    # Session lifecycle, stuck detection, event relay
       SessionDb.ts         # SQLite persistence (sessions, events, conversation history)
-      BrowserPool.ts       # Isolated Chromium context pool
+      BrowserPool.ts       # Sandboxed WebContentsView pool
     hl/                    # In-process agent engine
       agent.ts             # Agent loop (prompt -> tools -> result)
       context.ts           # CDP browser context creation
@@ -95,12 +95,22 @@ Vim-style by default, all remappable in settings (`s`).
 
 ## Dev commands
 
+All commands run from the repo root via [Task](https://taskfile.dev).
+
 | Command | What |
 |---|---|
-| `yarn start` | Start the app (Electron Forge) |
-| `yarn qa` | Lint + typecheck + test |
-| `yarn test` | Vitest unit + integration |
-| `yarn e2e` | Playwright end-to-end |
+| `task start` | Start the app |
+| `task start:fresh` | Start against a throwaway profile |
+| `task start:onboarding` | Start with onboarding forced open |
+| `task up` | Build agent image + start |
+| `task logs` | Tail app logs |
+| `task qa` | Lint + typecheck + test |
+| `task test` | Vitest unit + integration |
+| `task e2e` | Playwright end-to-end |
+| `task visual` | Screenshot capture + diff |
+| `task agent:build` | Bundle hl/ agent code + build Docker image |
+| `task agent:ps` | List running agent containers |
+| `task make` | Build platform installers |
 
 ## Tech stack
 

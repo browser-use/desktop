@@ -1,12 +1,12 @@
 # Agent Hub
 
-A desktop app for running AI browser automation agents in isolated Chromium contexts. Each agent gets its own browser — separate cookies, storage, history — so they never interfere with each other or your personal Chrome session.
+A desktop app for running AI browser automation agents. Each agent gets its own sandboxed WebContentsView so multiple agents can work side-by-side without interfering with each other.
 
 Built on Electron because browser automation agents need a real Chromium environment, not headless.
 
 ## How it works
 
-You type a task into the command bar, hit enter, and an agent starts working in its own isolated browser. You can watch it work in real time, take over the browser to solve a captcha or log in, then hand control back.
+You type a task into the command bar, hit enter, and an agent starts working in its own browser view. You can watch it work in real time, take over the browser to solve a captcha or log in, then hand control back.
 
 ### Session states
 
@@ -79,15 +79,51 @@ my-app/
 
 ## Development
 
+Requires [Task](https://taskfile.dev) (`brew install go-task`).
+
 ```bash
-yarn install
-yarn start
+cd my-app && yarn install
 
-# Lint + typecheck + test
-yarn qa
+# Start the app
+task start
 
-# End-to-end tests
-yarn e2e
+# Start against a throwaway profile (preserves real userData)
+task start:fresh
+
+# Start with onboarding forced open
+task start:onboarding
+
+# Build agent Docker image + start
+task up
+
+# Tail app logs
+task logs
+```
+
+### Agent containers
+
+```bash
+task agent:build       # Bundle hl/ agent code + build Docker image
+task agent:ps          # List running agent containers
+task agent:logs        # Tail logs for a running container
+```
+
+### Quality gates
+
+```bash
+task qa                # Lint + typecheck + test
+task lint              # ESLint
+task typecheck         # tsc --noEmit
+task test              # Vitest unit/integration
+task e2e               # Playwright end-to-end
+task visual            # Screenshot capture + diff
+```
+
+### Packaging
+
+```bash
+task package           # Build unpackaged app
+task make              # Build platform installers (DMG, DEB, RPM, ZIP)
 ```
 
 ## Tech stack
