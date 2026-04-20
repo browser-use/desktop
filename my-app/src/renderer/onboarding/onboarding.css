@@ -454,6 +454,36 @@ html, body {
   margin: 0;
 }
 
+.shortcut-recording {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: var(--color-bg-elevated);
+  border: 1px dashed var(--color-status-error);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.shortcut-recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-status-error);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.shortcut-hint-active {
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-status-success);
+  margin: 16px 0 0;
+  animation: none;
+  opacity: 1;
+}
+
 /* Error reasons */
 
 .error-reasons {

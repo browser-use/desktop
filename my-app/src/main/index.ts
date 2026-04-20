@@ -245,6 +245,12 @@ app.whenReady().then(async () => {
       mainLogger.error('main.pill:submit.startFailed', { id, error: (err as Error).message });
     });
 
+    // If onboarding is active, notify it so it can auto-complete and open the shell
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+      mainLogger.info('main.pill:submit.notifyOnboarding', { id });
+      onboardingWindow.webContents.send('onboarding-task-submitted', id);
+    }
+
     return { task_id: id };
   });
 

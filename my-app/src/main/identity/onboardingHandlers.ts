@@ -100,26 +100,38 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
   });
 
   let pillCreated = false;
+  let currentAccelerator = GLOBAL_SHORTCUT;
 
-  ipcMain.handle('onboarding:listen-shortcut', () => {
-    mainLogger.info('onboardingHandlers.listenShortcut');
-
+  const registerOnboardingShortcut = (accelerator: string): boolean => {
     if (!pillCreated) {
       createPillWindow();
       pillCreated = true;
       mainLogger.info('onboardingHandlers.pillCreated');
     }
 
-    globalShortcut.unregister(GLOBAL_SHORTCUT);
-    const ok = globalShortcut.register(GLOBAL_SHORTCUT, () => {
-      mainLogger.info('onboardingHandlers.shortcutFired');
+    globalShortcut.unregister(currentAccelerator);
+    const ok = globalShortcut.register(accelerator, () => {
+      mainLogger.info('onboardingHandlers.shortcutFired', { accelerator });
       togglePill();
       if (!onboardingWindow.isDestroyed()) {
         onboardingWindow.webContents.send('shortcut-activated');
       }
     });
-    mainLogger.info('onboardingHandlers.listenShortcut.registered', { ok });
-    return { ok };
+    if (ok) currentAccelerator = accelerator;
+    return ok;
+  };
+
+  ipcMain.handle('onboarding:listen-shortcut', () => {
+    mainLogger.info('onboardingHandlers.listenShortcut');
+    const ok = registerOnboardingShortcut(GLOBAL_SHORTCUT);
+    return { ok, accelerator: GLOBAL_SHORTCUT };
+  });
+
+  ipcMain.handle('onboarding:set-shortcut', (_event, accelerator: string) => {
+    const validated = assertString(accelerator, 'accelerator', 100);
+    mainLogger.info('onboardingHandlers.setShortcut', { accelerator: validated });
+    const ok = registerOnboardingShortcut(validated);
+    return { ok, accelerator: ok ? validated : currentAccelerator };
   });
 
   ipcMain.handle('onboarding:complete', async () => {
@@ -155,6 +167,7 @@ export function unregisterOnboardingHandlers(): void {
   ipcMain.removeHandler('onboarding:save-api-key');
   ipcMain.removeHandler('onboarding:test-api-key');
   ipcMain.removeHandler('onboarding:listen-shortcut');
+  ipcMain.removeHandler('onboarding:set-shortcut');
   ipcMain.removeHandler('onboarding:complete');
   mainLogger.info('onboardingHandlers.unregistered');
 }

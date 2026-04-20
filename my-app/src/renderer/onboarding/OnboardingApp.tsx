@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DomainList } from './DomainList';
 
 interface ChromeProfile {
@@ -25,8 +25,10 @@ declare global {
       importChromeProfileCookies: (profileDir: string) => Promise<CookieImportResult>;
       saveApiKey: (key: string) => Promise<void>;
       testApiKey: (key: string) => Promise<{ success: boolean; error?: string }>;
-      listenShortcut: () => Promise<{ ok: boolean }>;
+      listenShortcut: () => Promise<{ ok: boolean; accelerator: string }>;
+      setShortcut: (accelerator: string) => Promise<{ ok: boolean; accelerator: string }>;
       onShortcutActivated: (cb: () => void) => () => void;
+      onTaskSubmitted: (cb: () => void) => () => void;
       complete: () => Promise<void>;
       whatsapp: {
         connect: () => Promise<{ status: string }>;
@@ -39,7 +41,35 @@ declare global {
   }
 }
 
-type Step = 'profile' | 'apikey' | 'shortcut' | 'whatsapp';
+type Step = 'profile' | 'apikey' | 'whatsapp' | 'shortcut';
+
+const DEFAULT_ACCELERATOR = 'CommandOrControl+Shift+Space';
+
+function formatAccelerator(accel: string): string {
+  return accel
+    .replace('CommandOrControl', '\u2318')
+    .replace('Command', '\u2318')
+    .replace('Control', 'Ctrl')
+    .replace('Shift', '\u21E7')
+    .replace('Alt', '\u2325')
+    .replace(/\+/g, ' ');
+}
+
+function buildAccelerator(e: KeyboardEvent): string | null {
+  const mods: string[] = [];
+  if (e.metaKey) mods.push('CommandOrControl');
+  else if (e.ctrlKey) mods.push('CommandOrControl');
+  if (e.shiftKey) mods.push('Shift');
+  if (e.altKey) mods.push('Alt');
+
+  let key = e.key;
+  if (['Meta', 'Control', 'Shift', 'Alt'].includes(key)) return null;
+  if (key === ' ') key = 'Space';
+  else if (key.length === 1) key = key.toUpperCase();
+
+  if (mods.length === 0) return null;
+  return [...mods, key].join('+');
+}
 
 export function OnboardingApp() {
   const [step, setStep] = useState<Step>('profile');
@@ -54,6 +84,14 @@ export function OnboardingApp() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [accelerator, setAccelerator] = useState<string>(DEFAULT_ACCELERATOR);
+  const [recording, setRecording] = useState(false);
+  const [shortcutActivated, setShortcutActivated] = useState(false);
+
+  const [waStatus, setWaStatus] = useState<string>('disconnected');
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [waIdentity, setWaIdentity] = useState<string | null>(null);
 
   useEffect(() => {
     window.onboardingAPI.detectChromeProfiles().then((p) => {
@@ -79,9 +117,7 @@ export function OnboardingApp() {
     }
   }, []);
 
-  const handleSkipProfile = useCallback(() => {
-    setStep('apikey');
-  }, []);
+  const handleSkipProfile = useCallback(() => setStep('apikey'), []);
 
   const handleTestKey = useCallback(async () => {
     if (!apiKey.trim()) return;
@@ -97,27 +133,12 @@ export function OnboardingApp() {
     }
   }, [apiKey]);
 
-  const [shortcutActivated, setShortcutActivated] = useState(false);
-
-  useEffect(() => {
-    if (step !== 'shortcut') return;
-    window.onboardingAPI.listenShortcut();
-    const unsub = window.onboardingAPI.onShortcutActivated(() => {
-      setShortcutActivated(true);
-    });
-    return unsub;
-  }, [step]);
-
-  const [waStatus, setWaStatus] = useState<string>('disconnected');
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [waIdentity, setWaIdentity] = useState<string | null>(null);
-
   const handleSaveKeyAndContinue = useCallback(async () => {
     if (!apiKey.trim()) return;
     setSaving(true);
     try {
       await window.onboardingAPI.saveApiKey(apiKey.trim());
-      setStep('shortcut');
+      setStep('whatsapp');
     } catch (err) {
       console.error('[onboarding] save key failed', err);
     } finally {
@@ -138,6 +159,7 @@ export function OnboardingApp() {
     }
   }, []);
 
+  // WhatsApp status listeners
   useEffect(() => {
     if (step !== 'whatsapp') return;
     const unsubQr = window.onboardingAPI.onWhatsappQr((dataUrl) => {
@@ -154,6 +176,44 @@ export function OnboardingApp() {
     return () => { unsubQr(); unsubStatus(); };
   }, [step]);
 
+  // Shortcut step: register default, listen for activation + task submission
+  useEffect(() => {
+    if (step !== 'shortcut') return;
+    window.onboardingAPI.listenShortcut().then((res) => {
+      if (res.accelerator) setAccelerator(res.accelerator);
+    });
+    const unsubActivated = window.onboardingAPI.onShortcutActivated(() => {
+      setShortcutActivated(true);
+    });
+    const unsubSubmitted = window.onboardingAPI.onTaskSubmitted(() => {
+      void window.onboardingAPI.complete();
+    });
+    return () => { unsubActivated(); unsubSubmitted(); };
+  }, [step]);
+
+  // Key recording
+  const recordingRef = useRef(recording);
+  recordingRef.current = recording;
+
+  useEffect(() => {
+    if (!recording) return;
+    const handler = async (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const accel = buildAccelerator(e);
+      if (!accel) return;
+      setRecording(false);
+      try {
+        const res = await window.onboardingAPI.setShortcut(accel);
+        setAccelerator(res.accelerator);
+      } catch (err) {
+        console.error('[onboarding] setShortcut failed', err);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [recording]);
+
   return (
     <div className="onboarding-container">
       <div className="onboarding-drag-region" />
@@ -164,9 +224,9 @@ export function OnboardingApp() {
           <div className="step-line" />
           <div className={`step-dot ${step === 'apikey' ? 'active' : step === 'profile' ? '' : 'done'}`} />
           <div className="step-line" />
-          <div className={`step-dot ${step === 'shortcut' ? 'active' : (step === 'whatsapp' ? 'done' : '')}`} />
+          <div className={`step-dot ${step === 'whatsapp' ? 'active' : (step === 'shortcut' ? 'done' : '')}`} />
           <div className="step-line" />
-          <div className={`step-dot ${step === 'whatsapp' ? 'active' : ''}`} />
+          <div className={`step-dot ${step === 'shortcut' ? 'active' : ''}`} />
         </div>
 
         {step === 'profile' && (
@@ -331,50 +391,6 @@ export function OnboardingApp() {
           </div>
         )}
 
-        {step === 'shortcut' && (
-          <div className="step-panel">
-            <h1 className="step-title">Enter your first task</h1>
-            <p className="step-subtitle">
-              This shortcut works from anywhere on your system. Try it now.
-            </p>
-
-            <div className="shortcut-demo">
-              {shortcutActivated ? (
-                <div className="shortcut-success">
-                  <div className="shortcut-success-icon">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                      <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                  <p className="shortcut-success-text">Shortcut registered</p>
-                </div>
-              ) : (
-                <div className="shortcut-keys">
-                  <kbd className="kbd">&#8984;</kbd>
-                  <span className="kbd-plus">+</span>
-                  <kbd className="kbd">&#8679;</kbd>
-                  <span className="kbd-plus">+</span>
-                  <kbd className="kbd">Space</kbd>
-                </div>
-              )}
-            </div>
-
-            {!shortcutActivated && (
-              <p className="shortcut-hint">Press the keys above to activate</p>
-            )}
-
-            <div className="apikey-actions">
-              <button className="btn btn-primary" onClick={() => setStep('whatsapp')}>
-                {shortcutActivated ? 'Continue' : 'Skip for now'}
-              </button>
-            </div>
-
-            <button className="back-btn" onClick={() => setStep('apikey')}>
-              Back
-            </button>
-          </div>
-        )}
-
         {step === 'whatsapp' && (
           <div className="step-panel">
             <h1 className="step-title">Connect WhatsApp</h1>
@@ -417,16 +433,67 @@ export function OnboardingApp() {
 
             <div className="apikey-actions">
               {waStatus !== 'connected' && (
-                <button className="btn btn-secondary" onClick={handleFinish}>
+                <button className="btn btn-secondary" onClick={() => setStep('shortcut')}>
                   Skip for now
                 </button>
               )}
-              <button className="btn btn-primary" onClick={handleFinish}>
-                {waStatus === 'connected' ? 'Get Started' : 'Get Started'}
+              <button className="btn btn-primary" onClick={() => setStep('shortcut')}>
+                Continue
               </button>
             </div>
 
-            <button className="back-btn" onClick={() => setStep('shortcut')}>
+            <button className="back-btn" onClick={() => setStep('apikey')}>
+              Back
+            </button>
+          </div>
+        )}
+
+        {step === 'shortcut' && (
+          <div className="step-panel">
+            <h1 className="step-title">Enter your first task</h1>
+            <p className="step-subtitle">
+              {shortcutActivated
+                ? 'Type a task in the pill and press Enter to begin.'
+                : 'Press your shortcut to open the command pill from anywhere.'}
+            </p>
+
+            <div className="shortcut-demo">
+              {recording ? (
+                <div className="shortcut-recording">
+                  <div className="shortcut-recording-dot" />
+                  <span>Press keys...</span>
+                </div>
+              ) : (
+                <div className="shortcut-keys">
+                  {formatAccelerator(accelerator).split(' ').map((key, i, arr) => (
+                    <React.Fragment key={i}>
+                      <kbd className="kbd">{key}</kbd>
+                      {i < arr.length - 1 && <span className="kbd-plus">+</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="apikey-actions">
+              <button
+                className="btn btn-secondary"
+                onClick={() => setRecording((r) => !r)}
+              >
+                {recording ? 'Cancel' : 'Change shortcut'}
+              </button>
+              <button className="btn btn-primary" onClick={handleFinish}>
+                Skip
+              </button>
+            </div>
+
+            {shortcutActivated && (
+              <p className="shortcut-hint shortcut-hint-active">
+                Pill is open — enter a task to finish setup
+              </p>
+            )}
+
+            <button className="back-btn" onClick={() => setStep('whatsapp')}>
               Back
             </button>
           </div>
