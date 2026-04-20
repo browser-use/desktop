@@ -16,7 +16,7 @@ export function SettingsPane({ open, onClose, keybindings, overrides, onResetAll
   if (!open) return null;
 
   return (
-    <div className="cmdbar__scrim" onClick={onClose}>
+    <div className="settings-pane__scrim" onClick={onClose}>
       <div className="settings-pane" onClick={(e) => e.stopPropagation()}>
         <div className="settings-pane__header">
           <span className="settings-pane__title">Settings</span>

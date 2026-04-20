@@ -858,6 +858,16 @@ var HL_TOOLS = [
     run: (ctx, a) => shellExec(ctx, str(a, "command"), a.cwd)
   },
   {
+    name: "notify",
+    description: "Send a notification to the user. level=info for FYI (agent keeps going), level=blocking for things that need user action (auth walls, CAPTCHAs). Blocking notifications halt the agent after sending.",
+    input_schema: {
+      type: "object",
+      properties: { message: { type: "string" }, level: { type: "string", enum: ["info", "blocking"] } },
+      required: ["message", "level"]
+    },
+    run: async (_ctx, a) => ({ notified: true, message: str(a, "message"), level: str(a, "level") })
+  },
+  {
     name: "done",
     description: "Call this when the task is complete. Pass a short user-facing summary of the outcome.",
     input_schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
@@ -884,7 +894,7 @@ You are working inside a desktop browser app; the attached tab is the user's cur
 - **Verification**: page_info() is the simplest "is this alive?" check, but screenshots are the default way to verify.
 - **DOM reads**: use js(...) for inspection and extraction when screenshots show coordinates are the wrong tool.
 - **Iframe sites**: click(x, y) passes through; only drop to iframe DOM work when coordinate clicks are the wrong tool.
-- **Auth wall**: redirected to login \u2192 stop and ask the user. Don't type credentials from screenshots.
+- **Auth wall**: redirected to login \u2192 call notify({message: "Please log in to <site>", level: "blocking"}). Don't type credentials.
 - **Raw CDP** for anything helpers don't cover: cdp("Domain.method", params).
 
 ## Browser interaction details
@@ -922,6 +932,7 @@ Do NOT write: raw pixel coordinates, run narration, secrets/cookies, or user-spe
 
 - After every meaningful action, re-screenshot before assuming it worked.
 - Prefer compositor-level actions over framework hacks.
+- Use notify({level: "blocking"}) when you need user action (login, CAPTCHA, ambiguous choice). Use notify({level: "info"}) for non-blocking FYI messages. Keep messages short and actionable.
 - Call the \`done\` tool with a short user-facing summary when the task is complete.
 - Be concise. Act, don't narrate.`;
 function previewResult(r, limit = 240) {
@@ -1037,6 +1048,15 @@ async function runAgent(opts) {
             const rObj = r;
             const bytes = typeof rObj.bytes === "number" ? rObj.bytes : 0;
             onEvent({ type: "skill_written", path: writtenPath, domain: skillMatch[1], topic: skillMatch[2], bytes });
+          }
+        }
+        if (tu.name === "notify" && r && typeof r === "object" && "message" in r) {
+          const n = r;
+          const level = n.level === "blocking" ? "blocking" : "info";
+          onEvent({ type: "notify", message: n.message, level });
+          if (level === "blocking") {
+            onEvent({ type: "done", summary: `Blocked: ${n.message}`, iterations: iter });
+            return messages;
           }
         }
       } catch (err) {

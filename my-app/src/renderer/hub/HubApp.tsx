@@ -167,6 +167,13 @@ export function HubApp(): React.ReactElement {
 
 
   useEffect(() => {
+    const unsub = window.electronAPI?.on?.openSettings?.(() => {
+      setSettingsOpen(true);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
     const api = (window as unknown as { electronAPI?: { on?: { zoomChanged?: (cb: (f: number) => void) => () => void } } }).electronAPI;
     const saved = localStorage.getItem('hub-zoom-factor');
     if (saved) {
