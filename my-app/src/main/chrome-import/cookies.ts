@@ -158,6 +158,16 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
       continue;
     }
 
+    // Strip ASCII control characters (0x00-0x1F, 0x7F) — Electron rejects cookies containing them
+    // eslint-disable-next-line no-control-regex
+    value = value.replace(/[\x00-\x1F\x7F]/g, '');
+    const cookieName = row.name.replace(/[\x00-\x1F\x7F]/g, '');
+
+    if (!value || !cookieName) {
+      skipped++;
+      continue;
+    }
+
     const domain = row.host_key.startsWith('.') ? row.host_key.substring(1) : row.host_key;
     const scheme = row.is_secure ? 'https' : 'http';
     const url = `${scheme}://${domain}${row.path}`;
@@ -165,7 +175,7 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
     try {
       await electronSession.cookies.set({
         url,
-        name: row.name,
+        name: cookieName,
         value,
         domain: row.host_key,
         path: row.path,
