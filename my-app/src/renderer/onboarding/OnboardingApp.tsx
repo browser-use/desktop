@@ -290,16 +290,25 @@ export function OnboardingApp() {
 
             {importResult && (
               <div className="import-results">
-                <div className="import-result import-result-success">
-                  Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
+                <div className="import-stat import-stat-success">
+                  <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>
+                    Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
+                  </span>
                 </div>
-
                 <DomainList domains={importResult.domains} collapsible />
 
                 {importResult.failedDomains.length > 0 && (
                   <div className="import-failed-section">
-                    <div className="import-result import-result-error">
-                      {importResult.failed} cookies failed from {importResult.failedDomains.length} domains
+                    <div className="import-stat import-stat-error">
+                      <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span>
+                        {importResult.failed} failed from {importResult.failedDomains.length} domains
+                      </span>
                     </div>
                     {Object.keys(importResult.errorReasons).length > 0 && (
                       <div className="error-reasons">

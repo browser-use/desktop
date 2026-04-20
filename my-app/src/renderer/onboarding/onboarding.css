@@ -213,22 +213,35 @@ html, body {
 /* Import result */
 
 .import-result {
-  margin-top: 12px;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
   font-size: 13px;
-}
-
-.import-result-success {
-  background: rgba(74, 222, 128, 0.08);
-  color: var(--color-status-success);
-  border: 1px solid rgba(74, 222, 128, 0.2);
+  color: var(--color-fg-secondary);
+  padding: 0;
+  background: none;
+  border: none;
 }
 
 .import-result-error {
-  background: rgba(248, 113, 113, 0.08);
+  color: var(--color-fg-secondary);
+}
+
+.import-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.import-stat-icon {
+  flex-shrink: 0;
+}
+
+.import-stat-success {
+  color: var(--color-status-success);
+}
+
+.import-stat-error {
   color: var(--color-status-error);
-  border: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 /* API key */
@@ -363,16 +376,15 @@ html, body {
 /* Import results with domain list */
 
 .import-results {
-  margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .import-failed-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .import-continue-btn {
