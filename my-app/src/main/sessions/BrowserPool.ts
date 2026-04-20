@@ -155,6 +155,14 @@ export class BrowserPool {
     return true;
   }
 
+  detachAll(window: BrowserWindow): void {
+    const ids = Array.from(this.entries.keys());
+    for (const id of ids) {
+      this.detachFromWindow(id, window);
+    }
+    mainLogger.info('BrowserPool.detachAll', { count: ids.length });
+  }
+
   temporarilyDetachAll(window: BrowserWindow): void {
     for (const entry of this.entries.values()) {
       if (entry.attached) {

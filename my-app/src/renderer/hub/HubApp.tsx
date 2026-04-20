@@ -81,7 +81,22 @@ export function HubApp(): React.ReactElement {
     console.log('[HubApp] sessions changed', { count: sessions.length, ts: Date.now(), ids: sessions.map((s) => s.id.slice(0, 8)) });
   }, [sessions.length]);
 
-  const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
+  useEffect(() => {
+    console.log('[HubApp] mount -> detaching all browser views to clear stale state');
+    window.electronAPI?.sessions.viewsDetachAll?.().catch((err) => {
+      console.warn('[HubApp] viewsDetachAll failed', err);
+    });
+  }, []);
+
+  const [viewMode, setViewModeRaw] = useState<ViewMode>(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('hub-view-mode') : null;
+    if (saved === 'dashboard' || saved === 'grid' || saved === 'list') return saved;
+    return 'dashboard';
+  });
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeRaw(mode);
+    try { window.localStorage.setItem('hub-view-mode', mode); } catch {}
+  }, []);
   const openPill = useCallback(() => { window.electronAPI?.pill.toggle(); }, []);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);

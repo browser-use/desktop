@@ -669,6 +669,11 @@ app.whenReady().then(async () => {
     else browserPool.temporarilyDetachAll(shellWindow);
   });
 
+  ipcMain.handle('sessions:views-detach-all', () => {
+    if (!shellWindow) return;
+    browserPool.detachAll(shellWindow);
+  });
+
   ipcMain.handle('sessions:get-tabs', async (_event, id: string) => {
     const validatedId = assertString(id, 'id', 100);
     return browserPool.getTabs(validatedId);

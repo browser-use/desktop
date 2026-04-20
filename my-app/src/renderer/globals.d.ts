@@ -52,6 +52,7 @@ interface ElectronSessionAPI {
   viewResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean>;
   viewIsAttached: (id: string) => Promise<boolean>;
   viewsSetVisible: (visible: boolean) => Promise<void>;
+  viewsDetachAll: () => Promise<void>;
   getTabs: (id: string) => Promise<unknown[]>;
   poolStats: () => Promise<unknown>;
   memory: () => Promise<{ totalMb: number; sessions: Array<{ id: string; mb: number; status: string }>; processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>; processCount: number }>;

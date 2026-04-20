@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:view-is-attached', id),
     viewsSetVisible: (visible: boolean): Promise<void> =>
       ipcRenderer.invoke('sessions:views-set-visible', visible),
+    viewsDetachAll: (): Promise<void> =>
+      ipcRenderer.invoke('sessions:views-detach-all'),
     getTabs: async (id: string): Promise<TabInfo[]> => {
       const raw = await ipcRenderer.invoke('sessions:get-tabs', id);
       return validateTabs(raw);

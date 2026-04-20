@@ -422,6 +422,22 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     }
   }, [session.id, session.status]);
 
+  const browserNotReady = session.status === 'draft' || (session.status === 'running' && rawEntries.length === 0);
+
+  const updateFrameRect = useCallback((slotWidth: number) => {
+    const paneEl = paneRef.current;
+    const outEl = paneEl?.querySelector('.pane__output') as HTMLElement | null;
+    if (!paneEl || !outEl) return;
+    const p = paneEl.getBoundingClientRect();
+    const o = outEl.getBoundingClientRect();
+    setFrameRect({
+      left: Math.round(o.left - p.left),
+      top: Math.round(o.top - p.top),
+      width: slotWidth,
+      height: Math.round(o.height),
+    });
+  }, []);
+
   const applyViewMode = useCallback(async (mode: PaneViewMode): Promise<void> => {
     const api = window.electronAPI;
     if (!api) return;
@@ -431,6 +447,17 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       await api.sessions.viewDetach(session.id).catch(() => {});
       setSplitPaddingLeft(0);
       setFrameRect(null);
+      return;
+    }
+
+    if (browserNotReady) {
+      console.log('[AgentPane] browser not ready, deferring attach', { id: session.id, mode });
+      await api.sessions.viewDetach(session.id).catch(() => {});
+      const computed = computeBounds(mode);
+      if (computed) {
+        setSplitPaddingLeft(mode === 'split' ? computed.slotWidth : 0);
+        updateFrameRect(computed.slotWidth);
+      }
       return;
     }
 
@@ -446,19 +473,8 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       return;
     }
     setSplitPaddingLeft(mode === 'split' ? slotWidth : 0);
-    const paneEl = paneRef.current;
-    const outEl = paneEl?.querySelector('.pane__output') as HTMLElement | null;
-    if (paneEl && outEl) {
-      const p = paneEl.getBoundingClientRect();
-      const o = outEl.getBoundingClientRect();
-      setFrameRect({
-        left: Math.round(o.left - p.left),
-        top: Math.round(o.top - p.top),
-        width: slotWidth,
-        height: Math.round(o.height),
-      });
-    }
-  }, [session.id, browserDead, computeBounds]);
+    updateFrameRect(slotWidth);
+  }, [session.id, browserDead, computeBounds, browserNotReady, updateFrameRect]);
 
   const handleSetMode = useCallback((mode: PaneViewMode) => {
     if (browserDead && mode !== 'output') {
@@ -529,6 +545,17 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
         <span className={`pane__dot pane__dot--${session.status}`} />
         <span className="pane__prompt">{session.prompt}</span>
         <div className="pane__actions">
+          {session.status === 'idle' && onOpenFollowUp && (
+            <button
+              className="pane__action-btn pane__action-btn--primary"
+              onClick={(e) => { e.stopPropagation(); onOpenFollowUp(); }}
+            >
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <span>Follow up</span>
+            </button>
+          )}
           {browserDead ? (
             <span className="pane__action-btn pane__action-btn--disabled">
               <BrowserIcon />
@@ -564,40 +591,32 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
           )}
           {onRerun && (
             <button
-              className="pane__action-btn"
-              onClick={() => onRerun(session.id)}
+              className="pane__action-btn pane__action-btn--icon"
+              onClick={(e) => { e.stopPropagation(); onRerun(session.id); }}
+              aria-label="Rerun"
+              data-tip="Rerun"
             >
               <RerunIcon />
-              <span>Rerun</span>
             </button>
           )}
           {(session.status === 'running' || session.status === 'stuck') && onCancel && (
             <button
-              className="pane__action-btn pane__action-btn--danger"
-              onClick={() => onCancel(session.id)}
+              className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
+              onClick={(e) => { e.stopPropagation(); onCancel(session.id); }}
+              aria-label="Stop"
+              data-tip="Stop"
             >
               <CloseIcon />
-              <span>Stop</span>
-            </button>
-          )}
-          {session.status === 'idle' && onOpenFollowUp && (
-            <button
-              className="pane__action-btn pane__action-btn--primary"
-              onClick={onOpenFollowUp}
-            >
-              <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-                <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-              <span>Follow up</span>
             </button>
           )}
           {session.status !== 'running' && session.status !== 'stuck' && onDismiss && (
             <button
-              className="pane__action-btn pane__action-btn--danger"
-              onClick={() => onDismiss(session.id)}
+              className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
+              onClick={(e) => { e.stopPropagation(); onDismiss(session.id); }}
+              aria-label="Close"
+              data-tip="Close"
             >
               <CloseIcon />
-              <span>Close</span>
             </button>
           )}
         </div>
