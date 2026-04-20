@@ -207,40 +207,19 @@ app.whenReady().then(async () => {
   const steerQueues = new Map<string, string[]>();
   const startingSessionIds = new Set<string>();
 
-  // pill:submit — runs the HL in-process agent
+  // pill:submit — creates a session via the standard pipeline, hides pill
   ipcMain.handle('pill:submit', async (_event, { prompt }: { prompt: string }) => {
     const validatedPrompt = assertString(prompt, 'prompt', 10000);
-    const account = accountStore.load();
-    const engine = getEngine();
-    mainLogger.info('main.pill:submit', { engine, promptLength: validatedPrompt.length });
+    mainLogger.info('main.pill:submit', { promptLength: validatedPrompt.length });
 
-    const apiKey = await getApiKey({ accountEmail: account?.email });
-    if (!apiKey) {
-      mainLogger.warn('main.pill:submit.noApiKey');
-      return { error: 'No API key configured' };
-    }
+    hidePill();
 
-    const task_id = `task-${Date.now()}`;
-    const abortCtrl = new AbortController();
-    activeAgents.set(task_id, abortCtrl);
-
-    const ctx = await createContext({ cdpUrl: null });
-
-    runAgent({
-      ctx,
-      prompt: validatedPrompt,
-      apiKey,
-      signal: abortCtrl.signal,
-      onEvent: (event) => {
-        forwardAgentEvent({ task_id, ...event } as any);
-      },
-    }).catch((err: Error) => {
-      mainLogger.error('main.pill:submit.agentError', { error: err.message });
-    }).finally(() => {
-      activeAgents.delete(task_id);
+    const id = sessionManager.createSession(validatedPrompt);
+    startSessionWithAgent(id).catch((err) => {
+      mainLogger.error('main.pill:submit.startFailed', { id, error: (err as Error).message });
     });
 
-    return { task_id };
+    return { task_id: id };
   });
 
   // pill:cancel — cancels the running task
@@ -259,6 +238,22 @@ app.whenReady().then(async () => {
   ipcMain.handle('pill:hide', async () => {
     mainLogger.info('main.pill:hide');
     hidePill();
+  });
+
+  // pill:toggle — toggle the pill window from renderer
+  ipcMain.handle('pill:toggle', async () => {
+    mainLogger.info('main.pill:toggle');
+    togglePill();
+  });
+
+  ipcMain.on('pill:select-session', (_event, id: string) => {
+    mainLogger.info('main.pill:selectSession', { id });
+    hidePill();
+    if (shellWindow && !shellWindow.isDestroyed()) {
+      shellWindow.show();
+      shellWindow.focus();
+      shellWindow.webContents.send('select-session', id);
+    }
   });
 
   // pill:set-expanded — grow/shrink pill window
@@ -861,8 +856,10 @@ function buildApplicationMenu(): void {
       submenu: [
         {
           label: 'New Agent',
+          accelerator: 'CmdOrCtrl+K',
           click: () => {
-            mainLogger.debug('menu.newAgent');
+            mainLogger.debug('menu.newAgent.togglePill');
+            togglePill();
           },
         },
       ],

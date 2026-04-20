@@ -1,378 +1,190 @@
-/**
- * Pill — root component, dynamic-island style.
- *
- * Phases:
- *   idle        — input-only when empty; shows CommandPalette when the user types
- *   submitting  — dot pulses, stream placeholder
- *   running     — AgentStream renders tool_call / thinking / tool_result entries
- *   done/error  — ResultDisplay (unchanged from before)
- *
- * Two event streams feed this component:
- *   window.pillAPI.onEvent      — legacy AgentEvent from python-daemon engine
- *   window.pillAPI.hl.onEvent   — HlEvent stream from the in-process hl engine
- *
- * Both converge to the same state machine. Engine flag decides which stream
- * is authoritative for a given task_id (we accept either).
- *
- * Keyboard:
- *   typing          — filters palette rows
- *   ArrowDown / Up  — move palette active index
- *   Enter           — select active palette row (tab / agent); empty input still hides
- *   Escape          — hide pill
- */
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { PillInput } from './PillInput';
-import { CommandPalette, buildRows, type PaletteRow } from './CommandPalette';
-import { AgentStream, applyHlEvent, type StreamEntry, type HlEventLike } from './AgentStream';
-import { ResultDisplay, type ResultState } from './ResultDisplay';
-import type { AgentEvent } from '../../shared/types';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const AUTO_DISMISS_MS = 4000 as const;
-const MAX_ITERATIONS = 25 as const;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type PillPhase = 'idle' | 'submitting' | 'running' | 'done' | 'error';
-type PillDataState = 'idle' | 'focused' | 'streaming' | 'done' | 'error';
-
-interface TabLite { id: string; url: string; title: string }
-
-interface PillState {
-  phase: PillPhase;
-  inputValue: string;
-  activeTaskId: string | null;
-  streamEntries: StreamEntry[];
-  streamIteration: number;
-  result: ResultState | null;
-  paletteTabs: TabLite[];
-  activeTabId: string | null;
-  paletteIndex: number;
-}
-
-const INITIAL_STATE: PillState = {
-  phase: 'idle',
-  inputValue: '',
-  activeTaskId: null,
-  streamEntries: [],
-  streamIteration: 0,
-  result: null,
-  paletteTabs: [],
-  activeTabId: null,
-  paletteIndex: 0,
-};
-
-// ---------------------------------------------------------------------------
-// Preload API surface
-// ---------------------------------------------------------------------------
-
-interface PillAPI {
-  submit: (prompt: string) => Promise<{ task_id: string }>;
-  cancel: (task_id: string) => Promise<{ ok: boolean }>;
-  hide: () => void;
-  // `boolean` collapses/expands to default height; `number` expands to that
-  // exact pixel height (used for the palette's visible-rows layout).
-  setExpanded: (expanded: boolean | number) => void;
-  onEvent: (cb: (event: AgentEvent) => void) => () => void;
-  onHideRequest: (cb: () => void) => () => void;
-  onQueuedTask: (cb: (data: { prompt: string; task_id: string }) => void) => () => void;
-  hl: {
-    onEvent: (cb: (payload: { task_id: string; event: HlEventLike }) => void) => () => void;
-    getEngine: () => Promise<'python-daemon' | 'hl-inprocess'>;
-    setEngine: (e: 'python-daemon' | 'hl-inprocess') => Promise<'python-daemon' | 'hl-inprocess'>;
-  };
-  tabs: {
-    getState: () => Promise<{ tabs: TabLite[]; activeTabId: string | null }>;
-    activate: (tab_id: string) => Promise<void>;
-  };
-}
-
-declare global { interface Window { pillAPI: PillAPI } }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function computeDataState(phase: PillPhase, isFocused: boolean): PillDataState {
-  switch (phase) {
-    case 'idle': return isFocused ? 'focused' : 'idle';
-    case 'submitting':
-    case 'running': return 'streaming';
-    case 'done': return 'done';
-    case 'error': return 'error';
+declare global {
+  interface Window {
+    pillAPI: {
+      submit: (prompt: string) => Promise<{ task_id: string }>;
+      hide: () => void;
+      setExpanded: (expanded: boolean | number) => void;
+      listSessions: () => Promise<Array<{ id: string; prompt: string; status: string; createdAt: number }>>;
+      selectSession: (id: string) => void;
+    };
   }
 }
 
-function LeadingDot({ state }: { state: PillDataState }): React.ReactElement {
-  if (state === 'done') {
-    return (
-      <span className="pill-result-lead-icon pill-result-lead-icon--done" aria-hidden="true">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M4.5 7.5L6.5 9.5L9.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-    );
-  }
-  if (state === 'error') {
-    return (
-      <span className="pill-result-lead-icon pill-result-lead-icon--error" aria-hidden="true">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M7 4.5V7.5M7 9V9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </span>
-    );
-  }
-  return <span className="pill-dot" aria-hidden="true" />;
+interface SessionLite {
+  id: string;
+  prompt: string;
+  status: string;
+  createdAt: number;
 }
 
-// ---------------------------------------------------------------------------
-// Map legacy AgentEvent → HlEventLike so a single reducer drives the stream.
-// ---------------------------------------------------------------------------
-function agentEventToHl(ev: AgentEvent): HlEventLike | null {
-  switch (ev.event) {
-    case 'task_started': return { type: 'task_started' };
-    case 'step_start':   return { type: 'tool_call', name: `step-${ev.step}`, args: ev.plan };
-    case 'step_result':  return { type: 'tool_result', name: `step-${ev.step}`, ok: true, preview: String(ev.result ?? '') };
-    case 'step_error':   return { type: 'tool_result', name: `step-${ev.step}`, ok: false, preview: ev.error.message };
-    default: return null;
-  }
+function ArrowUpIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M7 12V3M3 6.5L7 2.5L11 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function fuzzyMatch(query: string, text: string): boolean {
+  const lower = text.toLowerCase();
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return terms.every((t) => lower.includes(t));
+}
+
+function formatElapsed(createdAt: number): string {
+  const seconds = Math.floor((Date.now() - createdAt) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function statusDot(status: string): string {
+  switch (status) {
+    case 'running': return 'cmdbar__dot--running';
+    case 'stuck': return 'cmdbar__dot--stuck';
+    case 'idle': return 'cmdbar__dot--idle';
+    case 'draft': return 'cmdbar__dot--draft';
+    default: return 'cmdbar__dot--stopped';
+  }
+}
 
 export function Pill(): React.ReactElement {
-  const [state, setState] = useState<PillState>(INITIAL_STATE);
-  const [isFocused, setIsFocused] = useState(false);
-  const stateRef = useRef<PillState>(state);
-  stateRef.current = state;
+  const [value, setValue] = useState('');
+  const [sessions, setSessions] = useState<SessionLite[]>([]);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const ref = useRef<HTMLTextAreaElement>(null);
 
-  const dataState = computeDataState(state.phase, isFocused);
-  const paletteRows = buildRows(state.inputValue, state.paletteTabs);
-
-  // -------------------------------------------------------------------------
-  // Expanded-window sync: grow the frame when we're showing palette / stream /
-  // result, collapse back to the input-only height when idle+empty.
-  // -------------------------------------------------------------------------
   useEffect(() => {
-    const shouldExpand =
-      state.phase !== 'idle' ||
-      paletteRows.length > 0;
-    if (!shouldExpand) {
-      window.pillAPI.setExpanded(false);
-    } else if (state.phase === 'idle' && paletteRows.length > 0) {
-      const rowHeight = 40;
-      const visibleRows = Math.min(paletteRows.length, 6);
-      const height = 62 + 1 + 12 + (visibleRows * rowHeight) + 4;
-      window.pillAPI.setExpanded(height);
-    } else {
-      window.pillAPI.setExpanded(true);
-    }
-  }, [state.phase, paletteRows.length]);
-
-  // -------------------------------------------------------------------------
-  // Palette tab list — refresh on mount + whenever the input gains focus.
-  // -------------------------------------------------------------------------
-  const refreshTabs = useCallback(async () => {
-    try {
-      const { tabs, activeTabId } = await window.pillAPI.tabs.getState();
-      setState((prev) => ({ ...prev, paletteTabs: tabs, activeTabId }));
-    } catch { /* pill might load before tabs are ready — ignore */ }
+    setTimeout(() => ref.current?.focus(), 50);
+    window.pillAPI.listSessions().then(setSessions).catch(() => {});
   }, []);
 
-  useEffect(() => { void refreshTabs(); }, [refreshTabs]);
-
-  // -------------------------------------------------------------------------
-  // Event streams
-  // -------------------------------------------------------------------------
   useEffect(() => {
-    const unsubHl = window.pillAPI.hl.onEvent(({ task_id, event }) => {
-      setState((prev) => applyIncoming(prev, task_id, event));
-    });
+    setSelectedIdx(0);
+  }, [value]);
 
-    const unsubLegacy = window.pillAPI.onEvent((event) => {
-      const hl = agentEventToHl(event);
-      if (hl) setState((prev) => applyIncoming(prev, event.task_id, hl));
-      // Legacy terminal events drive done/error directly.
-      if (event.event === 'task_done') {
-        setState((prev) => ({ ...prev, phase: 'done', result: { kind: 'done', result: event.result, stepsUsed: event.steps_used, tokensUsed: event.tokens_used } }));
-      } else if (event.event === 'task_failed') {
-        setState((prev) => ({ ...prev, phase: 'error', result: { kind: 'failed', reason: event.reason } }));
-      } else if (event.event === 'target_lost') {
-        setState((prev) => ({ ...prev, phase: 'error', result: { kind: 'target_lost' } }));
-      } else if (event.event === 'task_cancelled') {
-        setState((prev) => ({ ...prev, phase: 'error', result: { kind: 'cancelled' } }));
+  const results = useMemo(() => {
+    if (!value.trim()) return [];
+    return sessions
+      .filter((s) => fuzzyMatch(value, s.prompt))
+      .slice(0, 8);
+  }, [value, sessions]);
+
+  const hasResults = results.length > 0;
+
+  useEffect(() => {
+    const baseHeight = 110;
+    const resultHeight = hasResults ? Math.min(results.length + 1, 9) * 36 + 2 : 0;
+    window.pillAPI.setExpanded(baseHeight + resultHeight);
+  }, [hasResults, results.length]);
+
+  const submit = useCallback(() => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (hasResults && selectedIdx < results.length) {
+      window.pillAPI.selectSession(results[selectedIdx].id);
+      setValue('');
+      return;
+    }
+    window.pillAPI.submit(trimmed);
+    setValue('');
+  }, [value, hasResults, selectedIdx, results]);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        window.pillAPI.hide();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIdx((i) => Math.min(i + 1, results.length));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIdx((i) => Math.max(i - 1, 0));
+      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        const trimmed = value.trim();
+        if (trimmed) { window.pillAPI.submit(trimmed); setValue(''); }
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submit();
       }
-    });
-
-    const unsubHide = window.pillAPI.onHideRequest(() => setState(INITIAL_STATE));
-
-    return () => { unsubHl(); unsubLegacy(); unsubHide(); };
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Handlers
-  // -------------------------------------------------------------------------
-
-  const runAgent = useCallback(async (prompt: string) => {
-    setState((prev) => ({
-      ...prev,
-      phase: 'submitting',
-      inputValue: prompt,
-      streamEntries: [],
-      streamIteration: 0,
-      result: null,
-      paletteIndex: 0,
-    }));
-    setIsFocused(false);
-    try {
-      const { task_id } = await window.pillAPI.submit(prompt);
-      setState((prev) => ({ ...prev, activeTaskId: task_id }));
-    } catch (err) {
-      setState((prev) => ({ ...prev, phase: 'error', result: { kind: 'failed', reason: 'submit_error' } }));
-    }
-  }, []);
-
-  const activateTab = useCallback(async (tab_id: string) => {
-    await window.pillAPI.tabs.activate(tab_id);
-    window.pillAPI.hide();
-    setState(INITIAL_STATE);
-    setIsFocused(false);
-  }, []);
-
-  const selectPaletteRow = useCallback((row: PaletteRow) => {
-    if (row.kind === 'tab') void activateTab(row.tabId);
-    else void runAgent(row.prompt);
-  }, [activateTab, runAgent]);
-
-  const handleSubmit = useCallback((prompt: string) => {
-    const row = paletteRows[state.paletteIndex];
-    if (row) selectPaletteRow(row);
-    else void runAgent(prompt);
-  }, [paletteRows, state.paletteIndex, selectPaletteRow, runAgent]);
-
-  const handleEscape = useCallback(() => {
-    setState(INITIAL_STATE);
-    setIsFocused(false);
-    window.pillAPI.hide();
-  }, []);
-
-  const handleDismiss = useCallback(() => {
-    setState(INITIAL_STATE);
-    setIsFocused(false);
-    window.pillAPI.hide();
-  }, []);
-
-  const handleStop = useCallback(async () => {
-    const t = stateRef.current.activeTaskId;
-    if (t) await window.pillAPI.cancel(t);
-    setState((prev) => ({ ...prev, phase: 'error', result: { kind: 'cancelled' } }));
-  }, []);
-
-  // Arrow-key nav over palette rows — container-level so it works while the
-  // <input> has focus.
-  const onKeyDownContainer = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (state.phase !== 'idle') return;
-    if (paletteRows.length === 0) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setState((prev) => ({ ...prev, paletteIndex: (prev.paletteIndex + 1) % Math.max(1, paletteRows.length) }));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setState((prev) => ({ ...prev, paletteIndex: (prev.paletteIndex - 1 + paletteRows.length) % Math.max(1, paletteRows.length) }));
-    }
-  }, [state.phase, paletteRows.length]);
-
-  // -------------------------------------------------------------------------
-  // Derived booleans
-  // -------------------------------------------------------------------------
-  const isInputDisabled = state.phase === 'submitting' || state.phase === 'running';
-  const showPalette = state.phase === 'idle' && paletteRows.length > 0;
-  const showStream  = state.phase === 'submitting' || state.phase === 'running';
-  const showResult  = (state.phase === 'done' || state.phase === 'error') && state.result !== null;
-  const showSubmitChip = state.phase === 'idle' && state.inputValue.trim().length > 0;
-  const showCopyChip = state.phase === 'done';
+    },
+    [submit, value, results.length],
+  );
 
   return (
-    <div
-      className="pill-container"
-      data-state={dataState}
-      data-phase={state.phase}
-      data-testid="pill-container"
-      onKeyDown={onKeyDownContainer}
-      onFocus={() => { if (state.phase === 'idle') setIsFocused(true); }}
-      onBlur={() => setIsFocused(false)}
-    >
-      <PillInput
-        value={state.inputValue}
-        onChange={(v) => setState((prev) => ({ ...prev, inputValue: v, paletteIndex: 0 }))}
-        onSubmit={handleSubmit}
-        onEscape={handleEscape}
-        disabled={isInputDisabled}
-        leadingSlot={<LeadingDot state={dataState} />}
-        showSubmitChip={showSubmitChip}
-        showCopyChip={showCopyChip}
-      />
+    <div className="cmdbar__scrim" onClick={() => window.pillAPI.hide()}>
+      <div className="cmdbar" onClick={(e) => e.stopPropagation()}>
+        <div className="cmdbar__input-row">
+          <textarea
+            ref={ref}
+            className="cmdbar__input"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Search sessions or create new agent..."
+            rows={1}
+            aria-label="Search or create"
+          />
+          <button
+            className="cmdbar__send"
+            onClick={submit}
+            disabled={!value.trim()}
+            aria-label="Submit"
+          >
+            <ArrowUpIcon />
+          </button>
+        </div>
 
-      {(showPalette || showStream || showResult) && <div className="pill-divider" aria-hidden="true" />}
+        {hasResults && (
+          <div className="cmdbar__results">
+            {results.map((s, i) => (
+              <button
+                key={s.id}
+                className={`cmdbar__result${i === selectedIdx ? ' cmdbar__result--active' : ''}`}
+                onClick={() => { window.pillAPI.selectSession(s.id); setValue(''); }}
+                onMouseEnter={() => setSelectedIdx(i)}
+              >
+                <span className={`cmdbar__dot ${statusDot(s.status)}`} />
+                <span className="cmdbar__result-prompt">{s.prompt}</span>
+                <span className="cmdbar__result-time">{formatElapsed(s.createdAt)}</span>
+                <span className="cmdbar__result-status">{s.status}</span>
+              </button>
+            ))}
+            <button
+              className={`cmdbar__result cmdbar__result--create${selectedIdx === results.length ? ' cmdbar__result--active' : ''}`}
+              onClick={submit}
+              onMouseEnter={() => setSelectedIdx(results.length)}
+            >
+              <span className="cmdbar__result-create-icon">+</span>
+              <span className="cmdbar__result-prompt">Create new agent: &ldquo;{value}&rdquo;</span>
+            </button>
+          </div>
+        )}
 
-      {showPalette && (
-        <CommandPalette
-          rows={paletteRows}
-          activeIndex={state.paletteIndex}
-          onSelect={selectPaletteRow}
-          onHover={(i) => setState((prev) => ({ ...prev, paletteIndex: i }))}
-        />
-      )}
-
-      {showStream && (
-        <AgentStream
-          entries={state.streamEntries}
-          iteration={state.streamIteration}
-          maxIterations={MAX_ITERATIONS}
-          onStop={handleStop}
-        />
-      )}
-
-      {showResult && state.result !== null && (
-        <ResultDisplay state={state.result} onDismiss={handleDismiss} autoDismissMs={AUTO_DISMISS_MS} />
-      )}
+        <div className="cmdbar__footer">
+          <span className="cmdbar__hint">
+            <kbd className="cmdbar__kbd">Enter</kbd> {hasResults ? 'select' : 'create'}
+          </span>
+          {hasResults && (
+            <span className="cmdbar__hint">
+              <kbd className="cmdbar__kbd">{'\u2318\u21B5'}</kbd> new agent
+            </span>
+          )}
+          <span className="cmdbar__hint">
+            <kbd className="cmdbar__kbd">Esc</kbd> close
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pure reducer: incoming hl event → updated pill state
-// ---------------------------------------------------------------------------
-function applyIncoming(prev: PillState, task_id: string, event: HlEventLike): PillState {
-  if (prev.activeTaskId && task_id !== prev.activeTaskId) return prev;
-
-  if (event.type === 'task_started') {
-    return { ...prev, phase: 'running', activeTaskId: task_id, streamEntries: [], streamIteration: 0 };
-  }
-  if (event.type === 'done') {
-    return { ...prev, phase: 'done', result: { kind: 'done', result: event.summary ?? '', stepsUsed: prev.streamIteration, tokensUsed: 0 } };
-  }
-  if (event.type === 'error') {
-    const msg = event.message ?? 'error';
-    if (msg === 'cancelled') return { ...prev, phase: 'error', result: { kind: 'cancelled' } };
-    return { ...prev, phase: 'error', result: { kind: 'failed', reason: msg } };
-  }
-  // Non-terminal: update stream + iteration counter.
-  const iteration = event.iteration ?? prev.streamIteration;
-  return {
-    ...prev,
-    phase: 'running',
-    streamEntries: applyHlEvent(prev.streamEntries, event),
-    streamIteration: Math.max(prev.streamIteration, iteration),
-  };
-}
+export default Pill;

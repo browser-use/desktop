@@ -34,10 +34,10 @@ const log = {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PILL_WIDTH = 480;             // Dia-like proportions — narrower and tighter than the old 560
-const PILL_HEIGHT_COLLAPSED = 62;   // Tighter idle height (was 72 — matches 56px input row)
-const PILL_HEIGHT_EXPANDED = 320;   // Streaming/result state — fits palette (5 rows) or agent stream log
-const PILL_TOP_OFFSET = 80;         // px from top of display work area
+const PILL_WIDTH = 600;
+const PILL_HEIGHT_COLLAPSED = 110;
+const PILL_HEIGHT_EXPANDED = 400;
+const PILL_TOP_OFFSET = 160;
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -110,7 +110,7 @@ export function createPillWindow(): BrowserWindow {
     alwaysOnTop: true,
     hasShadow: true,
     resizable: false,
-    backgroundColor: '#0a0a0d',
+    backgroundColor: '#141416',
     roundedCorners: true,
     skipTaskbar: true,
     show: false,
@@ -189,7 +189,8 @@ export function showPill(): void {
   const bounds = computePillBounds();
   pillWindow.setBounds(bounds);
 
-  pillWindow.show();
+  pillWindow.showInactive();
+  pillWindow.setAlwaysOnTop(true, 'screen-saver');
   pillWindow.focus();
 
   const latency_ms = performance.now() - t0;

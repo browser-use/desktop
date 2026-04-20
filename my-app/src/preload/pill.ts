@@ -60,6 +60,14 @@ contextBridge.exposeInMainWorld('pillAPI', {
     return ipcRenderer.invoke('pill:submit', { prompt });
   },
 
+  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number }>> => {
+    return ipcRenderer.invoke('sessions:list');
+  },
+
+  selectSession: (id: string): void => {
+    ipcRenderer.send('pill:select-session', id);
+  },
+
   /**
    * Hide the pill window (Esc key or close button).
    */
