@@ -100,11 +100,6 @@ export function openSettingsWindow(): BrowserWindow {
     mainLogger.info('settingsRenderer.console', { level, source, line, message });
   });
 
-  // Open DevTools in dev mode only
-  if (process.env.NODE_ENV !== 'production') {
-    settingsWindow.webContents.openDevTools({ mode: 'detach' });
-  }
-
   // Load the settings renderer
   if (typeof SETTINGS_VITE_DEV_SERVER_URL !== 'undefined' && SETTINGS_VITE_DEV_SERVER_URL) {
     const url = `${SETTINGS_VITE_DEV_SERVER_URL}/src/renderer/settings/settings.html`;

@@ -107,7 +107,6 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     const hubDevUrl = `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/hub/hub.html`;
     mainLogger.debug('window.loadURL', { url: hubDevUrl });
     win.loadURL(hubDevUrl);
-    win.webContents.openDevTools({ mode: 'detach' });
   } else {
     const htmlPath = path.join(
       __dirname,

@@ -72,10 +72,6 @@ export function createOnboardingWindow(): BrowserWindow {
   win.webContents.on('console-message', (_e, level, message, line, source) => {
     mainLogger.info(`onboardingRenderer.console`, { level, source, line, message });
   });
-  if (process.env.NODE_ENV !== 'production') {
-    win.webContents.openDevTools({ mode: 'detach' });
-  }
-
   // Load the onboarding renderer
   if (typeof ONBOARDING_VITE_DEV_SERVER_URL !== 'undefined' && ONBOARDING_VITE_DEV_SERVER_URL) {
     const url = `${ONBOARDING_VITE_DEV_SERVER_URL}/onboarding.html`;
