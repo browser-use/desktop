@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, globalShortcut } from 'electron';
+import { ipcMain, BrowserWindow, globalShortcut, Notification } from 'electron';
 import { mainLogger } from '../logger';
 import { AccountStore } from './AccountStore';
 import { assertString } from '../ipc-validators';
@@ -138,6 +138,22 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
     return { ok, accelerator: ok ? validated : currentAccelerator };
   });
 
+  ipcMain.handle('onboarding:request-notifications', () => {
+    mainLogger.info('onboardingHandlers.requestNotifications');
+    if (!Notification.isSupported()) {
+      mainLogger.warn('onboardingHandlers.requestNotifications.unsupported');
+      return { supported: false };
+    }
+    const notif = new Notification({
+      title: 'Browser Use Desktop',
+      body: 'Notifications are on — you\u2019ll hear from your agents here.',
+      silent: false,
+    });
+    notif.show();
+    mainLogger.info('onboardingHandlers.requestNotifications.shown');
+    return { supported: true };
+  });
+
   ipcMain.handle('onboarding:complete', async () => {
     mainLogger.info('onboardingHandlers.complete');
 
@@ -172,6 +188,7 @@ export function unregisterOnboardingHandlers(): void {
   ipcMain.removeHandler('onboarding:test-api-key');
   ipcMain.removeHandler('onboarding:listen-shortcut');
   ipcMain.removeHandler('onboarding:set-shortcut');
+  ipcMain.removeHandler('onboarding:request-notifications');
   ipcMain.removeHandler('onboarding:complete');
   mainLogger.info('onboardingHandlers.unregistered');
 }

@@ -60,6 +60,9 @@ const onboardingAPI = {
     return () => ipcRenderer.removeListener('pill-hidden', handler);
   },
 
+  requestNotifications: (): Promise<{ supported: boolean }> =>
+    ipcRenderer.invoke('onboarding:request-notifications'),
+
   complete: (): Promise<void> =>
     ipcRenderer.invoke('onboarding:complete'),
 
