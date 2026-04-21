@@ -109,6 +109,8 @@ export const AgentSessionSchema = z.object({
   hidden: z.boolean().optional(),
   originChannel: z.string().optional(),
   originConversationId: z.string().optional(),
+  primarySite: z.string().nullable().optional(),
+  lastActivityAt: z.number().optional(),
 });
 
 export type AgentSession = z.infer<typeof AgentSessionSchema>;

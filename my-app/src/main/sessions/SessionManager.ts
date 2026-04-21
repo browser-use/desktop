@@ -4,6 +4,7 @@ import { mainLogger } from '../logger';
 import type { HlEvent } from '../hl/agent';
 import type { AgentSession, SessionStatus, SessionEvents } from './types';
 import { SessionDb } from './SessionDb';
+import { extractRegistrableDomain } from './domain';
 
 export type { AgentSession, SessionStatus, SessionEvents };
 
@@ -47,6 +48,8 @@ export class SessionManager extends EventEmitter {
         hidden: row.hidden === 1,
         originChannel: row.origin_channel ?? undefined,
         originConversationId: row.origin_conversation_id ?? undefined,
+        primarySite: row.primary_site ?? null,
+        lastActivityAt: row.updated_at,
       };
       this.sessions.set(row.id, session);
     }
@@ -164,6 +167,8 @@ export class SessionManager extends EventEmitter {
     const seq = session.output.length - 1;
     this.db.appendEvent(id, seq, event);
 
+    this.maybeUpdatePrimarySite(session, event);
+
     if (session.status === 'stuck') {
       session.status = 'running';
       this.db.updateSessionStatus(id, 'running');
@@ -176,6 +181,22 @@ export class SessionManager extends EventEmitter {
     }
 
     this.emitEvent('session-output', id, event);
+  }
+
+  private maybeUpdatePrimarySite(session: AgentSession, event: HlEvent): void {
+    if (event.type !== 'tool_call') return;
+    const args = event.args as { url?: unknown } | null;
+    const url = typeof args?.url === 'string' ? args.url : null;
+    if (!url) return;
+    const domain = extractRegistrableDomain(url);
+    if (!domain) return;
+    if (session.primarySite === domain) return;
+    const from = session.primarySite ?? null;
+    session.primarySite = domain;
+    session.lastActivityAt = Date.now();
+    this.db.updatePrimarySite(session.id, domain);
+    mainLogger.info('SessionManager.primarySite.update', { id: session.id, from, to: domain, tool: event.name });
+    this.emitEvent('session-updated', { ...session });
   }
 
   completeSession(id: string): void {

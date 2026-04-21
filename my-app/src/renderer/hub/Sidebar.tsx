@@ -150,6 +150,16 @@ function HiddenGroupIcon(): React.ReactElement {
   );
 }
 
+function TerminalFallbackIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M4 6l2 1.5L4 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7.5 9h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function ChevronIcon({ open }: { open: boolean }): React.ReactElement {
   return (
     <svg
@@ -190,7 +200,9 @@ function SessionRow({
         {favicon ? (
           <img src={favicon} alt="" width={18} height={18} />
         ) : (
-          <span className="sidebar__row-icon-fallback" />
+          <span className="sidebar__row-icon-fallback" aria-label="No site">
+            <TerminalFallbackIcon />
+          </span>
         )}
         <span className="sidebar__row-dot" style={{ background: dot.color }} aria-label={dot.label} />
       </span>
@@ -275,7 +287,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent }: SidebarP
     }
   }, [collapsed]);
 
-  const data = sessions && sessions.length > 0 ? sessions : MOCK_SIDEBAR_SESSIONS;
+  const data = sessions ?? MOCK_SIDEBAR_SESSIONS;
 
   const { active, done, hidden } = useMemo(() => {
     const sortByActivity = (a: SidebarSession, b: SidebarSession): number =>

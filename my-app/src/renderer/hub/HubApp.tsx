@@ -594,6 +594,7 @@ export function HubApp(): React.ReactElement {
 
       <div className="hub-body">
       <Sidebar
+        sessions={sessions}
         selectedId={selectedSessionId}
         onSelect={(id) => {
           handleSelectSession(id);

@@ -22,6 +22,8 @@ export interface AgentSession {
   group?: string;
   hasBrowser?: boolean;
   hidden?: boolean;
+  primarySite?: string | null;
+  lastActivityAt?: number;
 }
 
 export interface ToolResult {
