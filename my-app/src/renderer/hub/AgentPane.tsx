@@ -230,6 +230,46 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
     );
   }
 
+  if (entry.type === 'skill_used') {
+    return (
+      <div className="step step--skill-used">
+        <span className="step__icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 3h10v8H2z" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M5 6h4M5 8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span className="step__skill-label">Read skill</span>
+        <span className="step__skill-topic">{entry.content}</span>
+      </div>
+    );
+  }
+
+  if (entry.type === 'harness_edited') {
+    const isHelpers = entry.harnessTarget === 'helpers';
+    const verb = entry.harnessAction === 'patch' ? 'Patched' : 'Updated';
+    const addedCount = entry.added?.length ?? 0;
+    const removedCount = entry.removed?.length ?? 0;
+    const changedCount = entry.changed?.length ?? 0;
+    const diffParts: string[] = [];
+    if (addedCount) diffParts.push(`+${addedCount}`);
+    if (removedCount) diffParts.push(`-${removedCount}`);
+    if (changedCount) diffParts.push(`~${changedCount}`);
+    const diffSummary = diffParts.length ? ` (${diffParts.join(' ')})` : '';
+    const title = (entry.added ?? []).concat(entry.changed ?? []).concat((entry.removed ?? []).map((n) => `-${n}`)).join(', ');
+    return (
+      <div className="step step--harness" title={title || undefined}>
+        <span className="step__icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M3 2v10M11 2v10M3 4h8M3 10h8M5 7h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+        </span>
+        <span className="step__skill-label">{verb} harness</span>
+        <span className="step__skill-topic">{isHelpers ? 'helpers.js' : `TOOLS.json${diffSummary}`}</span>
+      </div>
+    );
+  }
+
   if (entry.type === 'notify') {
     const isBlocking = entry.level === 'blocking';
     return (
@@ -538,7 +578,10 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     if (!api) return;
 
     let lastKey = '';
-    const updateBounds = () => {
+    let hasAttached = false;
+    let rafScheduled = 0;
+    const applyBounds = () => {
+      rafScheduled = 0;
       const outEl = paneEl.querySelector('.pane__output') as HTMLElement | null;
       if (!outEl) return;
       const computed = computeBounds(viewMode);
@@ -547,7 +590,15 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       const key = `${bounds.x}|${bounds.y}|${bounds.width}|${bounds.height}`;
       if (key === lastKey) return;
       lastKey = key;
-      api.sessions.viewAttach(session.id, bounds).catch(() => {});
+      // viewAttach is the heavier path (creates WebContentsView + wires events) —
+      // run it once. Subsequent updates use the lightweight viewResize so rapid
+      // resizes don't queue up expensive work in the main process.
+      if (!hasAttached) {
+        hasAttached = true;
+        api.sessions.viewAttach(session.id, bounds).catch(() => {});
+      } else {
+        api.sessions.viewResize(session.id, bounds);
+      }
       setSplitPaddingLeft(viewMode === 'split' ? slotWidth : 0);
       const p = paneEl.getBoundingClientRect();
       const o = outEl.getBoundingClientRect();
@@ -559,10 +610,31 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
         height: Math.round(o.height) - topReserve,
       });
     };
+    // Coalesce rapid ResizeObserver / layout callbacks into one IPC per frame.
+    const updateBounds = () => {
+      if (rafScheduled) return;
+      rafScheduled = requestAnimationFrame(applyBounds);
+    };
 
     const observer = new ResizeObserver(updateBounds);
     observer.observe(paneEl, { box: 'border-box' });
-    return () => observer.disconnect();
+
+    // ResizeObserver misses position-only changes (e.g. sibling pane dismissed
+    // causes a grid reflow without this pane resizing). HubApp dispatches
+    // pane:layout-change when the session list or grid layout changes — we
+    // re-read bounds across a few frames to catch any CSS transition.
+    const onLayoutChange = () => {
+      updateBounds();
+      requestAnimationFrame(updateBounds);
+      setTimeout(updateBounds, 120);
+    };
+    window.addEventListener('pane:layout-change', onLayoutChange);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('pane:layout-change', onLayoutChange);
+      if (rafScheduled) cancelAnimationFrame(rafScheduled);
+    };
   }, [viewMode, session.id, computeBounds]);
 
   useEffect(() => {

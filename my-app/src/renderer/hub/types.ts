@@ -8,6 +8,8 @@ export type HlEvent =
   | { type: 'error';       message: string }
   | { type: 'user_input';  text: string }
   | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number }
+  | { type: 'skill_used'; path: string; domain?: string; topic: string }
+  | { type: 'harness_edited'; target: 'helpers' | 'tools'; action: 'write' | 'patch'; path: string; added?: string[]; removed?: string[]; changed?: string[] }
   | { type: 'notify'; message: string; level: 'info' | 'blocking' };
 
 export interface AgentSession {
@@ -30,7 +32,7 @@ export interface ToolResult {
 
 export interface OutputEntry {
   id: string;
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written' | 'notify';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written' | 'skill_used' | 'harness_edited' | 'notify';
   timestamp: number;
   content: string;
   tool?: string;
@@ -39,6 +41,12 @@ export interface OutputEntry {
   level?: 'info' | 'blocking';
   groupCount?: number;
   groupEntries?: OutputEntry[];
+  // harness_edited metadata
+  harnessTarget?: 'helpers' | 'tools';
+  harnessAction?: 'write' | 'patch';
+  added?: string[];
+  removed?: string[];
+  changed?: string[];
 }
 
 let _adapterId = 0;
@@ -70,6 +78,19 @@ export function hlEventToOutputEntry(event: HlEvent, timestamp: number): OutputE
       return { id, type: 'user_input', timestamp, content: event.text };
     case 'skill_written':
       return { id, type: 'skill_written', timestamp, content: `${event.domain}/${event.topic}`, tool: event.path };
+    case 'skill_used':
+      return { id, type: 'skill_used', timestamp, content: event.domain ? `${event.domain}/${event.topic}` : event.topic, tool: event.path };
+    case 'harness_edited':
+      return {
+        id, type: 'harness_edited', timestamp,
+        content: event.target === 'helpers' ? 'helpers.js' : 'TOOLS.json',
+        tool: event.path,
+        harnessTarget: event.target,
+        harnessAction: event.action,
+        added: event.added,
+        removed: event.removed,
+        changed: event.changed,
+      };
     case 'notify':
       return { id, type: 'notify', timestamp, content: event.message, level: event.level };
   }

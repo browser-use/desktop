@@ -61,6 +61,23 @@ export const HlEventNotifySchema = z.object({
   level: z.enum(['info', 'blocking']),
 });
 
+export const HlEventHarnessEditedSchema = z.object({
+  type: z.literal('harness_edited'),
+  target: z.enum(['helpers', 'tools']),
+  action: z.enum(['write', 'patch']),
+  path: z.string(),
+  added: z.array(z.string()).optional(),
+  removed: z.array(z.string()).optional(),
+  changed: z.array(z.string()).optional(),
+});
+
+export const HlEventSkillUsedSchema = z.object({
+  type: z.literal('skill_used'),
+  path: z.string(),
+  domain: z.string().optional(),
+  topic: z.string(),
+});
+
 export const HlEventSchema = z.discriminatedUnion('type', [
   HlEventThinkingSchema,
   HlEventToolCallSchema,
@@ -70,6 +87,8 @@ export const HlEventSchema = z.discriminatedUnion('type', [
   HlEventUserInputSchema,
   HlEventSkillWrittenSchema,
   HlEventNotifySchema,
+  HlEventHarnessEditedSchema,
+  HlEventSkillUsedSchema,
 ]);
 
 export type HlEvent = z.infer<typeof HlEventSchema>;
