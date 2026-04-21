@@ -97,10 +97,8 @@ All commands run from the repo root via [Task](https://taskfile.dev).
 
 | Command | What |
 |---|---|
-| `task start` | Start the app |
-| `task start:fresh` | Start against a throwaway profile |
-| `task start:onboarding` | Start with onboarding forced open |
-| `task up` | Build agent image + start |
+| `task up` | Install deps, build agent image, start the app |
+| `task start` | Start the app (skip install/build) |
 | `task logs` | Tail app logs |
 | `task qa` | Lint + typecheck + test |
 | `task test` | Vitest unit + integration |

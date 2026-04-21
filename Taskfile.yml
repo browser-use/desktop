@@ -1,9 +1,5 @@
 version: "3"
 
-# Top-level dev entrypoints. Run `task` to see the list.
-# Most tasks proxy to npm scripts inside my-app/ so both `task <x>` and
-# `cd my-app && npm run <x>` do the same thing.
-
 vars:
   APP_DIR: my-app
 
@@ -16,69 +12,6 @@ tasks:
 
   # ----- launch -------------------------------------------------------------
 
-  start:
-    desc: Start the browser against the real user profile (default)
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm start
-
-  start:fresh:
-    desc: Start against a throwaway userData dir (preserves real profile)
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run start:fresh
-
-  start:onboarding:
-    desc: Start with the onboarding window forced open (fresh userData, real profile untouched)
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run start:onboarding
-
-  reset:onboarding:
-    desc: Delete account.json so the next launch retriggers onboarding (keeps keychain + session)
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run start:reset-onboarding
-
-  start:settings:
-    desc: Start in SETTINGS_STANDALONE mode (shell + settings window for design review)
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run dev:settings
-
-  # ----- daemon (Python agent backend in Docker) ----------------------------
-
-  daemon:up:
-    desc: Start the Python agent daemon in Docker (background, hot-reload)
-    dir: "{{.APP_DIR}}/python"
-    cmds:
-      - docker compose up -d --build
-      - echo "Daemon running. Logs → task daemon:logs"
-
-  daemon:down:
-    desc: Stop the daemon container
-    dir: "{{.APP_DIR}}/python"
-    cmds:
-      - docker compose down
-
-  daemon:logs:
-    desc: Tail daemon container logs (Ctrl+C to stop)
-    dir: "{{.APP_DIR}}/python"
-    cmds:
-      - docker compose logs -f daemon
-
-  daemon:restart:
-    desc: Restart the daemon container
-    dir: "{{.APP_DIR}}/python"
-    cmds:
-      - docker compose restart daemon
-
-  daemon:shell:
-    desc: Open a shell inside the daemon container
-    dir: "{{.APP_DIR}}/python"
-    cmds:
-      - docker compose exec daemon bash
-
   install:
     desc: Install Node dependencies
     dir: "{{.APP_DIR}}"
@@ -89,27 +22,39 @@ tasks:
       - yarn.lock
 
   up:
-    desc: Install deps, build agent image, and start the app (everything in one command)
+    desc: Install deps, build agent image, and start the app
     cmds:
       - task: install
       - task: agent:build
       - task: start
 
+  start:
+    desc: Start the app
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm start
+
+  start:settings:
+    desc: Start with settings window open (for design review)
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run dev:settings
+
+  reset:onboarding:
+    desc: Delete account.json so the next launch retriggers onboarding
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run start:reset-onboarding
+
   logs:
-    desc: Tail the app log file (main process + renderer console)
+    desc: Tail the app log file
     cmds:
       - tail -f "$$HOME/Library/Application Support/my-app/logs/main.log"
 
-  down:
-    desc: Stop Docker daemon container (legacy, not needed for default TS engine)
-    dir: "{{.APP_DIR}}/python"
-    cmds:
-      - docker compose down 2>/dev/null || true
-
-  # ----- agent docker image ---------------------------------------------------
+  # ----- agent docker image -------------------------------------------------
 
   agent:build:
-    desc: Bundle hl/ agent code + build Docker image (agent-task:latest)
+    desc: Bundle hl/ agent code + build Docker image
     dir: "{{.APP_DIR}}/docker/agent"
     cmds:
       - bash build.sh
@@ -119,15 +64,10 @@ tasks:
     cmds:
       - docker ps --filter "name=agent-"
 
-
-  agent:logs:
-    desc: Tail logs for a running agent container
-    cmds:
-      - docker logs -f
   # ----- quality gates ------------------------------------------------------
 
   lint:
-    desc: Run eslint across the app
+    desc: Run eslint
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run lint
@@ -145,7 +85,7 @@ tasks:
       - npm test
 
   e2e:
-    desc: Playwright-Electron e2e suite
+    desc: Playwright end-to-end suite
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run e2e
