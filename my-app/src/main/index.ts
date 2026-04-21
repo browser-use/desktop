@@ -524,6 +524,16 @@ app.whenReady().then(async () => {
       return { error: 'Browser pool full' };
     }
 
+    if (shellWindow && !shellWindow.isDestroyed()) {
+      browserPool.attachToWindow(validatedId, shellWindow, { x: 0, y: 0, width: 0, height: 0 });
+    }
+
+    try {
+      await view.webContents.loadURL('about:blank');
+    } catch (err) {
+      mainLogger.warn('main.sessions:rerun.loadBlank.failed', { id: validatedId, error: (err as Error).message });
+    }
+
     let ctx;
     try {
       ctx = await createContext({ name: validatedId, webContents: view.webContents });

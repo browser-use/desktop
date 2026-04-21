@@ -4,6 +4,8 @@ my-app/node_modules/
 
 # Build artifacts
 my-app/dist/
+my-app/docker/agent/dist/
+my-app/src/renderer/hub/dist/
 my-app/out/
 my-app/.vite/
 my-app/test-results/
@@ -53,6 +55,7 @@ Thumbs.db
 
 # Tooling state
 .omc/
+.task/
 
 # Ephemeral track handoff docs (repo root)
 .track-*.md
