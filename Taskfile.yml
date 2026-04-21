@@ -10,61 +10,18 @@ tasks:
       - task --list
     silent: true
 
-  # ----- launch -------------------------------------------------------------
-
-  install:
-    desc: Install Node dependencies
+  up:
+    desc: Install deps and start the app
     dir: "{{.APP_DIR}}"
     cmds:
       - yarn install
-    sources:
-      - package.json
-      - yarn.lock
-
-  up:
-    desc: Install deps, build agent image, and start the app
-    cmds:
-      - task: install
-      - task: agent:build
-      - task: start
-
-  start:
-    desc: Start the app
-    dir: "{{.APP_DIR}}"
-    cmds:
       - npm start
-
-  start:settings:
-    desc: Start with settings window open (for design review)
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run dev:settings
 
   reset:onboarding:
     desc: Delete account.json so the next launch retriggers onboarding
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run start:reset-onboarding
-
-  logs:
-    desc: Tail the app log file
-    cmds:
-      - tail -f "$$HOME/Library/Application Support/my-app/logs/main.log"
-
-  # ----- agent docker image -------------------------------------------------
-
-  agent:build:
-    desc: Bundle hl/ agent code + build Docker image
-    dir: "{{.APP_DIR}}/docker/agent"
-    cmds:
-      - bash build.sh
-
-  agent:ps:
-    desc: List running agent task containers
-    cmds:
-      - docker ps --filter "name=agent-"
-
-  # ----- quality gates ------------------------------------------------------
 
   lint:
     desc: Run eslint
@@ -84,25 +41,11 @@ tasks:
     cmds:
       - npm test
 
-  e2e:
-    desc: Playwright end-to-end suite
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run e2e
-
   visual:
     desc: Visual QA — capture screenshots + diff against references
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run visual:qa
-
-  qa:
-    desc: Full QA — lint + typecheck + test
-    dir: "{{.APP_DIR}}"
-    cmds:
-      - npm run qa
-
-  # ----- packaging ----------------------------------------------------------
 
   package:
     desc: Build an unpackaged app (electron-forge package)

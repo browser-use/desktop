@@ -64,9 +64,6 @@ src/
     onboarding/            # First-run flow
     components/            # Shared React components
     design/                # Design tokens, global CSS
-
-docker/
-  agent/                   # Containerized agent runtime
 ```
 
 ## Views
@@ -97,15 +94,11 @@ All commands run from the repo root via [Task](https://taskfile.dev).
 
 | Command | What |
 |---|---|
-| `task up` | Install deps, build agent image, start the app |
-| `task start` | Start the app (skip install/build) |
-| `task logs` | Tail app logs |
-| `task qa` | Lint + typecheck + test |
+| `task up` | Install deps and start the app |
 | `task test` | Vitest unit + integration |
-| `task e2e` | Playwright end-to-end |
+| `task lint` | ESLint |
+| `task typecheck` | tsc --noEmit |
 | `task visual` | Screenshot capture + diff |
-| `task agent:build` | Bundle hl/ agent code + build Docker image |
-| `task agent:ps` | List running agent containers |
 | `task make` | Build platform installers |
 
 ## Tech stack

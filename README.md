@@ -33,8 +33,7 @@ Inbound message channels can trigger agent sessions automatically.
 Requires [Task](https://taskfile.dev) (`brew install go-task`).
 
 ```bash
-task up    # Install deps, build agent image, start the app
-task       # See all commands
+task up    # Install deps and start the app
 ```
 
 ## Project structure
@@ -65,8 +64,6 @@ my-app/
       components/            # Shared React components
       design/                # Design tokens, global CSS
 
-  docker/
-    agent/                   # Containerized agent runtime
 ```
 
 
