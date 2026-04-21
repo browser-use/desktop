@@ -391,6 +391,17 @@ export function HubApp(): React.ReactElement {
         <div className="hub-toolbar__left">
           <span className="hub-toolbar__title">Browser Use</span>
           <MemoryIndicator />
+          <button
+            className="hub-toolbar__settings-btn"
+            onClick={() => { hideBrowserViews(); setSettingsOpen(true); }}
+            aria-label="Settings"
+            title="Settings (⌘,)"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M5.73 1.68a1.25 1.25 0 0 1 2.54 0l.1.44a1.25 1.25 0 0 0 1.63.8l.42-.16a1.25 1.25 0 0 1 1.58 1.73l-.2.4a1.25 1.25 0 0 0 .37 1.55l.35.27a1.25 1.25 0 0 1-.44 2.2l-.43.13a1.25 1.25 0 0 0-.86 1.46l.08.44a1.25 1.25 0 0 1-1.97 1.27l-.33-.3a1.25 1.25 0 0 0-1.6-.06l-.36.27a1.25 1.25 0 0 1-2.03-1.17l.05-.44a1.25 1.25 0 0 0-.92-1.42l-.43-.12a1.25 1.25 0 0 1-.33-2.22l.37-.26a1.25 1.25 0 0 0 .44-1.53l-.18-.41A1.25 1.25 0 0 1 4.7 2.93l.42.17a1.25 1.25 0 0 0 1.6-.86l.11-.44Z" stroke="currentColor" strokeWidth="1.1" />
+              <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+            </svg>
+          </button>
         </div>
         <div className="hub-toolbar__right">
           <button

@@ -65,6 +65,24 @@
   background-color: var(--color-fg-disabled);
 }
 
+.hub-toolbar__settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--color-fg-disabled);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.hub-toolbar__settings-btn:hover {
+  color: var(--color-fg-secondary);
+}
+
 .hub-toolbar__right {
   display: flex;
   align-items: center;
