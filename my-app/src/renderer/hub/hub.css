@@ -65,24 +65,6 @@
   background-color: var(--color-fg-disabled);
 }
 
-.hub-toolbar__settings-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-md);
-  background: transparent;
-  border: none;
-  color: var(--color-fg-disabled);
-  cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-out);
-}
-
-.hub-toolbar__settings-btn:hover {
-  color: var(--color-fg-secondary);
-}
-
 .hub-toolbar__right {
   display: flex;
   align-items: center;
@@ -259,6 +241,29 @@
   left: 100px;
   z-index: var(--z-toast);
   -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mem-indicator__settings-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-tertiary);
+  font-size: var(--font-size-2xs);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.mem-indicator__settings-btn:hover {
+  color: var(--color-fg-secondary);
+  background-color: var(--color-bg-hover);
 }
 
 .mem-indicator__btn {
