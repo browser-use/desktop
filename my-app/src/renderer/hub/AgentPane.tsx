@@ -726,6 +726,10 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
   const [browserMissing, setBrowserMissing] = useState(false);
   const [frameRect, setFrameRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
+  // Auto-open the logs overlay once per fresh session so users see the
+  // agent's stream as soon as a task starts. Keyed per session id; the
+  // user can close via Esc / the Logs button and it won't re-open.
+  const autoLogsTriggeredRef = useRef<Set<string>>(new Set());
   const { entries: rawEntries } = useMemo(() => adaptSession(session), [session]);
   const entries = useMemo<OutputEntry[]>(() => {
     if (!session.prompt) return rawEntries;
@@ -877,6 +881,35 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
   useEffect(() => {
     if (browserDead) setViewMode('output');
   }, [browserDead]);
+
+  // Auto-open the logs overlay once when a fresh session starts running.
+  // Uses a ref-keyed guard so it fires exactly once per session id and
+  // does NOT re-fire if the user closes it.
+  useEffect(() => {
+    if (session.status !== 'running') return;
+    if (autoLogsTriggeredRef.current.has(session.id)) return;
+    autoLogsTriggeredRef.current.add(session.id);
+    // Wait two RAFs so the pane has its final size before we anchor.
+    const timer = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const api = window.electronAPI;
+        if (!api?.logs) return;
+        const outEl = paneRef.current?.querySelector('.pane__output') as HTMLElement | null;
+        const rect = outEl?.getBoundingClientRect();
+        const anchor = rect
+          ? {
+              x: Math.round(rect.left),
+              y: Math.round(rect.top),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            }
+          : undefined;
+        console.log('[AgentPane] auto-open logs on new session', { sessionId: session.id, anchor });
+        void api.logs.toggle(session.id, anchor).then((open) => setLogsOpen(open));
+      });
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [session.id, session.status]);
 
   useEffect(() => {
     const onCycle = (e: Event) => {
