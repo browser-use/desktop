@@ -383,6 +383,29 @@ html, body {
   gap: 2px;
 }
 
+.claude-code-confirm {
+  width: 100%;
+  padding: 16px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.claude-code-confirm__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.claude-code-confirm__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .claude-code-card__title {
   font-size: 14px;
   font-weight: 600;

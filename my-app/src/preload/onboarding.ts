@@ -27,11 +27,24 @@ const onboardingAPI = {
   saveApiKey: (key: string): Promise<void> =>
     ipcRenderer.invoke('onboarding:save-api-key', key),
 
-  detectClaudeCode: (): Promise<{ available: boolean; subscriptionType?: string | null; hasInference?: boolean }> =>
-    ipcRenderer.invoke('onboarding:detect-claude-code'),
+  detectClaudeCode: (): Promise<{
+    available: boolean;
+    installed: boolean;
+    authed: boolean;
+    version: string | null;
+    subscriptionType?: string | null;
+    hasInference?: boolean;
+    error?: string | null;
+  }> => ipcRenderer.invoke('onboarding:detect-claude-code'),
 
   useClaudeCode: (): Promise<{ subscriptionType: string | null }> =>
     ipcRenderer.invoke('onboarding:use-claude-code'),
+
+  openClaudeLoginTerminal: (): Promise<{ opened: boolean; error?: string }> =>
+    ipcRenderer.invoke('onboarding:open-claude-login-terminal'),
+
+  openExternal: (url: string): Promise<{ opened: boolean }> =>
+    ipcRenderer.invoke('onboarding:open-external', url),
 
   testApiKey: (key: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('onboarding:test-api-key', key),

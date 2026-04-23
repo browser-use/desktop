@@ -28,8 +28,18 @@ declare global {
       importChromeProfileCookies: (profileDir: string) => Promise<CookieImportResult>;
       saveApiKey: (key: string) => Promise<void>;
       testApiKey: (key: string) => Promise<{ success: boolean; error?: string }>;
-      detectClaudeCode: () => Promise<{ available: boolean; subscriptionType?: string | null; hasInference?: boolean }>;
+      detectClaudeCode: () => Promise<{
+        available: boolean;
+        installed: boolean;
+        authed: boolean;
+        version: string | null;
+        subscriptionType?: string | null;
+        hasInference?: boolean;
+        error?: string | null;
+      }>;
       useClaudeCode: () => Promise<{ subscriptionType: string | null }>;
+      openClaudeLoginTerminal: () => Promise<{ opened: boolean; error?: string }>;
+      openExternal: (url: string) => Promise<{ opened: boolean }>;
       requestNotifications: () => Promise<{ supported: boolean }>;
       listenShortcut: () => Promise<{ ok: boolean; accelerator: string }>;
       setShortcut: (accelerator: string) => Promise<{ ok: boolean; accelerator: string }>;
@@ -211,23 +221,83 @@ export function OnboardingApp() {
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [claudeCode, setClaudeCode] = useState<{ available: boolean; subscriptionType?: string | null } | null>(null);
+  const [claudeCode, setClaudeCode] = useState<{
+    available: boolean;
+    installed: boolean;
+    authed: boolean;
+    version: string | null;
+    subscriptionType?: string | null;
+    error?: string | null;
+  } | null>(null);
   const [usingClaudeCode, setUsingClaudeCode] = useState(false);
+  const [waitingForLogin, setWaitingForLogin] = useState(false);
+
+  const refreshClaudeStatus = useCallback(async () => {
+    try {
+      const res = await window.onboardingAPI.detectClaudeCode();
+      setClaudeCode({
+        available: res.available,
+        installed: res.installed,
+        authed: res.authed,
+        version: res.version,
+        subscriptionType: res.subscriptionType ?? null,
+        error: res.error ?? null,
+      });
+      return res;
+    } catch {
+      setClaudeCode({ available: false, installed: false, authed: false, version: null });
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
-    window.onboardingAPI.detectClaudeCode().then((res) => {
-      setClaudeCode({ available: res.available, subscriptionType: res.subscriptionType });
-    }).catch(() => setClaudeCode({ available: false }));
-  }, []);
+    void refreshClaudeStatus();
+  }, [refreshClaudeStatus]);
+
+  // Poll while waiting for user to finish `claude login` in Terminal.
+  // Stops when authed becomes true or after a cap.
+  useEffect(() => {
+    if (!waitingForLogin) return;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60; // ~3 minutes at 3s interval
+    const tick = async () => {
+      if (cancelled) return;
+      attempts++;
+      const res = await refreshClaudeStatus();
+      if (res?.authed) { setWaitingForLogin(false); return; }
+      if (attempts >= MAX_ATTEMPTS) { setWaitingForLogin(false); return; }
+      setTimeout(tick, 3000);
+    };
+    const id = setTimeout(tick, 3000);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [waitingForLogin, refreshClaudeStatus]);
 
   const handleUseClaudeCode = useCallback(async () => {
     try {
       await window.onboardingAPI.useClaudeCode();
       setUsingClaudeCode(true);
-      setStep('whatsapp');
     } catch (err) {
       console.error('[onboarding] useClaudeCode failed', err);
     }
+  }, []);
+
+  const handleStartClaudeLogin = useCallback(async () => {
+    setWaitingForLogin(true);
+    try {
+      const res = await window.onboardingAPI.openClaudeLoginTerminal();
+      if (!res.opened) {
+        console.warn('[onboarding] openClaudeLoginTerminal failed', res.error);
+        setWaitingForLogin(false);
+      }
+    } catch (err) {
+      console.error('[onboarding] openClaudeLoginTerminal threw', err);
+      setWaitingForLogin(false);
+    }
+  }, []);
+
+  const handleInstallClaudeCode = useCallback(() => {
+    window.onboardingAPI.openExternal?.('https://docs.anthropic.com/en/docs/claude-code/overview');
   }, []);
 
   const [accelerator, setAccelerator] = useState<string>(DEFAULT_ACCELERATOR);
@@ -528,7 +598,41 @@ export function OnboardingApp() {
               Your key is stored locally in the system keychain.
             </p>
 
-            {claudeCode?.available && !usingClaudeCode && (
+            {/* Confirmed → show confirmation + Continue */}
+            {usingClaudeCode && (
+              <div className="claude-code-confirm">
+                <div className="claude-code-confirm__row">
+                  <div className="claude-code-card__icon">
+                    <img src={claudeCodeLogo} alt="" />
+                  </div>
+                  <div className="claude-code-card__text">
+                    <div className="claude-code-card__title">Using Claude subscription</div>
+                    <div className="claude-code-card__sub">
+                      Signed in via Claude Code{claudeCode?.version ? ` (v${claudeCode.version})` : ''}. No API key needed.
+                    </div>
+                  </div>
+                </div>
+                <div className="claude-code-confirm__actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setUsingClaudeCode(false)}
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setStep('whatsapp')}
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Installed + authed → one-click continue */}
+            {claudeCode?.installed && claudeCode?.authed && !usingClaudeCode && (
               <button
                 type="button"
                 className="claude-code-card"
@@ -538,58 +642,107 @@ export function OnboardingApp() {
                   <img src={claudeCodeLogo} alt="" />
                 </div>
                 <div className="claude-code-card__text">
-                  <div className="claude-code-card__title">Sign in with Claude</div>
+                  <div className="claude-code-card__title">Continue with Claude</div>
                   <div className="claude-code-card__sub">
-                    Use your Claude {claudeCode.subscriptionType === 'max' ? 'Max' : claudeCode.subscriptionType === 'pro' ? 'Pro' : 'subscription'} — no API key needed
+                    Using your Claude subscription via Claude Code{claudeCode.version ? ` (v${claudeCode.version})` : ''} — no API key needed
                   </div>
                 </div>
                 <div className="claude-code-card__chevron">&rsaquo;</div>
               </button>
             )}
 
-            {claudeCode?.available && !usingClaudeCode && (
-              <div className="apikey-or-divider"><span>or paste an API key</span></div>
+            {/* Installed but not authed → offer to run `claude login` */}
+            {claudeCode?.installed && !claudeCode?.authed && !usingClaudeCode && (
+              <button
+                type="button"
+                className="claude-code-card"
+                onClick={handleStartClaudeLogin}
+                disabled={waitingForLogin}
+              >
+                <div className="claude-code-card__icon">
+                  <img src={claudeCodeLogo} alt="" />
+                </div>
+                <div className="claude-code-card__text">
+                  <div className="claude-code-card__title">
+                    {waitingForLogin ? 'Waiting for login…' : 'Log in to Claude'}
+                  </div>
+                  <div className="claude-code-card__sub">
+                    {waitingForLogin
+                      ? 'Finish the browser flow in Terminal. We\u2019ll detect it automatically.'
+                      : 'Opens Terminal with `claude login` — sign in once, we\u2019ll detect it.'}
+                  </div>
+                </div>
+                <div className="claude-code-card__chevron">{waitingForLogin ? '\u2026' : '\u203A'}</div>
+              </button>
             )}
 
-            <div className="apikey-input-wrap">
-              <input
-                type={showKey ? 'text' : 'password'}
-                className="apikey-input"
-                placeholder="sk-ant-..."
-                value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value);
-                  setTestResult(null);
-                }}
-                spellCheck={false}
-                autoFocus
-              />
+            {/* Not installed → link to install docs */}
+            {claudeCode && !claudeCode.installed && !usingClaudeCode && (
               <button
-                className="apikey-toggle"
-                onClick={() => setShowKey(!showKey)}
-                tabIndex={-1}
+                type="button"
+                className="claude-code-card"
+                onClick={handleInstallClaudeCode}
               >
-                {showKey ? 'Hide' : 'Show'}
+                <div className="claude-code-card__icon">
+                  <img src={claudeCodeLogo} alt="" />
+                </div>
+                <div className="claude-code-card__text">
+                  <div className="claude-code-card__title">Install Claude Code</div>
+                  <div className="claude-code-card__sub">
+                    <code>npm i -g @anthropic-ai/claude-code</code>{' \u00b7 then re-open this step.'}
+                  </div>
+                </div>
+                <div className="claude-code-card__chevron">&rsaquo;</div>
               </button>
-            </div>
+            )}
 
-            <div className="apikey-actions">
-              <button
-                className="btn btn-secondary"
-                onClick={handleTestKey}
-                disabled={!apiKey.trim() || testing}
-              >
-                {testing ? 'Testing...' : 'Test Key'}
-              </button>
+            {!usingClaudeCode && (
+              <>
+                {claudeCode && (
+                  <div className="apikey-or-divider"><span>or paste an API key</span></div>
+                )}
 
-              <button
-                className="btn btn-primary"
-                onClick={handleSaveKeyAndContinue}
-                disabled={!apiKey.trim() || saving}
-              >
-                {saving ? 'Saving...' : 'Continue'}
-              </button>
-            </div>
+                <div className="apikey-input-wrap">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    className="apikey-input"
+                    placeholder="sk-ant-..."
+                    value={apiKey}
+                    onChange={(e) => {
+                      setApiKey(e.target.value);
+                      setTestResult(null);
+                    }}
+                    spellCheck={false}
+                    autoFocus
+                  />
+                  <button
+                    className="apikey-toggle"
+                    onClick={() => setShowKey(!showKey)}
+                    tabIndex={-1}
+                  >
+                    {showKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+
+                <div className="apikey-actions">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleTestKey}
+                    disabled={!apiKey.trim() || testing}
+                  >
+                    {testing ? 'Testing...' : 'Test Key'}
+                  </button>
+
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSaveKeyAndContinue}
+                    disabled={!apiKey.trim() || saving}
+                  >
+                    {saving ? 'Saving...' : 'Continue'}
+                  </button>
+                </div>
+              </>
+            )}
 
 
             <button className="back-btn" onClick={() => setStep('profile')}>

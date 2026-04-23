@@ -1,10 +1,10 @@
-import { ipcMain, BrowserWindow, globalShortcut, Notification } from 'electron';
+import { ipcMain, BrowserWindow, globalShortcut, Notification, shell } from 'electron';
+import { spawn } from 'node:child_process';
 import { mainLogger } from '../logger';
 import { AccountStore } from './AccountStore';
 import { assertString } from '../ipc-validators';
 import { createPillWindow, togglePill, onPillVisibilityChange } from '../pill';
-import { readClaudeCodeCredentials } from './claudeCodeAuth';
-import { saveApiKey as authSaveApiKey, saveOAuth } from './authStore';
+import { saveApiKey as authSaveApiKey, setAuthMode as authSetMode } from './authStore';
 
 const GLOBAL_SHORTCUT = 'CommandOrControl+Shift+Space';
 
@@ -42,27 +42,111 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
     }
   });
 
+  /**
+   * Probe the Claude Code CLI: is it on PATH, and is it logged in?
+   * Returns { installed, authed, version? }.
+   */
   ipcMain.handle('onboarding:detect-claude-code', async () => {
-    const creds = await readClaudeCodeCredentials();
-    if (!creds) return { available: false };
+    const probe = await probeClaudeCli();
+    mainLogger.info('onboardingHandlers.detectClaudeCode', { ...probe });
+    // Back-compat shape: `available` = installed AND logged in. Extra fields
+    // expose the richer state so the renderer can show a "Run claude login"
+    // prompt when installed but not authed.
     return {
-      available: true,
-      subscriptionType: creds.subscriptionType ?? null,
-      hasInference: creds.scopes.includes('user:inference'),
+      available: probe.installed && probe.authed,
+      installed: probe.installed,
+      authed: probe.authed,
+      version: probe.version ?? null,
+      subscriptionType: null,
+      hasInference: probe.authed,
+      error: probe.error ?? null,
     };
   });
 
-  ipcMain.handle('onboarding:use-claude-code', async () => {
-    const creds = await readClaudeCodeCredentials();
-    if (!creds) throw new Error('Claude Code credentials not found');
-    if (!creds.scopes.includes('user:inference')) {
-      throw new Error('Claude Code token missing user:inference scope');
-    }
-    await saveOAuth(creds);
-    mainLogger.info('onboardingHandlers.useClaudeCode.ok', {
-      subscriptionType: creds.subscriptionType,
+  /**
+   * Open the user's Terminal with `claude login` pre-typed so they can
+   * complete the OAuth flow without leaving the app context.
+   */
+  ipcMain.handle('onboarding:open-external', async (_event, url: string) => {
+    const validated = assertString(url, 'url', 500);
+    if (!/^https?:\/\//.test(validated)) throw new Error('onboarding:open-external only accepts http(s) URLs');
+    await shell.openExternal(validated);
+    return { opened: true };
+  });
+
+  /**
+   * Run `claude login` as a background subprocess. The CLI opens the user's
+   * default browser for OAuth and waits for the callback itself — no TTY
+   * required in the common case. Resolves when the subprocess exits.
+   */
+  ipcMain.handle('onboarding:run-claude-login', async () => {
+    const child = spawn('claude', ['login'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderrBuf = '';
+    let stdoutBuf = '';
+    child.stdout?.on('data', (d) => { stdoutBuf += String(d); if (stdoutBuf.length > 4096) stdoutBuf = stdoutBuf.slice(-4096); });
+    child.stderr?.on('data', (d) => { stderrBuf += String(d); if (stderrBuf.length > 4096) stderrBuf = stderrBuf.slice(-4096); });
+    mainLogger.info('onboardingHandlers.runClaudeLogin.spawn');
+
+    return new Promise<{ ok: boolean; error?: string; stdout?: string }>((resolve) => {
+      const timer = setTimeout(() => {
+        mainLogger.warn('onboardingHandlers.runClaudeLogin.timeout');
+        try { child.kill('SIGTERM'); } catch { /* already dead */ }
+      }, 5 * 60 * 1000);
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({ ok: false, error: err.message });
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        mainLogger.info('onboardingHandlers.runClaudeLogin.close', { code, stderr: stderrBuf.slice(-400) });
+        if (code === 0) resolve({ ok: true, stdout: stdoutBuf });
+        else resolve({ ok: false, error: stderrBuf.trim() || stdoutBuf.trim() || `claude login exit ${code}` });
+      });
     });
-    return { subscriptionType: creds.subscriptionType ?? null };
+  });
+
+  ipcMain.handle('onboarding:open-claude-login-terminal', async () => {
+    const script = `tell application "Terminal"\nactivate\ndo script "claude login"\nend tell`;
+    return new Promise<{ opened: boolean; error?: string }>((resolve) => {
+      if (process.platform !== 'darwin') {
+        // Non-macOS fallback: just open the docs URL.
+        shell.openExternal('https://code.claude.com/docs/en/authentication').catch(() => {});
+        resolve({ opened: false, error: 'macOS only — follow docs to run `claude login`' });
+        return;
+      }
+      const osa = spawn('osascript', ['-e', script]);
+      let stderrBuf = '';
+      osa.stderr.on('data', (d) => (stderrBuf += String(d)));
+      osa.on('close', (code) => {
+        if (code === 0) {
+          mainLogger.info('onboardingHandlers.openClaudeLoginTerminal.ok');
+          resolve({ opened: true });
+        } else {
+          mainLogger.warn('onboardingHandlers.openClaudeLoginTerminal.failed', { code, stderr: stderrBuf });
+          resolve({ opened: false, error: stderrBuf.trim() || `osascript exit ${code}` });
+        }
+      });
+    });
+  });
+
+  /**
+   * DEPRECATED but kept for back-compat with older onboarding UI bundles:
+   * previously extracted a Keychain token and saved it for our own use.
+   * The new flow just confirms the user is logged into Claude CLI — our
+   * spawned `claude -p` subprocess reads Keychain directly on each run.
+   */
+  ipcMain.handle('onboarding:use-claude-code', async () => {
+    const result = await probeClaudeCli();
+    if (!result.authed) throw new Error('Claude CLI is not logged in. Run `claude login` first.');
+    // Flip the auth mode so resolveAuth() skips any stored API key and lets the
+    // spawned `claude` subprocess use its own Keychain OAuth. Stored key is
+    // preserved — saving a new API key later flips the mode back to 'apiKey'.
+    await authSetMode('claudeCode').catch((err) => {
+      mainLogger.warn('onboardingHandlers.useClaudeCode.setModeFailed', { error: (err as Error).message });
+    });
+    mainLogger.info('onboardingHandlers.useClaudeCode.ok', { cliVersion: result.version });
+    return { subscriptionType: null };
   });
 
   ipcMain.handle('onboarding:test-api-key', async (_event, key: string) => {
@@ -207,9 +291,67 @@ export function unregisterOnboardingHandlers(): void {
   ipcMain.removeHandler('onboarding:test-api-key');
   ipcMain.removeHandler('onboarding:detect-claude-code');
   ipcMain.removeHandler('onboarding:use-claude-code');
+  ipcMain.removeHandler('onboarding:open-claude-login-terminal');
+  ipcMain.removeHandler('onboarding:open-external');
   ipcMain.removeHandler('onboarding:listen-shortcut');
   ipcMain.removeHandler('onboarding:set-shortcut');
   ipcMain.removeHandler('onboarding:request-notifications');
   ipcMain.removeHandler('onboarding:complete');
   mainLogger.info('onboardingHandlers.unregistered');
+}
+
+interface ClaudeCliProbe {
+  installed: boolean;
+  authed: boolean;
+  version?: string;
+  error?: string;
+}
+
+/**
+ * Probe `claude` CLI: verify it's on PATH and check auth status.
+ * Runs two subprocesses: `claude --version` and `claude auth status`.
+ */
+async function probeClaudeCli(): Promise<ClaudeCliProbe> {
+  const version = await runCli('claude', ['--version']);
+  if (!version.ok) {
+    return { installed: false, authed: false, error: version.stderr || version.error || 'claude not found on PATH' };
+  }
+
+  const auth = await runCli('claude', ['auth', 'status']);
+  // `claude auth status` exits 0 when logged in, non-zero otherwise.
+  return {
+    installed: true,
+    authed: auth.ok,
+    version: extractVersion(version.stdout),
+    ...(auth.ok ? {} : { error: auth.stderr || auth.stdout || 'not logged in' }),
+  };
+}
+
+function extractVersion(stdout: string): string | undefined {
+  const m = stdout.match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : undefined;
+}
+
+function runCli(bin: string, args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      resolve({ ok: false, stdout: '', stderr: '', error: (err as Error).message });
+      return;
+    }
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (d) => (stdout += String(d)));
+    child.stderr.on('data', (d) => (stderr += String(d)));
+    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stdout, stderr, error: err.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, stdout, stderr });
+    });
+  });
 }

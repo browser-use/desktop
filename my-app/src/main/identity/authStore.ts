@@ -16,7 +16,28 @@ import {
 
 export const API_KEY_SERVICE = 'com.agenticbrowser.anthropic';
 export const OAUTH_SERVICE = 'com.agenticbrowser.anthropic-oauth';
+export const AUTH_MODE_SERVICE = 'com.agenticbrowser.auth-mode';
 const DEFAULT_ACCOUNT = 'default';
+
+export type AuthMode = 'apiKey' | 'claudeCode';
+
+export async function setAuthMode(mode: AuthMode): Promise<void> {
+  const keytar = getKeytar();
+  if (!keytar) return;
+  await keytar.setPassword(AUTH_MODE_SERVICE, DEFAULT_ACCOUNT, mode);
+  mainLogger.info('authStore.setAuthMode', { mode });
+}
+
+export async function getAuthMode(): Promise<AuthMode | null> {
+  const keytar = getKeytar();
+  if (!keytar) return null;
+  try {
+    const raw = await keytar.getPassword(AUTH_MODE_SERVICE, DEFAULT_ACCOUNT);
+    return raw === 'apiKey' || raw === 'claudeCode' ? raw : null;
+  } catch {
+    return null;
+  }
+}
 
 export type ResolvedAuth =
   | { type: 'apiKey'; value: string }
@@ -43,6 +64,7 @@ export async function saveApiKey(key: string): Promise<void> {
   if (!keytar) throw new Error('keytar unavailable');
   await keytar.setPassword(API_KEY_SERVICE, DEFAULT_ACCOUNT, key);
   await keytar.deletePassword(OAUTH_SERVICE, DEFAULT_ACCOUNT).catch(() => {});
+  await setAuthMode('apiKey');
   mainLogger.info('authStore.saveApiKey.ok');
 }
 
@@ -93,6 +115,15 @@ async function loadApiKey(): Promise<string | null> {
  * back to API key, then environment ANTHROPIC_API_KEY.
  */
 export async function resolveAuth(): Promise<ResolvedAuth> {
+  // Default preference: Claude Code subscription. Only fall through to the
+  // stored API key when the user explicitly selected 'apiKey' mode. Stored
+  // credentials are preserved either way — the mode just picks the winner.
+  const mode = await getAuthMode();
+  if (mode !== 'apiKey') {
+    mainLogger.info('authStore.resolveAuth.claudeCodeMode', { mode: mode ?? 'default' });
+    return null;
+  }
+
   const oauth = await loadOAuth();
   if (oauth) {
     let current = oauth;
