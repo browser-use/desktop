@@ -5,7 +5,7 @@
  * Distinct from the command pill.
  */
 
-import { BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
 import path from 'node:path';
 import { mainLogger } from './logger';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
@@ -306,7 +306,11 @@ export function attachToHub(hub: BrowserWindow): void {
   // user switched to another app *on the same monitor* as the logs —
   // multi-monitor setups keep the logs visible on their own screen so
   // users can reference them while working in another app elsewhere.
-  hub.on('blur', () => {
+  //
+  // Listen at app-level, not hub-level: if the logs window itself had
+  // focus (user typing a follow-up), switching away fires blur on LOGS,
+  // not on hub. hub.on('blur') would miss that path entirely.
+  app.on('browser-window-blur', () => {
     setTimeout(() => {
       if (!logsWindow || logsWindow.isDestroyed()) return;
       if (!logsWindow.isVisible()) return;
