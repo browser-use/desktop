@@ -43,7 +43,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     show: (
       sessionId: string,
       bounds: { x: number; y: number; width: number; height: number },
-    ): Promise<void> => ipcRenderer.invoke('takeover:show', sessionId, bounds),
+      mode?: 'idle' | 'active',
+    ): Promise<void> => ipcRenderer.invoke('takeover:show', sessionId, bounds, mode),
     hide: (sessionId: string): Promise<void> => ipcRenderer.invoke('takeover:hide', sessionId),
   },
   settings: {
@@ -63,6 +64,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('settings:claude-code:available'),
       use: (): Promise<{ subscriptionType: string | null }> =>
         ipcRenderer.invoke('settings:claude-code:use'),
+      logout: (): Promise<{ opened: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:claude-code:logout'),
+    },
+    openaiKey: {
+      getStatus: (): Promise<{ present: boolean; masked?: string }> =>
+        ipcRenderer.invoke('settings:openai-key:get-status'),
+      save: (key: string): Promise<void> =>
+        ipcRenderer.invoke('settings:openai-key:save', key),
+      test: (key: string): Promise<{ success: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:openai-key:test', key),
+      delete: (): Promise<void> => ipcRenderer.invoke('settings:openai-key:delete'),
+    },
+    codex: {
+      status: (): Promise<{
+        id: string;
+        displayName: string;
+        installed: { installed: boolean; version?: string; error?: string };
+        authed: { authed: boolean; error?: string };
+      }> => ipcRenderer.invoke('sessions:engine-status', 'codex'),
+      login: (): Promise<{ opened: boolean; error?: string }> =>
+        ipcRenderer.invoke('sessions:engine-login', 'codex'),
+      logout: (): Promise<{ opened: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:codex:logout'),
+    },
+    privacy: {
+      get: (): Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }> =>
+        ipcRenderer.invoke('consent:get'),
+      setTelemetry: (optedIn: boolean): Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }> =>
+        ipcRenderer.invoke('consent:set-telemetry', optedIn),
+      openSystemNotifications: (): Promise<{ ok: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:open-system-notifications'),
+    },
+  },
+  telemetry: {
+    capture: (name: string, props?: Record<string, string | number | boolean>): void => {
+      ipcRenderer.invoke('telemetry:capture', name, props);
     },
   },
   sessions: {

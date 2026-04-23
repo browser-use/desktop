@@ -842,13 +842,9 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     let lastKey = '';
     let hasAttached = false;
     // Tracks whether the last viewAttach actually got a browser view. If
-    // false, this is a non-browser task (e.g. bash) — we skip the takeover
-    // overlay so it doesn't float over an empty black pane.
+    // false, we skip the takeover overlay — the session is broken/deleted.
     let attachSucceeded = false;
     let rafScheduled = 0;
-    // Polling retry for the "follow-up that creates a browser mid-run"
-    // case. Cleared on effect teardown; reset to 0 when it fires.
-    let retryTimer: ReturnType<typeof setTimeout> | 0 = 0;
     const applyBounds = () => {
       rafScheduled = 0;
       const outEl = paneEl.querySelector('.pane__output') as HTMLElement | null;
@@ -859,48 +855,26 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       const key = `${bounds.x}|${bounds.y}|${bounds.width}|${bounds.height}`;
       if (key === lastKey) return;
       lastKey = key;
-      // Overlay only makes sense when the agent is actually driving a
-      // browser. `attachSucceeded` is necessary but not sufficient: a
-      // browser view is created at session start for every task (even
-      // "hi"), so we further gate on `session.primarySite` — set by the
-      // SessionManager once the agent navigates somewhere real. If the
-      // session never navigates (pure bash/chat task), overlay stays off.
-      const isAutomating =
-        attachSucceeded &&
-        session.status === 'running' &&
-        !!session.primarySite;
+      // Overlay is always visible while the session is running. Mode switches
+      // from 'idle' (plain "Browser not started yet" label) to 'active'
+      // (pulsing glow + hover-to-stop button) the moment SessionManager
+      // records a real navigation via session.primarySite. The ambiguous
+      // idle label covers both chat-only tasks and browser tasks still
+      // warming up.
+      const overlayMode: 'idle' | 'active' = session.primarySite ? 'active' : 'idle';
 
       if (!hasAttached) {
-        // Optimistically mark so we don't fire overlapping attach IPC on the
-        // same bounds tick. We'll flip back on failure so the next retry
-        // (scheduled below) picks it up — important for "hi" → follow-up-
-        // with-browser flows where the browser isn't ready the first time
-        // we ask.
         hasAttached = true;
         api.sessions.viewAttach(session.id, bounds).then((ok) => {
           if (!ok) {
             attachSucceeded = false;
-            hasAttached = false;
             setBrowserMissing(true);
             api.takeover?.hide(session.id).catch(() => {});
-            // ResizeObserver won't re-fire on its own if the pane's bounds
-            // are unchanged — schedule a time-based retry while the session
-            // is still running, in case the agent creates a browser a bit
-            // after the status flipped to running.
-            if (session.status === 'running' && !retryTimer) {
-              retryTimer = window.setTimeout(() => {
-                retryTimer = 0;
-                lastKey = '';
-                updateBounds();
-              }, 800);
-            }
           } else {
             attachSucceeded = true;
             setBrowserMissing(false);
-            if (session.status === 'running' && session.primarySite) {
-              void api.takeover?.show(session.id, bounds);
-            } else {
-              api.takeover?.hide(session.id).catch(() => {});
+            if (session.status === 'running') {
+              void api.takeover?.show(session.id, bounds, overlayMode);
             }
           }
         }).catch(() => {
@@ -909,8 +883,8 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
         });
       } else {
         api.sessions.viewResize(session.id, bounds);
-        if (isAutomating) {
-          void api.takeover?.show(session.id, bounds);
+        if (attachSucceeded && session.status === 'running') {
+          void api.takeover?.show(session.id, bounds, overlayMode);
         } else {
           api.takeover?.hide(session.id).catch(() => {});
         }
@@ -977,7 +951,6 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       observer.disconnect();
       window.removeEventListener('pane:layout-change', onLayoutChange);
       if (rafScheduled) cancelAnimationFrame(rafScheduled);
-      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [session.id, computeBounds, browserDead, session.status, session.primarySite]);
 
@@ -1104,22 +1077,32 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
             width: frameRect.width,
             height: frameRect.height,
           }}
-          aria-hidden="true"
         >
           <div className="pane__browser-starting">
-            {browserDead ? (
-              <span>Browser ended</span>
-            ) : browserMissing ? (
-              <span>
-                {session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck'
-                  ? 'Browser stopped'
-                  : 'No browser started yet'}
-              </span>
-            ) : (
-              <>
-                <span className="pane__spinner" />
-                <span>Browser starting…</span>
-              </>
+            <span className="pane__browser-starting-row">
+              {browserDead ? (
+                <span>Browser ended</span>
+              ) : browserMissing ? (
+                <span>
+                  {session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck'
+                    ? 'Browser stopped'
+                    : 'No browser started yet'}
+                </span>
+              ) : (
+                <>
+                  <span className="pane__spinner" />
+                  <span>Browser starting…</span>
+                </>
+              )}
+            </span>
+            {!session.error && session.status === 'stopped' && onRerun && (
+              <button
+                className="pane__rerun-btn"
+                onClick={() => onRerun(session.id)}
+              >
+                <RerunIcon />
+                <span>Rerun task</span>
+              </button>
             )}
           </div>
         </div>
@@ -1163,14 +1146,6 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
                 <span>Rerun task</span>
               </button>
             )}
-          </div>
-        )}
-        {!session.error && session.status === 'stopped' && onRerun && (
-          <div className="pane__rerun">
-            <button className="pane__rerun-btn" onClick={() => onRerun(session.id)}>
-              <RerunIcon />
-              <span>Rerun task</span>
-            </button>
           </div>
         )}
       </div>

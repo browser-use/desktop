@@ -135,6 +135,7 @@ interface ElectronTakeoverAPI {
   show: (
     sessionId: string,
     bounds: { x: number; y: number; width: number; height: number },
+    mode?: 'idle' | 'active',
   ) => Promise<void>;
   hide: (sessionId: string) => Promise<void>;
 }
@@ -155,11 +156,32 @@ interface ElectronSettingsApiKeyAPI {
 interface ElectronSettingsClaudeCodeAPI {
   available: () => Promise<{ available: boolean; subscriptionType?: string | null }>;
   use: () => Promise<{ subscriptionType: string | null }>;
+  logout: () => Promise<{ opened: boolean; error?: string }>;
+}
+
+interface ElectronSettingsOpenAiKeyAPI {
+  getStatus: () => Promise<{ present: boolean; masked?: string }>;
+  save: (key: string) => Promise<void>;
+  test: (key: string) => Promise<{ success: boolean; error?: string }>;
+  delete: () => Promise<void>;
+}
+
+interface ElectronSettingsCodexAPI {
+  status: () => Promise<{
+    id: string;
+    displayName: string;
+    installed: { installed: boolean; version?: string; error?: string };
+    authed: { authed: boolean; error?: string };
+  }>;
+  login: () => Promise<{ opened: boolean; error?: string }>;
+  logout: () => Promise<{ opened: boolean; error?: string }>;
 }
 
 interface ElectronSettingsAPI {
   apiKey: ElectronSettingsApiKeyAPI;
   claudeCode?: ElectronSettingsClaudeCodeAPI;
+  openaiKey?: ElectronSettingsOpenAiKeyAPI;
+  codex?: ElectronSettingsCodexAPI;
 }
 
 interface ElectronAPI {

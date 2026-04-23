@@ -19,10 +19,17 @@
 import { WebContentsView, type BrowserWindow } from 'electron';
 import { mainLogger } from './logger';
 
+export type OverlayMode = 'idle' | 'active';
+
 interface OverlayEntry {
   sessionId: string;
   view: WebContentsView;
   attached: boolean;
+  mode: OverlayMode;
+  // Whether the overlay renderer has finished loading and is ready to
+  // receive takeover:mode IPC. Until then we cache `mode` on the entry and
+  // replay on did-finish-load to avoid races between show() and load.
+  loaded: boolean;
 }
 
 const entries: Map<string, OverlayEntry> = new Map();
@@ -45,6 +52,25 @@ function overlayHtml(sessionId: string): string {
   }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: #fff; }
+
+  /* Default = active mode. Idle mode hides the glow/chip/scrim/button and
+     shows the "Browser not started yet" label instead. */
+  .label {
+    position: relative;
+    z-index: 2;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: rgba(200, 210, 225, 0.55);
+    opacity: 0;
+    transition: opacity 180ms ease;
+    pointer-events: none;
+    user-select: none;
+  }
+  body[data-mode="idle"] .glow,
+  body[data-mode="idle"] .chip,
+  body[data-mode="idle"] .scrim,
+  body[data-mode="idle"] .button { display: none; }
+  body[data-mode="idle"] .label { opacity: 1; }
 
   .overlay {
     position: absolute;
@@ -164,6 +190,7 @@ function overlayHtml(sessionId: string): string {
     <div class="glow"></div>
     <div class="chip"><span class="dot"></span><span>Automating</span></div>
     <div class="scrim"></div>
+    <div class="label">Browser not started yet</div>
     <button class="button" id="takeover" type="button">
       <svg viewBox="0 0 14 14" fill="none"><rect x="3" y="3" width="8" height="8" rx="1" fill="currentColor"/></svg>
       Stop and take over
@@ -175,6 +202,17 @@ function overlayHtml(sessionId: string): string {
   const body = document.body;
   const overlay = document.getElementById('overlay');
   const button = document.getElementById('takeover');
+
+  // Start in idle — main will push the real mode via takeover:mode IPC
+  // as soon as the page finishes loading. Avoids a flash of active glow
+  // on fresh overlays opened for not-yet-navigated sessions.
+  body.dataset.mode = 'idle';
+
+  ipcRenderer.on('takeover:mode', (_e, mode) => {
+    if (mode === 'idle' || mode === 'active') {
+      body.dataset.mode = mode;
+    }
+  });
 
   overlay.addEventListener('mouseenter', () => body.classList.add('hover'));
   overlay.addEventListener('mouseleave', () => body.classList.remove('hover'));
@@ -189,7 +227,7 @@ function overlayHtml(sessionId: string): string {
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
 }
 
-function createOverlayView(sessionId: string): WebContentsView {
+function createOverlayEntry(sessionId: string, mode: OverlayMode): OverlayEntry {
   const view = new WebContentsView({
     webPreferences: {
       contextIsolation: false,
@@ -202,29 +240,45 @@ function createOverlayView(sessionId: string): WebContentsView {
   // browser view beneath. WebContentsView has no `transparent` webPreference
   // (that's a BrowserWindow option) — use setBackgroundColor with zero alpha.
   view.setBackgroundColor('#00000000');
+  const entry: OverlayEntry = { sessionId, view, attached: false, mode, loaded: false };
+  view.webContents.once('did-finish-load', () => {
+    entry.loaded = true;
+    // Replay the latest cached mode — cheap no-op if nothing changed.
+    try { view.webContents.send('takeover:mode', entry.mode); } catch { /* ignore */ }
+  });
   view.webContents.loadURL(overlayHtml(sessionId)).catch((err) => {
     mainLogger.warn('takeoverOverlay.load.error', { sessionId, error: (err as Error).message });
   });
-  return view;
+  return entry;
+}
+
+function pushMode(entry: OverlayEntry, mode: OverlayMode): void {
+  if (entry.mode === mode && entry.loaded) return;
+  entry.mode = mode;
+  if (entry.loaded && !entry.view.webContents.isDestroyed()) {
+    try { entry.view.webContents.send('takeover:mode', mode); } catch { /* ignore */ }
+  }
 }
 
 export function show(
   sessionId: string,
   window: BrowserWindow,
   bounds: { x: number; y: number; width: number; height: number },
+  mode: OverlayMode = 'idle',
 ): void {
   if (!sessionId || !window || window.isDestroyed()) return;
   let entry = entries.get(sessionId);
   if (!entry) {
-    const view = createOverlayView(sessionId);
-    entry = { sessionId, view, attached: false };
+    entry = createOverlayEntry(sessionId, mode);
     entries.set(sessionId, entry);
+  } else {
+    pushMode(entry, mode);
   }
   entry.view.setBounds(bounds);
   if (!entry.attached) {
     window.contentView.addChildView(entry.view);
     entry.attached = true;
-    mainLogger.info('takeoverOverlay.show', { sessionId, bounds });
+    mainLogger.info('takeoverOverlay.show', { sessionId, bounds, mode });
   }
 }
 
