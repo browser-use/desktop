@@ -25,5 +25,3 @@ task up    # Install deps and start the app
 ## License
 
 MIT
-
-MIT
