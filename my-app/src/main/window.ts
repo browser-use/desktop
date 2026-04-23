@@ -99,22 +99,54 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     win.setTitle(win.getTitle() + titleSuffix);
   }
 
-  // Load the hub renderer
-  if (
-    typeof SHELL_VITE_DEV_SERVER_URL !== 'undefined' &&
-    SHELL_VITE_DEV_SERVER_URL
-  ) {
-    const hubDevUrl = `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/hub/hub.html`;
-    mainLogger.debug('window.loadURL', { url: hubDevUrl });
-    win.loadURL(hubDevUrl);
-  } else {
-    const htmlPath = path.join(
-      __dirname,
-      '../renderer/shell/src/renderer/hub/hub.html',
-    );
-    mainLogger.debug('window.loadFile', { filePath: htmlPath });
-    win.loadFile(htmlPath);
-  }
+  // Load the hub renderer. Dev mode races the Vite dev server — on a cold
+  // cache Electron can call loadURL before Vite is listening, which fails
+  // silently and leaves a blank window. Log every load attempt + outcome
+  // and retry did-fail-load a few times with backoff so a slow cold-start
+  // self-heals instead of requiring a manual restart.
+  const isDev =
+    typeof SHELL_VITE_DEV_SERVER_URL !== 'undefined' && SHELL_VITE_DEV_SERVER_URL;
+  const hubDevUrl = isDev
+    ? `${SHELL_VITE_DEV_SERVER_URL}/src/renderer/hub/hub.html`
+    : null;
+  const htmlPath = isDev
+    ? null
+    : path.join(__dirname, '../renderer/shell/src/renderer/hub/hub.html');
+
+  const loadHub = (): void => {
+    if (hubDevUrl) {
+      mainLogger.info('window.loadURL', { url: hubDevUrl });
+      win.loadURL(hubDevUrl).catch((err) => {
+        mainLogger.error('window.loadURL.reject', { url: hubDevUrl, error: (err as Error).message });
+      });
+    } else if (htmlPath) {
+      mainLogger.info('window.loadFile', { filePath: htmlPath });
+      win.loadFile(htmlPath).catch((err) => {
+        mainLogger.error('window.loadFile.reject', { filePath: htmlPath, error: (err as Error).message });
+      });
+    }
+  };
+
+  let retriesLeft = isDev ? 10 : 0;
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDesc, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    mainLogger.warn('window.did-fail-load', { errorCode, errorDesc, validatedURL, retriesLeft });
+    if (retriesLeft > 0 && (errorCode === -102 /* CONNECTION_REFUSED */ || errorCode === -105 /* NAME_NOT_RESOLVED */ || errorCode === -2 /* FAILED */)) {
+      retriesLeft -= 1;
+      setTimeout(loadHub, 400);
+    }
+  });
+  win.webContents.on('did-finish-load', () => {
+    mainLogger.info('window.did-finish-load', { url: win.webContents.getURL() });
+  });
+  win.webContents.on('render-process-gone', (_e, details) => {
+    mainLogger.error('window.render-process-gone', { reason: details.reason, exitCode: details.exitCode });
+  });
+  win.webContents.on('preload-error', (_e, preloadPath, error) => {
+    mainLogger.error('window.preload-error', { preloadPath, error: (error as Error).message });
+  });
+
+  loadHub();
 
   // Debounced bounds persistence — incognito windows do NOT persist bounds
   // to avoid leaking usage patterns.

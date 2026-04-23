@@ -15,7 +15,18 @@ tasks:
     dir: "{{.APP_DIR}}"
     cmds:
       - yarn install
+      - test -d node_modules/electron/dist/Electron.app || test -d node_modules/electron/dist/BrowserUse.app || node node_modules/electron/install.js
+      - bash scripts/patch-electron-plist.sh
       - npm start
+
+  up:clean:
+    desc: Wipe Vite cache then start the app (use if HMR is acting up)
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - yarn install
+      - test -d node_modules/electron/dist/Electron.app || test -d node_modules/electron/dist/BrowserUse.app || node node_modules/electron/install.js
+      - bash scripts/patch-electron-plist.sh
+      - npm run start:clean
 
   reset:onboarding:
     desc: Delete account.json so the next launch retriggers onboarding
