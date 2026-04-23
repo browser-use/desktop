@@ -150,13 +150,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          shopt -s nullglob globstar
 
+          # macOS runner's /bin/bash is 3.2 — no `globstar`. Use `find` instead.
           dmg_count=0
-          for f in my-app/out/make/**/*.dmg; do
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
             cp "$f" release-assets/
             dmg_count=$((dmg_count + 1))
-            # Also publish a version-less copy so the
+            # Version-less copy so the
             # `/releases/latest/download/<file>` URL stays stable across
             # releases. Arch is derived from the original filename (e.g.
             # `...-arm64.dmg`, `...-x64.dmg`, `...-universal.dmg`).
@@ -168,13 +169,14 @@ jobs:
               *)          stable="Browser-Use.dmg" ;;
             esac
             cp "$f" "release-assets/${stable}"
-          done
+          done < <(find my-app/out/make -type f -name '*.dmg')
 
           zip_count=0
-          for f in my-app/out/make/**/*.zip; do
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
             cp "$f" release-assets/
             zip_count=$((zip_count + 1))
-          done
+          done < <(find my-app/out/make -type f -name '*.zip')
 
           if [[ "$dmg_count" -eq 0 ]]; then
             echo "::error::No DMG produced by electron-forge make — refusing to publish empty release."
