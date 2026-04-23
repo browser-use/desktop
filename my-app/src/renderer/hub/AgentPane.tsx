@@ -743,9 +743,6 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     return [promptEntry, ...rawEntries];
   }, [rawEntries, session.prompt, session.id, session.createdAt]);
 
-  const BROWSER_CTA_RESERVE = 64;
-  const showBrowserCta = session.status === 'idle' && !session.error && !!onOpenFollowUp;
-
   const computeBounds = useCallback((): { x: number; y: number; width: number; height: number; slotWidth: number } | null => {
     const el = paneRef.current?.querySelector('.pane__output') as HTMLElement | null;
     if (!el) return null;
@@ -753,15 +750,14 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     const fullWidth = Math.round(rect.width);
     const slotWidth = fullWidth;
     const border = 1;
-    const topReserve = showBrowserCta ? BROWSER_CTA_RESERVE : 0;
     return {
       x: Math.round(rect.x) + border,
-      y: Math.round(rect.y) + border + topReserve,
+      y: Math.round(rect.y) + border,
       width: slotWidth - border * 2,
-      height: Math.round(rect.height) - border * 2 - topReserve,
+      height: Math.round(rect.height) - border * 2,
       slotWidth,
     };
-  }, [showBrowserCta]);
+  }, []);
 
   useEffect(() => {
     if (session.status === 'running') {
@@ -794,14 +790,13 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     if (!paneEl || !outEl) return;
     const p = paneEl.getBoundingClientRect();
     const o = outEl.getBoundingClientRect();
-    const topReserve = showBrowserCta ? BROWSER_CTA_RESERVE : 0;
     setFrameRect({
       left: Math.round(o.left - p.left),
-      top: Math.round(o.top - p.top) + topReserve,
+      top: Math.round(o.top - p.top),
       width: slotWidth,
-      height: Math.round(o.height) - topReserve,
+      height: Math.round(o.height),
     });
-  }, [showBrowserCta]);
+  }, []);
 
   const handleToggleLogs = useCallback(() => {
     const api = window.electronAPI;
@@ -922,12 +917,11 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       }
       const p = paneEl.getBoundingClientRect();
       const o = outEl.getBoundingClientRect();
-      const topReserve = showBrowserCta ? BROWSER_CTA_RESERVE : 0;
       setFrameRect({
         left: Math.round(o.left - p.left),
-        top: Math.round(o.top - p.top) + topReserve,
+        top: Math.round(o.top - p.top),
         width: slotWidth,
-        height: Math.round(o.height) - topReserve,
+        height: Math.round(o.height),
       });
       // Auto-show the logs overlay once per session on the first real pane
       // measurement. Ref-keyed so Esc-close doesn't trigger a re-open.
@@ -985,7 +979,7 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
       if (rafScheduled) cancelAnimationFrame(rafScheduled);
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [session.id, computeBounds, browserDead, session.status, session.primarySite, showBrowserCta]);
+  }, [session.id, computeBounds, browserDead, session.status, session.primarySite]);
 
   useEffect(() => {
     return () => {
