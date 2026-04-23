@@ -14,6 +14,11 @@ concurrency:
 env:
   NODE_VERSION: '20'
 
+# We use yarn locally (yarn.lock is the source of truth). npm ci fights
+# the @visx React-19 peer mismatch unless legacy-peer-deps is set, and
+# legacy-peer-deps triggers npm's optional-native-binding bug (cli#4828)
+# for rolldown/esbuild binaries. Yarn just warns and installs cleanly.
+
 jobs:
   lint:
     name: Lint (TS)
@@ -25,39 +30,38 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: my-app/package-lock.json
+          cache: yarn
+          cache-dependency-path: my-app/yarn.lock
 
       - name: Install dependencies
         working-directory: my-app
-        run: npm ci --no-audit --no-fund
+        run: yarn install --frozen-lockfile
 
       - name: ESLint
         working-directory: my-app
-        run: npm run lint
+        run: yarn lint
 
   typecheck:
     name: Typecheck (TS)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Hard-fail: tsc --noEmit must be clean. The pre-existing baseline was
-    # cleaned up in the chore(types) PR; any new errors here gate merges.
+    # Hard-fail: tsc --noEmit must be clean.
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: my-app/package-lock.json
+          cache: yarn
+          cache-dependency-path: my-app/yarn.lock
 
       - name: Install dependencies
         working-directory: my-app
-        run: npm ci --no-audit --no-fund
+        run: yarn install --frozen-lockfile
 
       - name: tsc --noEmit
         working-directory: my-app
-        run: npm run typecheck
+        run: yarn typecheck
 
   unit:
     name: Unit + integration (vitest)
@@ -69,16 +73,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: my-app/package-lock.json
+          cache: yarn
+          cache-dependency-path: my-app/yarn.lock
 
       - name: Install dependencies
         working-directory: my-app
-        run: npm ci --no-audit --no-fund
+        run: yarn install --frozen-lockfile
 
       - name: Run vitest with coverage
         working-directory: my-app
-        run: npm run test:coverage
+        run: yarn test:coverage
 
       - name: Upload coverage (TS)
         if: always()
