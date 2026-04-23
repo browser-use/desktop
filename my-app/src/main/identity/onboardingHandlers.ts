@@ -4,7 +4,8 @@ import { mainLogger } from '../logger';
 import { AccountStore } from './AccountStore';
 import { assertString } from '../ipc-validators';
 import { createPillWindow, togglePill, onPillVisibilityChange } from '../pill';
-import { saveApiKey as authSaveApiKey, setAuthMode as authSetMode } from './authStore';
+import { saveApiKey as authSaveApiKey, setAuthMode as authSetMode, saveOpenAIKey as authSaveOpenAIKey } from './authStore';
+import { getAdapter } from '../hl/engines';
 
 const GLOBAL_SHORTCUT = 'CommandOrControl+Shift+Space';
 
@@ -149,6 +150,60 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
     return { subscriptionType: null };
   });
 
+  /**
+   * Probe the Codex CLI: installed on PATH + authed? Shape mirrors
+   * detect-claude-code so the renderer can share the status UI.
+   */
+  ipcMain.handle('onboarding:detect-codex', async () => {
+    mainLogger.info('onboardingHandlers.detectCodex.enter');
+    const adapter = getAdapter('codex');
+    if (!adapter) {
+      mainLogger.warn('onboardingHandlers.detectCodex.noAdapter');
+      return { available: false, installed: false, authed: false, version: null, error: 'codex adapter not registered' };
+    }
+    const [install, auth] = await Promise.all([adapter.probeInstalled(), adapter.probeAuthed()]);
+    mainLogger.info('onboardingHandlers.detectCodex.probes', { install, auth });
+    const result = {
+      available: install.installed && auth.authed,
+      installed: install.installed,
+      authed: auth.authed,
+      version: install.version ?? null,
+      error: install.error ?? auth.error ?? null,
+    };
+    mainLogger.info('onboardingHandlers.detectCodex.result', result);
+    return result;
+  });
+
+  /**
+   * Open Terminal with `codex login` so the user can complete the OAuth
+   * flow outside the app. Delegates to the codex adapter.
+   */
+  ipcMain.handle('onboarding:open-codex-login-terminal', async () => {
+    mainLogger.info('onboardingHandlers.openCodexLoginTerminal.enter');
+    const adapter = getAdapter('codex');
+    if (!adapter) {
+      mainLogger.warn('onboardingHandlers.openCodexLoginTerminal.noAdapter');
+      return { opened: false, error: 'codex adapter not registered' };
+    }
+    const result = await adapter.openLoginInTerminal();
+    mainLogger.info('onboardingHandlers.openCodexLoginTerminal.result', result);
+    return result;
+  });
+
+  /**
+   * Mark codex as the user's chosen engine during onboarding. Codex reads
+   * its own ~/.codex/auth.json at spawn time, so we don't touch AuthMode —
+   * this handler is kept so the renderer has a symmetric "commit" step.
+   */
+  ipcMain.handle('onboarding:use-codex', async () => {
+    const adapter = getAdapter('codex');
+    if (!adapter) throw new Error('codex adapter not registered');
+    const auth = await adapter.probeAuthed();
+    if (!auth.authed) throw new Error('Codex CLI is not logged in. Run `codex login` first.');
+    mainLogger.info('onboardingHandlers.useCodex.ok');
+    return { ok: true };
+  });
+
   ipcMain.handle('onboarding:test-api-key', async (_event, key: string) => {
     const validatedKey = assertString(key, 'key', 500);
     mainLogger.info('onboardingHandlers.testApiKey', {
@@ -198,6 +253,48 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       clearTimeout(timeoutId);
       const msg = (err as Error).message ?? 'Network error';
       mainLogger.warn('onboardingHandlers.testApiKey.exception', { error: msg });
+      return { success: false, error: msg };
+    }
+  });
+
+  ipcMain.handle('onboarding:save-openai-key', async (_event, key: string) => {
+    const validated = assertString(key, 'key', 500);
+    mainLogger.info('onboardingHandlers.saveOpenAIKey', { keyLength: validated.length });
+    try {
+      await authSaveOpenAIKey(validated);
+    } catch (err) {
+      mainLogger.error('onboardingHandlers.saveOpenAIKey.failed', { error: (err as Error).message });
+      throw new Error('Failed to save OpenAI key to keychain');
+    }
+  });
+
+  ipcMain.handle('onboarding:test-openai-key', async (_event, key: string) => {
+    const validated = assertString(key, 'key', 500);
+    mainLogger.info('onboardingHandlers.testOpenAIKey', { keyLength: validated.length });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TEST_TIMEOUT_MS);
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'authorization': `Bearer ${validated}` },
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        mainLogger.info('onboardingHandlers.testOpenAIKey.ok');
+        return { success: true };
+      }
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const body = (await response.json()) as { error?: { message?: string } };
+        if (body?.error?.message) errorMsg = body.error.message;
+      } catch { /* ignore parse error */ }
+      mainLogger.warn('onboardingHandlers.testOpenAIKey.failed', { status: response.status, error: errorMsg });
+      return { success: false, error: errorMsg };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = (err as Error).message ?? 'Network error';
+      mainLogger.warn('onboardingHandlers.testOpenAIKey.exception', { error: msg });
       return { success: false, error: msg };
     }
   });

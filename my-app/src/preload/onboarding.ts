@@ -43,11 +43,31 @@ const onboardingAPI = {
   openClaudeLoginTerminal: (): Promise<{ opened: boolean; error?: string }> =>
     ipcRenderer.invoke('onboarding:open-claude-login-terminal'),
 
+  detectCodex: (): Promise<{
+    available: boolean;
+    installed: boolean;
+    authed: boolean;
+    version: string | null;
+    error?: string | null;
+  }> => ipcRenderer.invoke('onboarding:detect-codex'),
+
+  useCodex: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('onboarding:use-codex'),
+
+  openCodexLoginTerminal: (): Promise<{ opened: boolean; error?: string }> =>
+    ipcRenderer.invoke('onboarding:open-codex-login-terminal'),
+
   openExternal: (url: string): Promise<{ opened: boolean }> =>
     ipcRenderer.invoke('onboarding:open-external', url),
 
   testApiKey: (key: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('onboarding:test-api-key', key),
+
+  saveOpenAIKey: (key: string): Promise<void> =>
+    ipcRenderer.invoke('onboarding:save-openai-key', key),
+
+  testOpenAIKey: (key: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('onboarding:test-openai-key', key),
 
   listenShortcut: (): Promise<{ ok: boolean; accelerator: string }> =>
     ipcRenderer.invoke('onboarding:listen-shortcut'),

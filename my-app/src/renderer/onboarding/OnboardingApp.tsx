@@ -3,6 +3,7 @@ import { DomainList } from './DomainList';
 import introImage from './intro.png';
 import chromeLogo from './chrome-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
+import codexLogo from './codex-logo.svg';
 
 interface ChromeProfile {
   directory: string;
@@ -28,6 +29,8 @@ declare global {
       importChromeProfileCookies: (profileDir: string) => Promise<CookieImportResult>;
       saveApiKey: (key: string) => Promise<void>;
       testApiKey: (key: string) => Promise<{ success: boolean; error?: string }>;
+      saveOpenAIKey: (key: string) => Promise<void>;
+      testOpenAIKey: (key: string) => Promise<{ success: boolean; error?: string }>;
       detectClaudeCode: () => Promise<{
         available: boolean;
         installed: boolean;
@@ -39,6 +42,15 @@ declare global {
       }>;
       useClaudeCode: () => Promise<{ subscriptionType: string | null }>;
       openClaudeLoginTerminal: () => Promise<{ opened: boolean; error?: string }>;
+      detectCodex: () => Promise<{
+        available: boolean;
+        installed: boolean;
+        authed: boolean;
+        version: string | null;
+        error?: string | null;
+      }>;
+      useCodex: () => Promise<{ ok: boolean }>;
+      openCodexLoginTerminal: () => Promise<{ opened: boolean; error?: string }>;
       openExternal: (url: string) => Promise<{ opened: boolean }>;
       requestNotifications: () => Promise<{ supported: boolean }>;
       listenShortcut: () => Promise<{ ok: boolean; accelerator: string }>;
@@ -154,59 +166,6 @@ function NotificationsStep({
   );
 }
 
-function FailedSection({
-  failed,
-  failedDomains,
-  errorReasons,
-}: {
-  failed: number;
-  failedDomains: string[];
-  errorReasons: Record<string, number>;
-}) {
-  const [showDetails, setShowDetails] = useState(false);
-  const hasReasons = Object.keys(errorReasons).length > 0;
-
-  return (
-    <div className="import-failed-section">
-      <div className="import-failed-row">
-        <div className="import-stat import-stat-error">
-          <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>{failed} failed from {failedDomains.length} domains</span>
-        </div>
-        {hasReasons && (
-          <button
-            type="button"
-            className="error-reasons-toggle"
-            onClick={() => setShowDetails((v) => !v)}
-          >
-            <span>{showDetails ? 'Hide details' : 'Show details'}</span>
-            <span className="error-reasons-chevron">{showDetails ? '\u25B4' : '\u25BE'}</span>
-          </button>
-        )}
-      </div>
-      <DomainList domains={failedDomains} collapsible />
-      {showDetails && <ErrorReasonsDetails reasons={errorReasons} />}
-    </div>
-  );
-}
-
-function ErrorReasonsDetails({ reasons }: { reasons: Record<string, number> }) {
-  const entries = Object.entries(reasons).sort(([, a], [, b]) => b - a);
-  if (entries.length === 0) return null;
-  return (
-    <div className="error-reasons">
-      {entries.map(([reason, count]) => (
-        <div key={reason} className="error-reason-row">
-          <span className="error-reason-count">{count}</span>
-          <span className="error-reason-text">{reason}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function OnboardingApp() {
   const [step, setStep] = useState<Step>('intro');
   const [profiles, setProfiles] = useState<ChromeProfile[]>([]);
@@ -221,6 +180,17 @@ export function OnboardingApp() {
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Per-provider API key fallback — expanded via the "Use X API key instead"
+  // links beneath each provider's card cluster. Each feeds a separate keychain
+  // slot so Anthropic and OpenAI keys are never mixed up at spawn time.
+  const [showAnthropicInput, setShowAnthropicInput] = useState(false);
+  const [showOpenaiInput, setShowOpenaiInput] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [openaiTesting, setOpenaiTesting] = useState(false);
+  const [openaiTestResult, setOpenaiTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [openaiSaving, setOpenaiSaving] = useState(false);
+
   const [claudeCode, setClaudeCode] = useState<{
     available: boolean;
     installed: boolean;
@@ -231,6 +201,16 @@ export function OnboardingApp() {
   } | null>(null);
   const [usingClaudeCode, setUsingClaudeCode] = useState(false);
   const [waitingForLogin, setWaitingForLogin] = useState(false);
+
+  const [codex, setCodex] = useState<{
+    available: boolean;
+    installed: boolean;
+    authed: boolean;
+    version: string | null;
+    error?: string | null;
+  } | null>(null);
+  const [usingCodex, setUsingCodex] = useState(false);
+  const [waitingForCodexLogin, setWaitingForCodexLogin] = useState(false);
 
   const refreshClaudeStatus = useCallback(async () => {
     try {
@@ -254,6 +234,76 @@ export function OnboardingApp() {
     void refreshClaudeStatus();
   }, [refreshClaudeStatus]);
 
+  const refreshCodexStatus = useCallback(async () => {
+    try {
+      console.log('[onboarding] refreshCodexStatus: invoking detectCodex');
+      const res = await window.onboardingAPI.detectCodex();
+      console.log('[onboarding] refreshCodexStatus: result', res);
+      setCodex({
+        available: res.available,
+        installed: res.installed,
+        authed: res.authed,
+        version: res.version,
+        error: res.error ?? null,
+      });
+      return res;
+    } catch (err) {
+      console.error('[onboarding] refreshCodexStatus: detectCodex threw', err);
+      setCodex({ available: false, installed: false, authed: false, version: null, error: (err as Error)?.message ?? 'detect failed' });
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCodexStatus();
+  }, [refreshCodexStatus]);
+
+  // Poll while the user completes `codex login` in Terminal.
+  useEffect(() => {
+    if (!waitingForCodexLogin) return;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60;
+    const tick = async () => {
+      if (cancelled) return;
+      attempts++;
+      const res = await refreshCodexStatus();
+      if (res?.authed) { setWaitingForCodexLogin(false); return; }
+      if (attempts >= MAX_ATTEMPTS) { setWaitingForCodexLogin(false); return; }
+      setTimeout(tick, 3000);
+    };
+    const id = setTimeout(tick, 3000);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [waitingForCodexLogin, refreshCodexStatus]);
+
+  const handleUseCodex = useCallback(async () => {
+    console.log('[onboarding] handleUseCodex: invoking useCodex');
+    try {
+      const res = await window.onboardingAPI.useCodex();
+      console.log('[onboarding] handleUseCodex: ok', res);
+      setUsingCodex(true);
+      setUsingClaudeCode(false);
+    } catch (err) {
+      console.error('[onboarding] handleUseCodex: useCodex threw', err);
+    }
+  }, []);
+
+  const handleStartCodexLogin = useCallback(async () => {
+    console.log('[onboarding] handleStartCodexLogin: invoking openCodexLoginTerminal');
+    setWaitingForCodexLogin(true);
+    try {
+      const res = await window.onboardingAPI.openCodexLoginTerminal();
+      console.log('[onboarding] handleStartCodexLogin: result', res);
+      if (!res.opened) {
+        console.warn('[onboarding] openCodexLoginTerminal failed', res.error);
+        setWaitingForCodexLogin(false);
+      }
+    } catch (err) {
+      console.error('[onboarding] openCodexLoginTerminal threw', err);
+      setWaitingForCodexLogin(false);
+    }
+  }, []);
+
   // Poll while waiting for user to finish `claude login` in Terminal.
   // Stops when authed becomes true or after a cap.
   useEffect(() => {
@@ -274,11 +324,14 @@ export function OnboardingApp() {
   }, [waitingForLogin, refreshClaudeStatus]);
 
   const handleUseClaudeCode = useCallback(async () => {
+    console.log('[onboarding] handleUseClaudeCode: invoking useClaudeCode');
     try {
       await window.onboardingAPI.useClaudeCode();
+      console.log('[onboarding] handleUseClaudeCode: ok');
       setUsingClaudeCode(true);
+      setUsingCodex(false);
     } catch (err) {
-      console.error('[onboarding] useClaudeCode failed', err);
+      console.error('[onboarding] handleUseClaudeCode: threw', err);
     }
   }, []);
 
@@ -368,6 +421,74 @@ export function OnboardingApp() {
     }
   }, [apiKey]);
 
+  const handleTestOpenaiKey = useCallback(async () => {
+    if (!openaiKey.trim()) return;
+    console.log('[onboarding] handleTestOpenaiKey: invoking testOpenAIKey');
+    setOpenaiTesting(true);
+    setOpenaiTestResult(null);
+    try {
+      const result = await window.onboardingAPI.testOpenAIKey(openaiKey.trim());
+      console.log('[onboarding] handleTestOpenaiKey: result', result);
+      setOpenaiTestResult(result);
+    } catch (err) {
+      console.error('[onboarding] handleTestOpenaiKey: threw', err);
+      setOpenaiTestResult({ success: false, error: (err as Error).message });
+    } finally {
+      setOpenaiTesting(false);
+    }
+  }, [openaiKey]);
+
+  useEffect(() => {
+    if (!openaiTestResult) return;
+    const t = setTimeout(() => setOpenaiTestResult(null), 3500);
+    return () => clearTimeout(t);
+  }, [openaiTestResult]);
+
+  const handleSaveOpenaiKeyAndContinue = useCallback(async () => {
+    if (!openaiKey.trim()) return;
+    console.log('[onboarding] handleSaveOpenaiKeyAndContinue: saving');
+    setOpenaiSaving(true);
+    try {
+      await window.onboardingAPI.saveOpenAIKey(openaiKey.trim());
+      console.log('[onboarding] handleSaveOpenaiKeyAndContinue: saved, advancing');
+      setStep('whatsapp');
+    } catch (err) {
+      console.error('[onboarding] save openai key failed', err);
+    } finally {
+      setOpenaiSaving(false);
+    }
+  }, [openaiKey]);
+
+  // Single bottom-of-step handler — saves whatever keys are filled and
+  // advances. Works alongside the provider-subscription path (usingX), which
+  // doesn't need a save step. Verbose logging so we can trace the path taken.
+  const [stepSaving, setStepSaving] = useState(false);
+  const stepCanContinue = Boolean(claudeCode?.authed) || Boolean(codex?.authed) || apiKey.trim().length > 0 || openaiKey.trim().length > 0;
+  const handleStepSaveAndContinue = useCallback(async () => {
+    console.log('[onboarding] handleStepSaveAndContinue', {
+      claudeAuthed: Boolean(claudeCode?.authed),
+      codexAuthed: Boolean(codex?.authed),
+      hasAnthropicKey: apiKey.trim().length > 0,
+      hasOpenaiKey: openaiKey.trim().length > 0,
+    });
+    setStepSaving(true);
+    try {
+      const ops: Promise<unknown>[] = [];
+      if (apiKey.trim()) ops.push(window.onboardingAPI.saveApiKey(apiKey.trim()));
+      if (openaiKey.trim()) ops.push(window.onboardingAPI.saveOpenAIKey(openaiKey.trim()));
+      if (ops.length > 0) {
+        console.log('[onboarding] handleStepSaveAndContinue: saving', ops.length, 'key(s)');
+        await Promise.all(ops);
+      }
+      console.log('[onboarding] handleStepSaveAndContinue: advancing to whatsapp step');
+      setStep('whatsapp');
+    } catch (err) {
+      console.error('[onboarding] handleStepSaveAndContinue threw', err);
+    } finally {
+      setStepSaving(false);
+    }
+  }, [claudeCode?.authed, codex?.authed, apiKey, openaiKey]);
+
   const handleConnectWhatsApp = useCallback(async () => {
     setQrDataUrl(null);
     await window.onboardingAPI.whatsapp.connect();
@@ -414,6 +535,12 @@ export function OnboardingApp() {
       setPillOpen(false);
     });
     const unsubSubmitted = window.onboardingAPI.onTaskSubmitted(() => {
+      // User kicked off a task during onboarding → they want to land on the
+      // grid (agent pane) so they can see the running session, not the empty
+      // dashboard. Without a submitted task the hub's default 'dashboard'
+      // view stands.
+      try { window.localStorage.setItem('hub-view-mode', 'grid'); } catch {}
+      console.log('[onboarding] task submitted during onboarding → hub→grid');
       void window.onboardingAPI.complete();
     });
     return () => { unsubActivated(); unsubShown(); unsubHidden(); unsubSubmitted(); };
@@ -544,23 +671,20 @@ export function OnboardingApp() {
 
             {importResult && (
               <div className="import-results">
-                <div className="import-stat import-stat-success">
-                  <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
-                    <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <span>
-                    Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
-                  </span>
-                </div>
-                <DomainList domains={importResult.domains} collapsible />
-
-                {importResult.failedDomains.length > 0 && (
-                  <FailedSection
-                    failed={importResult.failed}
-                    failedDomains={importResult.failedDomains}
-                    errorReasons={importResult.errorReasons}
-                  />
-                )}
+                <DomainList
+                  domains={importResult.domains}
+                  collapsible
+                  header={(
+                    <span className="import-stat import-stat-success">
+                      <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span>
+                        Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
+                      </span>
+                    </span>
+                  )}
+                />
 
                 <div className="apikey-actions">
                   <button
@@ -593,62 +717,25 @@ export function OnboardingApp() {
 
         {step === 'apikey' && (
           <div className="step-panel">
-            <h1 className="step-title">Anthropic API Key</h1>
+            <h1 className="step-title">Vendor setup</h1>
             <p className="step-subtitle">
-              Your key is stored locally in the system keychain.
+              Sign in with Claude Code or Codex, or paste an API key. Credentials are stored locally in the system keychain.
             </p>
 
-            {/* Confirmed → show confirmation + Continue */}
-            {usingClaudeCode && (
-              <div className="claude-code-confirm">
-                <div className="claude-code-confirm__row">
-                  <div className="claude-code-card__icon">
-                    <img src={claudeCodeLogo} alt="" />
-                  </div>
-                  <div className="claude-code-card__text">
-                    <div className="claude-code-card__title">Using Claude subscription</div>
-                    <div className="claude-code-card__sub">
-                      Signed in via Claude Code{claudeCode?.version ? ` (v${claudeCode.version})` : ''}. No API key needed.
-                    </div>
-                  </div>
-                </div>
-                <div className="claude-code-confirm__actions">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setUsingClaudeCode(false)}
-                  >
-                    Change
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setStep('whatsapp')}
-                  >
-                    Continue
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Installed + authed → one-click continue */}
-            {claudeCode?.installed && claudeCode?.authed && !usingClaudeCode && (
-              <button
-                type="button"
-                className="claude-code-card"
-                onClick={handleUseClaudeCode}
-              >
+            {/* Installed + authed → selectable card. Click flips to configured state. */}
+            {claudeCode?.installed && claudeCode?.authed && (
+              <div className="claude-code-card claude-code-card--selected">
                 <div className="claude-code-card__icon">
                   <img src={claudeCodeLogo} alt="" />
                 </div>
                 <div className="claude-code-card__text">
-                  <div className="claude-code-card__title">Continue with Claude</div>
+                  <div className="claude-code-card__title">Claude successfully configured</div>
                   <div className="claude-code-card__sub">
-                    Using your Claude subscription via Claude Code{claudeCode.version ? ` (v${claudeCode.version})` : ''} — no API key needed
+                    {`Signed in via Claude Code${claudeCode.version ? ` (v${claudeCode.version})` : ''}. No API key needed.`}
                   </div>
                 </div>
-                <div className="claude-code-card__chevron">&rsaquo;</div>
-              </button>
+                <div className="claude-code-card__check">✓</div>
+              </div>
             )}
 
             {/* Installed but not authed → offer to run `claude login` */}
@@ -696,54 +783,124 @@ export function OnboardingApp() {
               </button>
             )}
 
-            {!usingClaudeCode && (
-              <>
-                {claudeCode && (
-                  <div className="apikey-or-divider"><span>or paste an API key</span></div>
-                )}
-
-                <div className="apikey-input-wrap">
-                  <input
-                    type={showKey ? 'text' : 'password'}
-                    className="apikey-input"
-                    placeholder="sk-ant-..."
-                    value={apiKey}
-                    onChange={(e) => {
-                      setApiKey(e.target.value);
-                      setTestResult(null);
-                    }}
-                    spellCheck={false}
-                    autoFocus
-                  />
-                  <button
-                    className="apikey-toggle"
-                    onClick={() => setShowKey(!showKey)}
-                    tabIndex={-1}
-                  >
-                    {showKey ? 'Hide' : 'Show'}
-                  </button>
+            <>
+              <button
+                type="button"
+                className="provider-key-toggle"
+                onClick={() => setShowAnthropicInput((v) => !v)}
+              >
+                {showAnthropicInput ? 'Hide Anthropic API key' : 'Use Anthropic API key'}
+              </button>
+              {showAnthropicInput && (
+                <div className="provider-key-panel">
+                  <div className="apikey-input-wrap">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      className="apikey-input"
+                      placeholder="sk-ant-..."
+                      value={apiKey}
+                      onChange={(e) => { setApiKey(e.target.value); setTestResult(null); }}
+                      spellCheck={false}
+                    />
+                    <button className="apikey-toggle" onClick={() => setShowKey(!showKey)} tabIndex={-1}>
+                      {showKey ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <div className="apikey-actions">
+                    <button className="btn btn-secondary" onClick={handleTestKey} disabled={!apiKey.trim() || testing}>
+                      {testing ? 'Testing...' : 'Test Key'}
+                    </button>
+                  </div>
                 </div>
+              )}
+            </>
 
-                <div className="apikey-actions">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={handleTestKey}
-                    disabled={!apiKey.trim() || testing}
-                  >
-                    {testing ? 'Testing...' : 'Test Key'}
-                  </button>
-
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSaveKeyAndContinue}
-                    disabled={!apiKey.trim() || saving}
-                  >
-                    {saving ? 'Saving...' : 'Continue'}
-                  </button>
+            {/* Codex — authed → selectable card. Click flips to configured state. */}
+            {codex?.authed && (
+              <div className="claude-code-card claude-code-card--selected">
+                <div className="claude-code-card__icon">
+                  <img src={codexLogo} alt="" />
                 </div>
-              </>
+                <div className="claude-code-card__text">
+                  <div className="claude-code-card__title">Codex successfully configured</div>
+                  <div className="claude-code-card__sub">
+                    {`Signed in via Codex CLI${codex.version ? ` (v${codex.version})` : ''}. No API key needed.`}
+                  </div>
+                </div>
+                <div className="claude-code-card__check">✓</div>
+              </div>
             )}
 
+            {/* Codex — installed but not authed */}
+            {codex && !codex.authed && !usingCodex && (
+              <button
+                type="button"
+                className="claude-code-card"
+                onClick={handleStartCodexLogin}
+                disabled={waitingForCodexLogin}
+              >
+                <div className="claude-code-card__icon">
+                  <img src={codexLogo} alt="" />
+                </div>
+                <div className="claude-code-card__text">
+                  <div className="claude-code-card__title">
+                    {waitingForCodexLogin ? 'Waiting for login…' : 'Log in to Codex'}
+                  </div>
+                  <div className="claude-code-card__sub">
+                    {waitingForCodexLogin
+                      ? 'Finish the browser flow in Terminal. We’ll detect it automatically.'
+                      : 'Opens Terminal with `codex login` — sign in once, we’ll detect it.'}
+                  </div>
+                </div>
+                <div className="claude-code-card__chevron">{waitingForCodexLogin ? '…' : '›'}</div>
+              </button>
+            )}
+
+            <>
+              <button
+                type="button"
+                className="provider-key-toggle"
+                onClick={() => setShowOpenaiInput((v) => !v)}
+              >
+                {showOpenaiInput ? 'Hide OpenAI API key' : 'Use OpenAI API key'}
+              </button>
+              {showOpenaiInput && (
+                <div className="provider-key-panel">
+                  <div className="apikey-input-wrap">
+                    <input
+                      type={showOpenaiKey ? 'text' : 'password'}
+                      className="apikey-input"
+                      placeholder="sk-..."
+                      value={openaiKey}
+                      onChange={(e) => { setOpenaiKey(e.target.value); setOpenaiTestResult(null); }}
+                      spellCheck={false}
+                    />
+                    <button className="apikey-toggle" onClick={() => setShowOpenaiKey(!showOpenaiKey)} tabIndex={-1}>
+                      {showOpenaiKey ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <div className="apikey-actions">
+                    <button className="btn btn-secondary" onClick={handleTestOpenaiKey} disabled={!openaiKey.trim() || openaiTesting}>
+                      {openaiTesting ? 'Testing...' : 'Test Key'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+
+
+
+
+            <div className="apikey-actions apikey-actions--footer">
+              <button
+                type="button"
+                className="btn btn-primary apikey-continue-btn"
+                onClick={handleStepSaveAndContinue}
+                disabled={!stepCanContinue || stepSaving}
+              >
+                {stepSaving ? 'Saving...' : 'Save & Continue'}
+              </button>
+            </div>
 
             <button className="back-btn" onClick={() => setStep('profile')}>
               Back

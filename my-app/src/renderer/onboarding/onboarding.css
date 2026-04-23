@@ -492,6 +492,66 @@ html, body {
   gap: 8px;
 }
 
+/* Per-provider "Use X API key instead" expandable input. Sits directly
+   under each provider card cluster so the fallback key entry stays
+   scoped to its vendor. */
+.provider-key-toggle {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin: 6px 0 2px;
+  background: transparent;
+  border: none;
+  color: var(--color-fg-tertiary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: color var(--duration-fast) ease;
+}
+
+.provider-key-toggle:hover {
+  color: var(--color-fg-secondary);
+  text-decoration: underline;
+}
+
+.provider-key-panel {
+  margin: 4px 0 12px;
+  padding: 12px;
+  background: var(--color-bg-raised, rgba(255, 255, 255, 0.02));
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Selected provider card — swaps to a green-tinged success look so the
+   user sees which provider is configured without a separate confirm box. */
+.claude-code-card--selected {
+  border-color: rgba(61, 191, 107, 0.5);
+  background: rgba(61, 191, 107, 0.08);
+}
+
+.claude-code-card--selected .claude-code-card__title {
+  color: #8fe3a8;
+}
+
+.claude-code-card__check {
+  margin-left: auto;
+  color: #8fe3a8;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Footer save-and-continue — full-width primary button under all the cards. */
+.apikey-actions--footer {
+  margin-top: 12px;
+}
+
+.apikey-continue-btn {
+  width: 100%;
+}
+
 /* Buttons */
 
 .btn {

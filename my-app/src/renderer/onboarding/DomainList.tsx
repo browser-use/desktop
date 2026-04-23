@@ -4,10 +4,12 @@ import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from '.
 interface DomainListProps {
   domains: string[] | null | undefined;
   collapsible?: boolean;
+  /** Custom header content that replaces the default "Cookie Domains (N)" label + globe. */
+  header?: React.ReactNode;
 }
 
-export function DomainList({ domains, collapsible = false }: DomainListProps) {
-  const [isExpanded, setIsExpanded] = useState(!collapsible);
+export function DomainList({ domains, collapsible = false, header }: DomainListProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
   const [domainsWithDefaultFavicons, setDomainsWithDefaultFavicons] = useState<Set<string>>(new Set());
 
   const handleFaviconLoad = useCallback((domain: string, isDefault: boolean) => {
@@ -43,27 +45,33 @@ export function DomainList({ domains, collapsible = false }: DomainListProps) {
           type="button"
         >
           <div className="dl-header-left">
-            <span className="dl-chevron">{isExpanded ? '\u25B4' : '\u25BE'}</span>
-            <GlobeIcon />
-            <span className="dl-header-label">
-              Cookie Domains{processedDomains.length > 0 && ` (${processedDomains.length})`}
-            </span>
+            {header ?? (
+              <>
+                <GlobeIcon />
+                <span className="dl-header-label">
+                  Cookie Domains{processedDomains.length > 0 && ` (${processedDomains.length})`}
+                </span>
+              </>
+            )}
           </div>
 
-          {processedDomains.length > 0 && (
-            <div className="dl-header-right">
-              <div className="dl-preview-row">
-                {previewDomains.map((domain, index) => (
-                  <FaviconPreview
-                    key={`preview-${domain}-${index}`}
-                    domain={domain}
-                    onFaviconLoad={handleFaviconLoad}
-                  />
-                ))}
-              </div>
-              {hasMoreThanFive && <span className="dl-more">...</span>}
-            </div>
-          )}
+          <div className="dl-header-right">
+            {processedDomains.length > 0 && (
+              <>
+                <div className="dl-preview-row">
+                  {previewDomains.map((domain, index) => (
+                    <FaviconPreview
+                      key={`preview-${domain}-${index}`}
+                      domain={domain}
+                      onFaviconLoad={handleFaviconLoad}
+                    />
+                  ))}
+                </div>
+                {hasMoreThanFive && <span className="dl-more">...</span>}
+              </>
+            )}
+            <span className="dl-chevron">{isExpanded ? '\u25B4' : '\u25BE'}</span>
+          </div>
         </button>
       )}
 

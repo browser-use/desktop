@@ -15,6 +15,7 @@ import {
 } from './claudeCodeAuth';
 
 export const API_KEY_SERVICE = 'com.agenticbrowser.anthropic';
+export const OPENAI_KEY_SERVICE = 'com.agenticbrowser.openai';
 export const OAUTH_SERVICE = 'com.agenticbrowser.anthropic-oauth';
 export const AUTH_MODE_SERVICE = 'com.agenticbrowser.auth-mode';
 const DEFAULT_ACCOUNT = 'default';
@@ -66,6 +67,30 @@ export async function saveApiKey(key: string): Promise<void> {
   await keytar.deletePassword(OAUTH_SERVICE, DEFAULT_ACCOUNT).catch(() => {});
   await setAuthMode('apiKey');
   mainLogger.info('authStore.saveApiKey.ok');
+}
+
+export async function saveOpenAIKey(key: string): Promise<void> {
+  const keytar = getKeytar();
+  if (!keytar) throw new Error('keytar unavailable');
+  await keytar.setPassword(OPENAI_KEY_SERVICE, DEFAULT_ACCOUNT, key);
+  mainLogger.info('authStore.saveOpenAIKey.ok');
+}
+
+export async function loadOpenAIKey(): Promise<string | null> {
+  const keytar = getKeytar();
+  if (!keytar) return null;
+  try {
+    return (await keytar.getPassword(OPENAI_KEY_SERVICE, DEFAULT_ACCOUNT)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteOpenAIKey(): Promise<void> {
+  const keytar = getKeytar();
+  if (!keytar) return;
+  await keytar.deletePassword(OPENAI_KEY_SERVICE, DEFAULT_ACCOUNT).catch(() => {});
+  mainLogger.info('authStore.deleteOpenAIKey.ok');
 }
 
 export async function saveOAuth(creds: ClaudeOAuthCredentials): Promise<void> {
