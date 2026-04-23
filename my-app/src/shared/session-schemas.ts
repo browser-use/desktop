@@ -78,6 +78,14 @@ export const HlEventSkillUsedSchema = z.object({
   topic: z.string(),
 });
 
+export const HlEventFileOutputSchema = z.object({
+  type: z.literal('file_output'),
+  name: z.string(),
+  path: z.string(),
+  size: z.number(),
+  mime: z.string(),
+});
+
 export const HlEventSchema = z.discriminatedUnion('type', [
   HlEventThinkingSchema,
   HlEventToolCallSchema,
@@ -89,6 +97,7 @@ export const HlEventSchema = z.discriminatedUnion('type', [
   HlEventNotifySchema,
   HlEventHarnessEditedSchema,
   HlEventSkillUsedSchema,
+  HlEventFileOutputSchema,
 ]);
 
 export type HlEvent = z.infer<typeof HlEventSchema>;

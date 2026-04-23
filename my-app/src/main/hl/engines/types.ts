@@ -1,0 +1,107 @@
+/**
+ * EngineAdapter — pluggable interface for CLI-agent backends (Claude Code,
+ * Codex, etc.). Each adapter knows how to detect install/auth, build spawn
+ * args, and translate its NDJSON event stream into universal HlEvent shapes.
+ */
+
+import type { WebContents } from 'electron';
+import type { HlEvent } from '../../../shared/session-schemas';
+
+// ── run-time context passed to adapters ─────────────────────────────────────
+
+export interface SpawnContext {
+  /** User prompt to feed to the CLI. Adapters may wrap with seed/system text. */
+  prompt: string;
+  /** Absolute path to <userData>/harness/ (AGENTS.md + helpers.js live here). */
+  harnessDir: string;
+  /** App session id (used for naming uploads/outputs dirs + env injection). */
+  sessionId: string;
+  /** CDP target id for the browser view the agent must drive. */
+  targetId: string;
+  /** Port Electron exposes CDP on. */
+  cdpPort: number;
+  /** If set, ask the CLI to continue a prior conversation with this id. */
+  resumeSessionId?: string;
+  /** Optional user-supplied API key; adapter decides how to inject. */
+  savedApiKey?: string;
+  /** List of attachment paths (relative to harnessDir) the adapter may mention in wrappedPrompt. */
+  attachmentRefs: Array<{ relPath: string; mime: string; size: number }>;
+}
+
+export interface ParseContext {
+  /** Incrementing iteration counter; adapter bumps this on new agent turns. */
+  iter: number;
+  /** In-flight tool calls keyed by engine-specific tool id for pairing with results. */
+  pendingTools: Map<string, { name: string; startedAt: number; iter: number }>;
+  /** Harness file paths, for harness_edited / skill_used detection. */
+  harnessHelpersPath: string;
+  harnessToolsPath: string;
+  harnessSkillPath: string;
+}
+
+/** Result of parsing one NDJSON line. */
+export interface ParseResult {
+  /** Zero or more HlEvents to emit downstream. */
+  events: HlEvent[];
+  /** Engine-reported session id (e.g. Claude `system/init.session_id`, Codex `thread.started.thread_id`). */
+  capturedSessionId?: string;
+  /** The agent signaled completion in this event; runner may early-exit wait. */
+  terminalDone?: boolean;
+  /** The agent signaled a hard error in this event. */
+  terminalError?: string;
+}
+
+// ── probes ──────────────────────────────────────────────────────────────────
+
+export interface InstallProbe {
+  installed: boolean;
+  version?: string;
+  error?: string;
+}
+
+export interface AuthProbe {
+  authed: boolean;
+  error?: string;
+}
+
+// ── adapter ─────────────────────────────────────────────────────────────────
+
+export interface EngineAdapter {
+  /** Stable identifier (stored on sessions.engine). */
+  readonly id: string;
+  /** Human-readable display name. */
+  readonly displayName: string;
+  /** CLI binary on PATH. */
+  readonly binaryName: string;
+
+  // Onboarding probes
+  probeInstalled(): Promise<InstallProbe>;
+  probeAuthed(): Promise<AuthProbe>;
+  openLoginInTerminal(): Promise<{ opened: boolean; error?: string }>;
+
+  // Execution
+  /** Produce the argv for spawning this engine in headless mode. */
+  buildSpawnArgs(ctx: SpawnContext, wrappedPrompt: string): string[];
+  /** Produce the env for the spawned process (add auth, strip conflicting vars). */
+  buildEnv(ctx: SpawnContext, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
+  /** Build the seed/wrapper prompt the CLI will receive. */
+  wrapPrompt(ctx: SpawnContext): string;
+  /** Translate one NDJSON line from stdout into HlEvents. */
+  parseLine(line: string, ctx: ParseContext): ParseResult;
+}
+
+// ── runEngine input ─────────────────────────────────────────────────────────
+
+export interface RunEngineOptions {
+  engineId: string;
+  prompt: string;
+  sessionId: string;
+  webContents: WebContents;
+  cdpPort: number;
+  harnessDir: string;
+  attachments?: Array<{ name: string; mime: string; bytes: Buffer | Uint8Array }>;
+  resumeSessionId?: string;
+  signal?: AbortSignal;
+  onEvent: (e: HlEvent) => void;
+  onSessionId?: (id: string) => void;
+}

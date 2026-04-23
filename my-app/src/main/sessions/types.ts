@@ -27,4 +27,5 @@ export interface SessionEvents {
   'session-completed': (session: AgentSession) => void;
   'session-error': (session: AgentSession) => void;
   'session-output': (id: string, event: HlEvent) => void;
+  'session-output-term': (id: string, bytes: string) => void;
 }

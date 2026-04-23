@@ -27,7 +27,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       sessionId: string,
       anchor?: { x: number; y: number; width: number; height: number },
     ): Promise<boolean> => ipcRenderer.invoke('logs:toggle', sessionId, anchor),
+    show: (
+      sessionId: string,
+      anchor?: { x: number; y: number; width: number; height: number },
+    ): Promise<boolean> => ipcRenderer.invoke('logs:show', sessionId, anchor),
     close: (): Promise<void> => ipcRenderer.invoke('logs:close'),
+    // Fire-and-forget during rapid hub resize — keeps dot/normal/full bounds
+    // aligned to the pane rect without an invoke round-trip per frame.
+    updateAnchor: (anchor: { x: number; y: number; width: number; height: number }): void => {
+      ipcRenderer.send('logs:update-anchor', anchor);
+    },
   },
   settings: {
     apiKey: {

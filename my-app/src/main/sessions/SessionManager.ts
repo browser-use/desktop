@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mainLogger } from '../logger';
-import type { HlEvent } from '../hl/agent';
+import type { HlEvent } from '../../shared/session-schemas';
 import type { AgentSession, SessionStatus, SessionEvents } from './types';
 import { SessionDb } from './SessionDb';
 import { extractRegistrableDomain } from './domain';
+import {
+  hlEventToTermBytes,
+  eventsToTermBytes,
+  createTermTranslatorState,
+  type TermTranslatorState,
+} from '../hl/streamToTerm';
 
 export type { AgentSession, SessionStatus, SessionEvents };
 
@@ -14,6 +20,18 @@ export class SessionManager extends EventEmitter {
   private sessions: Map<string, AgentSession> = new Map();
   private abortControllers: Map<string, AbortController> = new Map();
   private stuckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  /**
+   * Per-session Claude Code conversation id (from `system/init` stream event).
+   * Passed as `--resume <id>` on the next spawn to continue the conversation.
+   * In-memory only — cleared on process restart and on rerun.
+   */
+  private claudeSessionIds: Map<string, string> = new Map();
+  /**
+   * Per-session engine id chosen at create time. In-memory only; reverts to
+   * default on process restart until a DB column is added in migration v8.
+   */
+  private sessionEngines: Map<string, string> = new Map();
+  private termStates: Map<string, TermTranslatorState> = new Map();
   private db: SessionDb;
 
   constructor(dbPath: string) {
@@ -127,6 +145,14 @@ export class SessionManager extends EventEmitter {
 
     this.resetStuckTimer(id);
 
+    // Emit the initial prompt as a user_input term event so a freshly-mounted
+    // xterm sees the user's message at the top of the live stream. It isn't
+    // persisted as an HlEvent (session.prompt already holds it), and replay
+    // synthesizes it from session.prompt in getTermReplay().
+    if (session.output.length === 0 && session.prompt) {
+      this.emitTermBytes(id, { type: 'user_input', text: session.prompt });
+    }
+
     mainLogger.info('SessionManager.startSession', { id, resumed: session.output.length > 0 });
     this.emitEvent('session-updated', { ...session });
     return abortController;
@@ -181,6 +207,32 @@ export class SessionManager extends EventEmitter {
     }
 
     this.emitEvent('session-output', id, event);
+    this.emitTermBytes(id, event);
+  }
+
+  private emitTermBytes(id: string, event: HlEvent): void {
+    let state = this.termStates.get(id);
+    if (!state) {
+      state = createTermTranslatorState();
+      this.termStates.set(id, state);
+    }
+    const bytes = hlEventToTermBytes(event, state);
+    if (bytes) this.emitEvent('session-output-term', id, bytes);
+  }
+
+  /**
+   * Build the full terminal replay stream for a session from its persisted
+   * event history. Called when a renderer pane mounts (or remounts) and needs
+   * to repaint its xterm.
+   */
+  getTermReplay(id: string): string {
+    const session = this.sessions.get(id);
+    if (!session) return '';
+    this.hydrateOutput(id);
+    const events: HlEvent[] = [];
+    if (session.prompt) events.push({ type: 'user_input', text: session.prompt });
+    events.push(...session.output);
+    return eventsToTermBytes(events);
   }
 
   private maybeUpdatePrimarySite(session: AgentSession, event: HlEvent): void {
@@ -228,6 +280,7 @@ export class SessionManager extends EventEmitter {
     const seq = session.output.length - 1;
     this.db.appendEvent(id, seq, userEvent);
     this.emitEvent('session-output', id, userEvent);
+    this.emitTermBytes(id, userEvent);
 
     session.prompt = prompt;
     session.status = 'running';
@@ -278,6 +331,7 @@ export class SessionManager extends EventEmitter {
     this.clearStuckTimer(id);
     this.abortControllers.delete(id);
     this.sessions.delete(id);
+    this.termStates.delete(id);
     this.db.deleteSession(id);
     mainLogger.info('SessionManager.deleteSession', { id });
   }
@@ -298,10 +352,21 @@ export class SessionManager extends EventEmitter {
     this.db.updateSessionStatus(id, 'running');
     this.db.saveMessages(id, []);
     this.db.clearEvents(id);
+    this.termStates.delete(id);
+    this.emitEvent('session-output-term', id, '\x1bc');
+    // Rerun starts a fresh conversation — clear any resume id so the next
+    // spawn doesn't attempt --resume against a now-invalid thread.
+    this.claudeSessionIds.delete(id);
 
     const abortController = new AbortController();
     this.abortControllers.set(id, abortController);
     this.resetStuckTimer(id);
+
+    // After clearing the terminal (`\x1bc`), re-emit the user prompt so the
+    // rerun starts with the user's message visible at the top.
+    if (session.prompt) {
+      this.emitTermBytes(id, { type: 'user_input', text: session.prompt });
+    }
 
     mainLogger.info('SessionManager.rerunSession', { id, promptLength: session.prompt.length });
     this.emitEvent('session-updated', { ...session });
@@ -372,6 +437,27 @@ export class SessionManager extends EventEmitter {
     return list
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((s) => ({ ...s, output: [] }));
+  }
+
+  /** Store the Claude Code `session_id` reported in the `system/init` event. */
+  setClaudeSessionId(id: string, claudeSessionId: string): void {
+    this.claudeSessionIds.set(id, claudeSessionId);
+    mainLogger.info('SessionManager.setClaudeSessionId', { id, claudeSessionId });
+  }
+
+  /** Retrieve a previously-captured Claude Code session id, if any. */
+  getClaudeSessionId(id: string): string | undefined {
+    return this.claudeSessionIds.get(id);
+  }
+
+  /** Record the engine id chosen for this session (in-memory only). */
+  setSessionEngine(id: string, engineId: string): void {
+    this.sessionEngines.set(id, engineId);
+  }
+
+  /** Retrieve the per-session engine id, or null if never set. */
+  getSessionEngine(id: string): string | null {
+    return this.sessionEngines.get(id) ?? null;
   }
 
   getAbortController(id: string): AbortController | undefined {

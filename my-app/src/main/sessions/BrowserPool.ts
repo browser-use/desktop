@@ -7,6 +7,13 @@ const DEFAULT_BROWSER_HEIGHT = 800;
 const DEFAULT_MAX_CONCURRENT = 10;
 const THROTTLED_FRAME_RATE = 4;
 const ACTIVE_FRAME_RATE = 60;
+// Fixed emulated viewport so sites always see a desktop-sized window,
+// regardless of how small the WebContentsView rect is in the hub. The
+// rendered content is scaled (fitToView) into the actual rect, so media
+// queries like @media (min-width: 768px) always evaluate against these
+// dimensions — no accidental tablet/mobile layouts.
+const EMULATED_VIEWPORT_WIDTH = 1440;
+const EMULATED_VIEWPORT_HEIGHT = 900;
 
 interface PoolEntry {
   sessionId: string;
@@ -19,10 +26,24 @@ export class BrowserPool {
   private entries: Map<string, PoolEntry> = new Map();
   private maxConcurrent: number;
   private queue: string[] = [];
+  private onGone?: (sessionId: string) => void;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT) {
     this.maxConcurrent = maxConcurrent;
     mainLogger.info('BrowserPool.init', { maxConcurrent });
+  }
+
+  /** Register a listener that fires when a session's WebContents is gone
+   *  (destroyed, crashed, or explicitly closed). Used to push a browser-gone
+   *  notification to the renderer so the UI can stop showing "Browser starting…". */
+  setOnGone(listener: (sessionId: string) => void): void {
+    this.onGone = listener;
+  }
+
+  private notifyGone(sessionId: string): void {
+    try { this.onGone?.(sessionId); } catch (err) {
+      mainLogger.warn('BrowserPool.notifyGone.listenerError', { sessionId, error: (err as Error).message });
+    }
   }
 
   get activeCount(): number {
@@ -72,6 +93,48 @@ export class BrowserPool {
 
     view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
 
+    // Pin the embedded page's viewport to a fixed desktop size so sites
+    // always render their desktop layout — no tablet/mobile reflow.
+    //
+    // Strategy: emulate screen/view at EMULATED_VIEWPORT_* (for media
+    // queries / window.innerWidth) but leave fitToView=false so Chromium
+    // renders at natural size. We then scale the visible content down via
+    // webContents.setZoomFactor so it fits the physical WebContentsView
+    // rect. setZoomFactor doesn't change CSS viewport, so the page still
+    // thinks it's 1440-wide even though we're drawing it smaller. Input
+    // coordinates are scaled correctly by Chromium's zoom pipeline, so
+    // clicks and scrolls land on the right DOM elements.
+    const applyEmulation = (): void => {
+      try {
+        if (view.webContents.isDestroyed()) return;
+        view.webContents.enableDeviceEmulation({
+          screenSize: { width: EMULATED_VIEWPORT_WIDTH, height: EMULATED_VIEWPORT_HEIGHT },
+          viewSize:   { width: EMULATED_VIEWPORT_WIDTH, height: EMULATED_VIEWPORT_HEIGHT },
+          deviceScaleFactor: 1,
+          viewPosition: { x: 0, y: 0 },
+          screenPosition: 'desktop',
+          fitToView: false,
+          offset: { x: 0, y: 0 },
+          scale: 1,
+        });
+        mainLogger.info('BrowserPool.deviceEmulation.applied', {
+          sessionId,
+          operationalViewport: {
+            width: EMULATED_VIEWPORT_WIDTH,
+            height: EMULATED_VIEWPORT_HEIGHT,
+            note: 'what the page sees via window.innerWidth / media queries',
+          },
+        });
+      } catch (err) {
+        mainLogger.warn('BrowserPool.deviceEmulation.error', {
+          sessionId,
+          error: (err as Error).message,
+        });
+      }
+    };
+    view.webContents.once('did-start-loading', applyEmulation);
+    view.webContents.on('did-finish-load', applyEmulation);
+
     const entry: PoolEntry = {
       sessionId,
       view,
@@ -80,6 +143,19 @@ export class BrowserPool {
     };
 
     this.entries.set(sessionId, entry);
+
+    // Fire onGone if the renderer process crashes, closes, or otherwise dies
+    // out-of-band so the UI can react (stop showing "Browser starting…").
+    const wc = view.webContents;
+    wc.on('destroyed', () => {
+      mainLogger.info('BrowserPool.wc.destroyed', { sessionId });
+      this.entries.delete(sessionId);
+      this.notifyGone(sessionId);
+    });
+    wc.on('render-process-gone', (_event, details) => {
+      mainLogger.warn('BrowserPool.wc.renderProcessGone', { sessionId, reason: details.reason });
+      this.notifyGone(sessionId);
+    });
 
     mainLogger.info('BrowserPool.create', {
       sessionId,
@@ -112,6 +188,8 @@ export class BrowserPool {
     if (entry.attached) {
       mainLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
       entry.view.setBounds(bounds);
+      // Don't touch zoom here — user's manual zoom (Cmd+=/Cmd+-) should
+      // persist across attach cycles.
       return true;
     }
 
@@ -121,9 +199,26 @@ export class BrowserPool {
 
     entry.view.webContents.setFrameRate(ACTIVE_FRAME_RATE);
 
+    // Scale the rendered page so the emulated 1440×900 viewport fits the
+    // physical rect. Use the smaller axis so content never overflows.
+    const zoom = Math.min(
+      bounds.width / EMULATED_VIEWPORT_WIDTH,
+      bounds.height / EMULATED_VIEWPORT_HEIGHT,
+    );
+    try {
+      entry.view.webContents.setZoomFactor(Math.max(0.25, Math.min(1, zoom)));
+    } catch (err) {
+      mainLogger.warn('BrowserPool.attach.setZoomFactor.error', { sessionId, zoom, error: (err as Error).message });
+    }
+
     mainLogger.info('BrowserPool.attach', {
       sessionId,
-      bounds,
+      visualBounds: bounds,
+      operationalViewport: {
+        width: EMULATED_VIEWPORT_WIDTH,
+        height: EMULATED_VIEWPORT_HEIGHT,
+      },
+      zoomFactor: zoom,
       frameRate: ACTIVE_FRAME_RATE,
     });
 

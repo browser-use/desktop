@@ -10,6 +10,7 @@ export type HlEvent =
   | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number }
   | { type: 'skill_used'; path: string; domain?: string; topic: string }
   | { type: 'harness_edited'; target: 'helpers' | 'tools'; action: 'write' | 'patch'; path: string; added?: string[]; removed?: string[]; changed?: string[] }
+  | { type: 'file_output'; name: string; path: string; size: number; mime: string }
   | { type: 'notify'; message: string; level: 'info' | 'blocking' };
 
 export interface AgentSession {
@@ -34,7 +35,7 @@ export interface ToolResult {
 
 export interface OutputEntry {
   id: string;
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written' | 'skill_used' | 'harness_edited' | 'notify';
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written' | 'skill_used' | 'harness_edited' | 'file_output' | 'notify';
   timestamp: number;
   content: string;
   tool?: string;
@@ -49,6 +50,9 @@ export interface OutputEntry {
   added?: string[];
   removed?: string[];
   changed?: string[];
+  // file_output metadata
+  fileSize?: number;
+  fileMime?: string;
 }
 
 let _adapterId = 0;
@@ -92,6 +96,14 @@ export function hlEventToOutputEntry(event: HlEvent, timestamp: number): OutputE
         added: event.added,
         removed: event.removed,
         changed: event.changed,
+      };
+    case 'file_output':
+      return {
+        id, type: 'file_output', timestamp,
+        content: event.name,
+        tool: event.path,
+        fileSize: event.size,
+        fileMime: event.mime,
       };
     case 'notify':
       return { id, type: 'notify', timestamp, content: event.message, level: event.level };

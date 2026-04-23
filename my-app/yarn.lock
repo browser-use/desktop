@@ -2497,6 +2497,26 @@
   resolved "https://registry.npmjs.org/@xmldom/xmldom/-/xmldom-0.8.12.tgz"
   integrity sha512-9k/gHF6n/pAi/9tqr3m3aqkuiNosYTurLLUtc7xQ9sxB/wm7WPygCv8GYa6mS0fLJEHhqMC1ATYhz++U/lRHqg==
 
+"@xterm/addon-fit@^0.11.0":
+  version "0.11.0"
+  resolved "https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.11.0.tgz"
+  integrity sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==
+
+"@xterm/addon-web-links@^0.12.0":
+  version "0.12.0"
+  resolved "https://registry.npmjs.org/@xterm/addon-web-links/-/addon-web-links-0.12.0.tgz"
+  integrity sha512-4Smom3RPyVp7ZMYOYDoC/9eGJJJqYhnPLGGqJ6wOBfB8VxPViJNSKdgRYb8NpaM6YSelEKbA2SStD7lGyqaobw==
+
+"@xterm/addon-webgl@^0.19.0":
+  version "0.19.0"
+  resolved "https://registry.npmjs.org/@xterm/addon-webgl/-/addon-webgl-0.19.0.tgz"
+  integrity sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A==
+
+"@xterm/xterm@^6.0.0":
+  version "6.0.0"
+  resolved "https://registry.npmjs.org/@xterm/xterm/-/xterm-6.0.0.tgz"
+  integrity sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==
+
 "@xtuc/ieee754@^1.2.0":
   version "1.2.0"
   resolved "https://registry.npmjs.org/@xtuc/ieee754/-/ieee754-1.2.0.tgz"

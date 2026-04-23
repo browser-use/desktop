@@ -3,7 +3,6 @@ export type ActionId =
   | 'goto.dashboard' | 'goto.agents' | 'goto.list' | 'goto.settings'
   | 'search.open'
   | 'action.create' | 'action.createPane' | 'action.dismiss' | 'action.cancel' | 'action.followUp'
-  | 'view.cycle'
   | 'scroll.halfDown' | 'scroll.halfUp'
   | 'meta.help' | 'meta.commandPalette' | 'meta.escape';
 
@@ -30,7 +29,6 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { id: 'action.dismiss', label: 'Dismiss session', keys: ['x'], category: 'Actions' },
   { id: 'action.cancel', label: 'Cancel session', keys: ['Ctrl+c'], category: 'Actions' },
   { id: 'action.followUp', label: 'Follow up', keys: ['f'], category: 'Actions' },
-  { id: 'view.cycle', label: 'Cycle pane view', keys: ['v'], category: 'Actions' },
   { id: 'scroll.halfDown', label: 'Scroll down', keys: ['Ctrl+d'], category: 'Scroll' },
   { id: 'scroll.halfUp', label: 'Scroll up', keys: ['Ctrl+u'], category: 'Scroll' },
   { id: 'meta.help', label: 'Keybindings help', keys: [], category: 'Meta' },
@@ -52,7 +50,6 @@ export const SCREEN_COMMANDS: Record<ScreenId, ActionId[]> = {
     'nav.up',
     'action.createPane',
     'action.followUp',
-    'view.cycle',
     'action.dismiss',
     'goto.dashboard',
   ],

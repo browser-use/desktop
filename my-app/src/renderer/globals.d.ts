@@ -120,7 +120,12 @@ interface ElectronLogsAPI {
     sessionId: string,
     anchor?: { x: number; y: number; width: number; height: number },
   ) => Promise<boolean>;
+  show: (
+    sessionId: string,
+    anchor?: { x: number; y: number; width: number; height: number },
+  ) => Promise<boolean>;
   close: () => Promise<void>;
+  updateAnchor: (anchor: { x: number; y: number; width: number; height: number }) => void;
 }
 
 interface ElectronSettingsApiKeyAPI {

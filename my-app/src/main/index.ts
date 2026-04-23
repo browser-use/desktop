@@ -24,7 +24,7 @@ import started from 'electron-squirrel-startup';
 import { createShellWindow } from './window';
 // Track B — Pill + hotkeys
 import { createPillWindow, togglePill, showPill, hidePill, sendToPill, setPillHeight, PILL_HEIGHT_COLLAPSED, PILL_HEIGHT_EXPANDED } from './pill';
-import { createLogsWindow, attachToHub as attachLogsToHub, toggleLogs, hideLogs, sendToLogs, getLogsWindow } from './logsPill';
+import { createLogsWindow, attachToHub as attachLogsToHub, toggleLogs, hideLogs, getLogsWindow, showLogs, setLogsMode, updateLogsAnchor } from './logsPill';
 import { sendSessionNotification } from './notifications';
 import { registerHotkeys, unregisterHotkeys, getGlobalCmdbarAccelerator, setGlobalCmdbarAccelerator } from './hotkeys';
 import { makeRequest, PROTOCOL_VERSION } from '../shared/types';
@@ -380,6 +380,11 @@ app.whenReady().then(async () => {
     mainLogger.info('main.logs:toggle', { sessionId, anchor });
     return toggleLogs(sessionId, anchor ?? null);
   });
+  ipcMain.handle('logs:show', (_evt, sessionId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
+    mainLogger.info('main.logs:show', { sessionId, anchor });
+    showLogs(sessionId, anchor ?? null);
+    return true;
+  });
   ipcMain.handle('logs:close', () => {
     mainLogger.info('main.logs:close');
     hideLogs();
@@ -388,8 +393,18 @@ app.whenReady().then(async () => {
     mainLogger.info('main.logs:close (send)');
     hideLogs();
   });
-  // Avoid unused-import lint: sendToLogs is re-exported for external callers.
-  void sendToLogs;
+  // Fire-and-forget anchor update during rapid window resize — avoids the
+  // invoke round-trip cost at 60+ events/sec.
+  ipcMain.on('logs:update-anchor', (_evt, anchor: { x: number; y: number; width: number; height: number }) => {
+    if (!anchor || typeof anchor.x !== 'number') return;
+    updateLogsAnchor(anchor);
+  });
+  ipcMain.on('logs:set-mode', (_evt, nextMode: 'dot' | 'normal' | 'full') => {
+    mainLogger.info('main.logs:set-mode', { nextMode });
+    if (nextMode === 'dot' || nextMode === 'normal' || nextMode === 'full') {
+      setLogsMode(nextMode);
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // HL engine IPC
@@ -407,9 +422,16 @@ app.whenReady().then(async () => {
 
   const notifiedStuck = new Set<string>();
   const notifiedStarted = new Set<string>();
+  const forwardSessionUpdatedToLogs = (session: unknown): void => {
+    const logsWin = getLogsWindow();
+    if (logsWin && !logsWin.isDestroyed()) {
+      logsWin.webContents.send('session-updated', session);
+    }
+  };
   sessionManager.onEvent('session-updated', (session) => {
     shellWindow?.webContents.send('session-updated', session);
     sendToPill('session-updated', session);
+    forwardSessionUpdatedToLogs(session);
     if (session.status === 'running' && !notifiedStarted.has(session.id)) {
       notifiedStarted.add(session.id);
       sendSessionNotification({
@@ -463,14 +485,7 @@ app.whenReady().then(async () => {
     sendToPill('session-output-term', { id, bytes });
     const logsWin = getLogsWindow();
     if (logsWin && !logsWin.isDestroyed()) {
-      mainLogger.debug('main.session-output-term.forward-logs', {
-        id,
-        byteLen: bytes?.length ?? 0,
-        logsWebContentsId: logsWin.webContents.id,
-      });
       logsWin.webContents.send('session-output-term', id, bytes);
-    } else {
-      mainLogger.debug('main.session-output-term.no-logs-window', { id });
     }
   });
   ipcMain.handle('sessions:get-term-replay', (_evt, id: string) => {
@@ -882,7 +897,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('sessions:view-attach', (_event, id: string, bounds: { x: number; y: number; width: number; height: number }) => {
     const validatedId = assertString(id, 'id', 100);
     if (!shellWindow) return false;
-    mainLogger.info('main.sessions:view-attach', { id: validatedId, bounds });
+    mainLogger.info('main.sessions:view-attach', { id: validatedId, visualBounds: bounds });
     const ok = browserPool.attachToWindow(validatedId, shellWindow, bounds);
     if (ok) {
       // Give focus so clicks work immediately after attach (previously handled
@@ -912,6 +927,10 @@ app.whenReady().then(async () => {
     const view = browserPool.getView(id);
     if (!view) return;
     view.setBounds(bounds);
+    // (Intentionally no setZoomFactor here — previously we recomputed zoom
+    // on every resize to fit the emulated viewport, but that clobbered any
+    // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser
+    // was "resetting itself" on layout changes.)
     const children = shellWindow.contentView.children;
     if (!children.includes(view)) {
       shellWindow.contentView.addChildView(view);
