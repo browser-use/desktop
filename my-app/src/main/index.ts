@@ -438,13 +438,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('logs:show', (_evt, sessionId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     mainLogger.info('main.logs:show', { sessionId, anchor });
     showLogs(sessionId, anchor ?? null);
-    // showLogs() uses showInactive() so automatic re-shows (e.g. on app
-    // focus) don't steal focus. But a user-initiated logs:show (click on
-    // a hub card) should grab OS focus so keystrokes go to the follow-up
-    // input — LogsApp's rAF(inputRef.focus()) on session-change is a DOM
-    // focus that has no visible effect while another window owns OS focus.
+    // Only take OS-level focus when Browser Use is already the frontmost
+    // app (user clicking a card while in-app). AgentPane calls logs.show()
+    // on every session.status transition too — including running→idle on
+    // task completion — so unconditionally focusing here would steal focus
+    // back whenever a task finished. App-focus gate scopes the keystroke-
+    // landing trick to the intended path.
     const logsWin = getLogsWindow();
-    if (logsWin && !logsWin.isDestroyed()) logsWin.focus();
+    if (logsWin && !logsWin.isDestroyed() && BrowserWindow.getFocusedWindow() !== null) logsWin.focus();
     return true;
   });
   ipcMain.handle('logs:close', () => {
