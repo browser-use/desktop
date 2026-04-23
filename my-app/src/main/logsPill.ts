@@ -5,7 +5,7 @@
  * Distinct from the command pill.
  */
 
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
 import { mainLogger } from './logger';
 
@@ -18,7 +18,12 @@ const log = {
 
 const LOGS_WIDTH = 380;
 const LOGS_HEIGHT = 220;
+const LOGS_MIN_WIDTH = 260;
+const LOGS_MIN_HEIGHT = 140;
 const LOGS_MARGIN = 10;
+const DOT_SIZE = 36;
+
+export type LogsMode = 'dot' | 'normal' | 'full';
 
 export interface PaneAnchor {
   x: number;
@@ -34,6 +39,24 @@ let activeSessionId: string | null = null;
 let anchorWindow: BrowserWindow | null = null;
 let lastAnchor: PaneAnchor | null = null;
 let wasVisibleBeforeBlur = false;
+// Display mode. 'normal' is the preset 380×220 panel, 'dot' is the small
+// clickable pill, 'full' fills the anchored pane rect. User can also drag-
+// resize the window; that flips `userCustomized` so we stop auto-repositioning
+// until the user clicks a preset again.
+let mode: LogsMode = 'normal';
+let userCustomized = false;
+// Timestamp until which programmatic bound changes should be ignored by the
+// resize/move listeners. A single-shot flag wasn't enough because Electron
+// fires both 'move' and 'resize' (plus intermediate frames) from one
+// setBounds call, and the first event consumed the flag, letting later
+// ones mark the window as user-customized.
+let programmaticBoundsChangeUntil = 0;
+function beginProgrammaticBoundsChange(durationMs = 200): void {
+  programmaticBoundsChangeUntil = Date.now() + durationMs;
+}
+function isProgrammaticBoundsChange(): boolean {
+  return Date.now() < programmaticBoundsChangeUntil;
+}
 
 function safeSend(channel: string, ...args: unknown[]): void {
   if (!logsWindow || logsWindow.isDestroyed()) {
@@ -69,21 +92,43 @@ function computeLogsBounds(
   anchor: PaneAnchor | null,
 ): { x: number; y: number; width: number; height: number } {
   const hubContent = hub.getContentBounds();
-  if (anchor) {
-    const width = Math.min(LOGS_WIDTH, Math.max(200, anchor.width - LOGS_MARGIN * 2));
-    const height = Math.min(LOGS_HEIGHT, Math.max(120, anchor.height - LOGS_MARGIN * 2));
-    const x = Math.round(hubContent.x + anchor.x + anchor.width - width - LOGS_MARGIN);
-    const y = Math.round(hubContent.y + anchor.y + anchor.height - height - LOGS_MARGIN);
-    log.debug('logs.computeBounds.anchored', {
-      hubContent, anchor, computed: { x, y, width, height },
-    });
+
+  if (mode === 'dot') {
+    const w = DOT_SIZE;
+    const h = DOT_SIZE;
+    if (anchor) {
+      const x = Math.round(hubContent.x + anchor.x + anchor.width - w - LOGS_MARGIN);
+      const y = Math.round(hubContent.y + anchor.y + anchor.height - h - LOGS_MARGIN);
+      return { x, y, width: w, height: h };
+    }
+    const x = hubContent.x + hubContent.width - w - LOGS_MARGIN;
+    const y = hubContent.y + hubContent.height - h - LOGS_MARGIN;
+    return { x, y, width: w, height: h };
+  }
+
+  if (mode === 'full' && anchor) {
+    // Fill the pane rect exactly, edge-to-edge.
+    const width = Math.max(LOGS_MIN_WIDTH, anchor.width);
+    const height = Math.max(LOGS_MIN_HEIGHT, anchor.height);
+    const x = Math.round(hubContent.x + anchor.x);
+    const y = Math.round(hubContent.y + anchor.y);
     return { x, y, width, height };
   }
-  const width = Math.min(LOGS_WIDTH, Math.max(200, hubContent.width - LOGS_MARGIN * 2));
+
+  // 'normal' (or 'full' with no anchor fallback): preset 380×220 bottom-right.
+  if (anchor) {
+    const width = Math.min(LOGS_WIDTH, Math.max(LOGS_MIN_WIDTH, anchor.width - LOGS_MARGIN * 2));
+    const height = Math.min(LOGS_HEIGHT, Math.max(LOGS_MIN_HEIGHT, anchor.height - LOGS_MARGIN * 2));
+    const x = Math.round(hubContent.x + anchor.x + anchor.width - width - LOGS_MARGIN);
+    const y = Math.round(hubContent.y + anchor.y + anchor.height - height - LOGS_MARGIN);
+    log.debug('logs.computeBounds.anchored', { hubContent, anchor, mode, computed: { x, y, width, height } });
+    return { x, y, width, height };
+  }
+  const width = Math.min(LOGS_WIDTH, Math.max(LOGS_MIN_WIDTH, hubContent.width - LOGS_MARGIN * 2));
   const height = LOGS_HEIGHT;
   const x = hubContent.x + hubContent.width - width - LOGS_MARGIN;
   const y = hubContent.y + hubContent.height - height - LOGS_MARGIN;
-  log.debug('logs.computeBounds.fallback', { hubContent, computed: { x, y, width, height } });
+  log.debug('logs.computeBounds.fallback', { hubContent, mode, computed: { x, y, width, height } });
   return { x, y, width, height };
 }
 
@@ -98,11 +143,13 @@ export function createLogsWindow(): BrowserWindow {
   logsWindow = new BrowserWindow({
     width: LOGS_WIDTH,
     height: LOGS_HEIGHT,
+    minWidth: LOGS_MIN_WIDTH,
+    minHeight: LOGS_MIN_HEIGHT,
     transparent: false,
     frame: false,
     alwaysOnTop: true,
     hasShadow: true,
-    resizable: false,
+    resizable: true,
     backgroundColor: '#0b0d10',
     roundedCorners: true,
     skipTaskbar: true,
@@ -114,6 +161,21 @@ export function createLogsWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  // User-drag resize/move detection — once the user manually changes bounds,
+  // stop auto-repositioning. A mode-switch or explicit show resets the flag.
+  // We ignore events that fire within ~200ms of our own setBounds call so
+  // programmatic changes don't masquerade as user customizations.
+  logsWindow.on('resize', () => {
+    if (isProgrammaticBoundsChange()) return;
+    userCustomized = true;
+    log.debug('logs.userResized', { bounds: logsWindow?.getBounds() });
+  });
+  logsWindow.on('move', () => {
+    if (isProgrammaticBoundsChange()) return;
+    userCustomized = true;
+    log.debug('logs.userMoved', { bounds: logsWindow?.getBounds() });
   });
 
   logsWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -138,12 +200,12 @@ export function createLogsWindow(): BrowserWindow {
   logsWindow.webContents.on('did-start-loading', () => log.info('logs.did-start-loading', {}));
   logsWindow.webContents.on('dom-ready', () => log.info('logs.dom-ready', {}));
   logsWindow.webContents.on('did-finish-load', () => {
-    log.info('logs.did-finish-load', { activeSessionId });
+    log.info('logs.did-finish-load', { activeSessionId, mode });
     logsReady = true;
-    // Re-broadcast the active session so the renderer, if any, picks it up.
     if (activeSessionId) {
       logsWindow?.webContents.send('logs:active-session-changed', activeSessionId);
     }
+    logsWindow?.webContents.send('logs:mode-changed', mode);
     flushPending();
   });
   logsWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
@@ -178,8 +240,15 @@ export function attachToHub(hub: BrowserWindow): void {
     if (!logsWindow || logsWindow.isDestroyed()) return;
     if (!logsWindow.isVisible()) return;
     if (!anchorWindow || anchorWindow.isDestroyed()) return;
+    // User has manually resized or moved the logs window — leave it alone
+    // until they pick a preset (dot / normal / full) again.
+    if (userCustomized) {
+      log.debug('logs.reposition.skippedUserCustom', {});
+      return;
+    }
     const bounds = computeLogsBounds(anchorWindow, lastAnchor);
     log.debug('logs.reposition', { bounds });
+    beginProgrammaticBoundsChange();
     logsWindow.setBounds(bounds);
   };
 
@@ -198,18 +267,33 @@ export function attachToHub(hub: BrowserWindow): void {
     }
   });
 
+  // Display-aware app-blur auto-hide. Hide the logs window only if the
+  // user switched to another app *on the same monitor* as the logs —
+  // multi-monitor setups keep the logs visible on their own screen so
+  // users can reference them while working in another app elsewhere.
   hub.on('blur', () => {
     setTimeout(() => {
       if (!logsWindow || logsWindow.isDestroyed()) return;
+      if (!logsWindow.isVisible()) return;
       const focused = BrowserWindow.getFocusedWindow();
-      log.debug('logs.hub.blur', { focusedWindowId: focused?.id ?? null });
-      if (focused === null) {
-        wasVisibleBeforeBlur = logsWindow.isVisible();
-        if (wasVisibleBeforeBlur) {
-          log.info('logs.autohide.appBlur', {});
-          logsWindow.hide();
-        }
+      if (focused !== null) return; // still inside our own app
+      try {
+        const cursor = screen.getCursorScreenPoint();
+        const cursorDisplay = screen.getDisplayNearestPoint(cursor);
+        const logsDisplay = screen.getDisplayMatching(logsWindow.getBounds());
+        log.info('logs.blur.displayCheck', {
+          cursorDisplay: cursorDisplay.id,
+          logsDisplay: logsDisplay.id,
+          sameScreen: cursorDisplay.id === logsDisplay.id,
+        });
+        if (cursorDisplay.id !== logsDisplay.id) return; // different monitor, keep visible
+      } catch (err) {
+        log.warn('logs.blur.displayCheck.error', { error: (err as Error).message });
+        // On error, fall through and hide — safer default.
       }
+      wasVisibleBeforeBlur = true;
+      log.info('logs.autohide.appBlurSameScreen', {});
+      logsWindow.hide();
     }, 50);
   });
 
@@ -230,8 +314,9 @@ export function showLogs(sessionId: string, anchor: PaneAnchor | null = null): v
   }
   activeSessionId = sessionId;
   if (anchor) lastAnchor = anchor;
-  log.info('logs.show', { sessionId, anchor: anchor ?? lastAnchor, ready: logsReady });
-  if (anchorWindow && !anchorWindow.isDestroyed()) {
+  log.info('logs.show', { sessionId, anchor: anchor ?? lastAnchor, ready: logsReady, mode, userCustomized });
+  if (anchorWindow && !anchorWindow.isDestroyed() && !userCustomized) {
+    beginProgrammaticBoundsChange();
     logsWindow.setBounds(computeLogsBounds(anchorWindow, lastAnchor));
   }
   logsWindow.showInactive();
@@ -262,9 +347,56 @@ export function toggleLogs(sessionId: string, anchor: PaneAnchor | null = null):
   return true;
 }
 
+/**
+ * Update the cached pane anchor and reposition the logs window in-place.
+ * Called rapidly during hub window resize so all modes (dot/normal/full)
+ * track the pane rect. No-ops if the window is hidden or the user has
+ * manually moved/resized it.
+ */
+export function updateLogsAnchor(anchor: PaneAnchor): void {
+  lastAnchor = anchor;
+  if (!logsWindow || logsWindow.isDestroyed()) return;
+  if (!logsWindow.isVisible()) return;
+  if (!anchorWindow || anchorWindow.isDestroyed()) return;
+  if (userCustomized) return;
+  const bounds = computeLogsBounds(anchorWindow, lastAnchor);
+  beginProgrammaticBoundsChange();
+  logsWindow.setBounds(bounds);
+}
+
 export function isLogsVisible(): boolean {
   if (!logsWindow || logsWindow.isDestroyed()) return false;
   return logsWindow.isVisible();
+}
+
+/** Set the logs window display mode: 'dot' | 'normal' | 'full'. */
+export function setLogsMode(next: LogsMode): void {
+  if (!logsWindow || logsWindow.isDestroyed()) return;
+  if (mode === next) return;
+  mode = next;
+  userCustomized = false;
+  log.info('logs.setMode', { mode });
+  // Adjust the OS-level minimum size before setBounds, otherwise the 'dot'
+  // target (36×36) gets clamped up to the normal-mode minimum and renders
+  // as a stretched ellipse in the corner.
+  try {
+    if (mode === 'dot') {
+      logsWindow.setMinimumSize(DOT_SIZE, DOT_SIZE);
+    } else {
+      logsWindow.setMinimumSize(LOGS_MIN_WIDTH, LOGS_MIN_HEIGHT);
+    }
+  } catch (err) {
+    log.warn('logs.setMinimumSize.error', { error: (err as Error).message });
+  }
+  if (anchorWindow && !anchorWindow.isDestroyed()) {
+    beginProgrammaticBoundsChange();
+    logsWindow.setBounds(computeLogsBounds(anchorWindow, lastAnchor));
+  }
+  safeSend('logs:mode-changed', mode);
+}
+
+export function getLogsMode(): LogsMode {
+  return mode;
 }
 
 export function sendToLogs(channel: string, payload: unknown): void {

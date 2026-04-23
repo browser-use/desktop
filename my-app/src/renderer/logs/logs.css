@@ -8,47 +8,315 @@ html, body {
   overflow: hidden;
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--color-fg-primary, #d6d8dc);
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #logs-root {
   width: 100vw;
   height: 100vh;
-  background: var(--color-bg, #0b0d10);
-  border-radius: 10px;
+  background: transparent;
   overflow: hidden;
 }
 
+/* ============================================================= */
+/* Expanded state                                                  */
+/* ============================================================= */
 .logs-root {
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
   background: var(--color-bg, #0b0d10);
-  border: 1px solid var(--color-border-subtle, #1f232a);
+  /* Brighter border + outer glow so the pane stands out against dark
+     site backgrounds instead of blending into them. */
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(125, 211, 252, 0.05);
   border-radius: 10px;
+  overflow: hidden;
 }
 
-.logs-root .pane__terminal {
+.logs-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border-subtle, #1f232a);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary, #8b9199);
+  -webkit-app-region: drag;
+}
+
+.logs-header__title {
+  font-weight: 500;
+}
+
+.logs-header__actions {
+  display: flex;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+.logs-header__btn {
+  background: transparent;
+  border: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-fg-tertiary, #8b9199);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 80ms ease, color 80ms ease;
+}
+
+.logs-header__btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-fg-primary, #d6d8dc);
+}
+
+/* Completion summary — plain white text above the follow-up input.
+   No banner / chrome; just makes the final "done" message readable against
+   the dark background since the xterm's green 'done' text is easy to miss. */
+.logs-summary {
+  flex: 0 0 auto;
+  padding: 6px 10px 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 1px solid var(--color-border-subtle, #1f232a);
+}
+
+.logs-summary--error {
+  color: #f87171;
+}
+
+.logs-term {
+  flex: 1 1 auto;
+  min-height: 60px;
+  display: flex;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+.logs-term .pane__terminal,
+.logs-term .xterm {
   width: 100%;
   height: 100%;
 }
 
-.logs-root .xterm {
-  width: 100%;
-  height: 100%;
-}
-
-.logs-root .xterm-viewport {
+.logs-term .xterm-viewport {
   background-color: transparent;
 }
 
+/* Hide the xterm cursor — the terminal is read-only, so the blinking /
+   static caret just adds visual noise. */
+.logs-term .xterm-cursor-layer,
+.logs-term .xterm-cursor {
+  display: none;
+}
+
 .logs-empty {
-  width: 100%;
-  height: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--color-fg-disabled, #5c6370);
   font-size: 11px;
   letter-spacing: 0.04em;
+}
+
+/* File outputs row. Scrolls horizontally if more than a few. */
+.logs-files {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+  /* overflow: visible so the file-row popover menu can escape upward;
+     horizontal scroll is achieved via child wrap width instead. */
+  overflow: visible;
+  border-top: 1px solid var(--color-border-subtle, #1f232a);
+}
+
+.logs-file-row {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  padding: 3px 6px;
+  background: var(--color-bg-elevated, #141518);
+  border: 1px solid var(--color-border-subtle, #1f232a);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--color-fg-secondary, #b0b5bd);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.logs-file-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-fg-primary, #d6d8dc);
+}
+
+.logs-file-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logs-file-row__size {
+  color: var(--color-fg-disabled, #5c6370);
+}
+
+.logs-file-row__caret {
+  color: var(--color-fg-disabled, #5c6370);
+  font-size: 9px;
+  margin-left: 2px;
+}
+
+.logs-file-row-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.logs-file-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 180px;
+  background: var(--color-bg-elevated, #15181c);
+  border: 1px solid var(--color-border-subtle, #1f232a);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.logs-file-menu__item {
+  background: transparent;
+  border: none;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--color-fg-secondary, #b0b5bd);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logs-file-menu__icon {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logs-editor-logo--cursor svg {
+  width: 13px;
+  height: 13px;
+}
+
+.logs-file-menu__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-fg-primary, #d6d8dc);
+}
+
+.logs-file-menu__sep {
+  height: 1px;
+  background: var(--color-border-subtle, #1f232a);
+  margin: 3px 4px;
+}
+
+/* Follow-up text input at the bottom. */
+.logs-followup {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--color-border-subtle, #1f232a);
+}
+
+.logs-followup__chevron {
+  color: var(--color-fg-disabled, #5c6370);
+  font-size: 12px;
+  line-height: 18px;
+  padding-bottom: 2px;
+}
+
+.logs-followup__input {
+  flex: 1;
+  resize: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-fg-primary, #d6d8dc);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 14px;
+  max-height: 72px;
+  padding: 2px 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.logs-followup__input::placeholder {
+  color: var(--color-fg-disabled, #5c6370);
+}
+
+.logs-followup__input:disabled {
+  opacity: 0.5;
+}
+
+/* ============================================================= */
+/* Collapsed state (dot)                                           */
+/* ============================================================= */
+.logs-dot {
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--color-bg, #0b0d10);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  -webkit-app-region: no-drag;
+  transition: transform 120ms ease;
+}
+
+.logs-dot:hover {
+  transform: scale(1.08);
+}
+
+.logs-dot__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-accent, #7dd3fc);
+  box-shadow: 0 0 0 0 rgba(125, 211, 252, 0.5);
+  animation: logs-pulse 1.6s ease-out infinite;
+}
+
+@keyframes logs-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(125, 211, 252, 0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(125, 211, 252, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(125, 211, 252, 0); }
 }
