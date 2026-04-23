@@ -9,7 +9,10 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { HubApp } from './HubApp';
 import { queryClient } from './useSessionsQuery';
 import { ToastProvider } from '@/renderer/components/base/Toast';
+import { ErrorBoundary } from '../components/empty/ErrorBoundary';
+import { OfflineBanner } from '../components/empty/OfflineBanner';
 import '@/renderer/design/theme.global.css';
+import '../design/empty-states.css';
 import '@/renderer/components/base/components.css';
 import './hub.css';
 
@@ -29,10 +32,13 @@ if (!rootEl) throw new Error('[hub] #hub-root element not found');
 
 createRoot(rootEl).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <HubApp />
-      </ToastProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <OfflineBanner />
+          <HubApp />
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

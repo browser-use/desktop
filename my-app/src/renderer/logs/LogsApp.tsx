@@ -317,7 +317,11 @@ export function LogsApp(): React.ReactElement {
   }, [mode]);
 
   const onExpandFromDot = useCallback(() => { window.logsAPI.setMode('normal'); }, []);
-  const onMinimize = useCallback(() => { window.logsAPI.setMode('dot'); }, []);
+  // Minus steps down one size: full → normal (card), normal → dot. Going
+  // full → dot in one click skips the card view the user most often wants.
+  const onMinimize = useCallback(() => {
+    window.logsAPI.setMode(mode === 'full' ? 'normal' : 'dot');
+  }, [mode]);
   const onToggleFull = useCallback(() => {
     window.logsAPI.setMode(mode === 'full' ? 'normal' : 'full');
   }, [mode]);

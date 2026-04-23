@@ -1,8 +1,16 @@
 {
-  "name": "my-app",
+  "name": "browser-use-desktop",
   "productName": "Browser Use",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Browser Use — a desktop agent hub for Claude Code and Codex",
+  "homepage": "https://github.com/browser-use/desktop-app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browser-use/desktop-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/browser-use/desktop-app/issues"
+  },
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {

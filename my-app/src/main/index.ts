@@ -1,9 +1,9 @@
 /**
- * Main process entry point — minimal agent hub.
+ * Main process entry point — Browser Use Desktop.
  *
  * Browser modules (tabs, bookmarks, history, downloads, extensions,
  * permissions, profiles, etc.) have been removed in the nuclear pivot.
- * Only the agent hub infrastructure remains: shell window, pill, HL engine,
+ * Only the core infrastructure remains: shell window, pill, HL engine,
  * OAuth/identity, settings window, updater, hotkeys.
  */
 
@@ -19,6 +19,33 @@ loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
 
 app.setName('Browser Use');
+
+// Enforce a single running instance. Launching a second copy would race on
+// the sessions SQLite db, the .vite dev cache, and the user-data dir — and
+// most commonly just confuses the user. When the second instance tries to
+// start, surface the existing window instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  throw new Error('another instance is already running');
+}
+app.on('second-instance', () => {
+  const windows = BrowserWindow.getAllWindows();
+  const main = windows.find((w) => !w.isDestroyed() && !w.isMinimized()) ?? windows[0];
+  if (main) {
+    if (main.isMinimized()) main.restore();
+    main.show();
+    main.focus();
+  }
+});
+
+// Populate the native About dialog (macOS + Linux) instead of showing the
+// default Electron panel with no branding.
+app.setAboutPanelOptions({
+  applicationName: 'Browser Use',
+  applicationVersion: app.getVersion(),
+  copyright: '© 2026 Browser Use',
+  website: 'https://github.com/browser-use/desktop-app',
+});
 
 import started from 'electron-squirrel-startup';
 import { createShellWindow } from './window';
@@ -352,7 +379,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  // pill:get-tabs — no tabs in agent hub, return empty
+  // pill:get-tabs — no tabs in Browser Use Desktop, return empty
   ipcMain.handle('pill:get-tabs', () => {
     return { tabs: [], activeTabId: null };
   });
@@ -990,7 +1017,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('shell:set-chrome-height', (_e, height: unknown) => {
     if (typeof height !== 'number' || !Number.isFinite(height)) return;
     mainLogger.debug('main.shell:set-chrome-height', { height });
-    // No TabManager to relay to — no-op in agent hub
+    // No TabManager to relay to — no-op in Browser Use Desktop
   });
 
   ipcMain.handle('shell:set-overlay', (_e, active: unknown) => {
@@ -1229,7 +1256,7 @@ function buildApplicationMenu(): void {
           click: () => {
             mainLogger.debug('menu.reportIssue');
             const { shell } = require('electron');
-            shell.openExternal('https://github.com/anthropics/desktop-app/issues');
+            shell.openExternal('https://github.com/browser-use/desktop-app/issues');
           },
         },
       ],

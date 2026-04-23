@@ -6,6 +6,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Pill } from './Pill';
+import { ErrorBoundary } from '../components/empty/ErrorBoundary';
+import '../design/empty-states.css';
 import './pill.css';
 
 // Apply shell theme (dark Linear+Obsidian) — pill uses same palette
@@ -23,6 +25,8 @@ if (!rootEl) throw new Error('[pill] #pill-root element not found');
 
 createRoot(rootEl).render(
   <React.StrictMode>
-    <Pill />
+    <ErrorBoundary>
+      <Pill />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

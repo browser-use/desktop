@@ -1,7 +1,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { OnboardingApp } from './OnboardingApp';
+import { ErrorBoundary } from '../components/empty/ErrorBoundary';
+import { OfflineBanner } from '../components/empty/OfflineBanner';
 import '@/renderer/design/theme.global.css';
+import '../design/empty-states.css';
 import './onboarding.css';
 
 document.documentElement.dataset.theme = 'shell';
@@ -19,6 +22,9 @@ if (!rootEl) throw new Error('[onboarding] #onboarding-root element not found');
 
 createRoot(rootEl).render(
   <React.StrictMode>
-    <OnboardingApp />
+    <ErrorBoundary>
+      <OfflineBanner />
+      <OnboardingApp />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

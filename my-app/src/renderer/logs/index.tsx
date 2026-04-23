@@ -1,6 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { LogsApp } from './LogsApp';
+import { ErrorBoundary } from '../components/empty/ErrorBoundary';
+import '../design/empty-states.css';
 import './logs.css';
 
 document.documentElement.dataset.theme = 'shell';
@@ -10,6 +12,8 @@ if (!rootEl) throw new Error('[logs] #logs-root not found');
 
 createRoot(rootEl).render(
   <React.StrictMode>
-    <LogsApp />
+    <ErrorBoundary>
+      <LogsApp />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
