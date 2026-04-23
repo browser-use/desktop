@@ -14,8 +14,7 @@
  * D2: Verbose dev-only logging on all lifecycle events.
  */
 
-import { BrowserWindow, screen, app } from 'electron';
-import fs from 'node:fs';
+import { BrowserWindow, screen } from 'electron';
 import path from 'node:path';
 import type { AgentEvent } from '../shared/types';
 import { mainLogger } from './logger';
@@ -54,44 +53,7 @@ let pillWindow: BrowserWindow | null = null;
  * Compute the x position so the pill is horizontally centered on the display
  * nearest the cursor.
  */
-function getPillPositionPath(): string {
-  return path.join(app.getPath('userData'), 'pill-position.json');
-}
-
-function loadSavedPillPosition(): { x: number; y: number } | null {
-  try {
-    const raw = fs.readFileSync(getPillPositionPath(), 'utf-8');
-    const parsed = JSON.parse(raw) as { x?: number; y?: number };
-    if (typeof parsed.x !== 'number' || typeof parsed.y !== 'number') return null;
-    const displays = screen.getAllDisplays();
-    const visible = displays.some(
-      (d) =>
-        parsed.x! >= d.bounds.x &&
-        parsed.y! >= d.bounds.y &&
-        parsed.x! < d.bounds.x + d.bounds.width &&
-        parsed.y! < d.bounds.y + d.bounds.height,
-    );
-    if (!visible) return null;
-    return { x: parsed.x, y: parsed.y };
-  } catch {
-    return null;
-  }
-}
-
-function savePillPosition(x: number, y: number): void {
-  try {
-    fs.writeFileSync(getPillPositionPath(), JSON.stringify({ x, y }), 'utf-8');
-  } catch (err) {
-    log.warn('pill.savePillPosition', { error: (err as Error).message });
-  }
-}
-
 function computePillBounds(): { x: number; y: number; width: number; height: number } {
-  const saved = loadSavedPillPosition();
-  if (saved) {
-    return { x: saved.x, y: saved.y, width: PILL_WIDTH, height: PILL_HEIGHT_COLLAPSED };
-  }
-
   let displayBounds = { x: 0, y: 0, width: 1920, height: 1080 };
 
   try {
@@ -108,7 +70,36 @@ function computePillBounds(): { x: number; y: number; width: number; height: num
   const x = Math.round(displayBounds.x + (displayBounds.width - PILL_WIDTH) / 2);
   const y = displayBounds.y + PILL_TOP_OFFSET;
 
+  log.debug('pill.computePillBounds', {
+    message: 'Computed pill position',
+    x,
+    y,
+    displayBounds,
+  });
+
   return { x, y, width: PILL_WIDTH, height: PILL_HEIGHT_COLLAPSED };
+}
+
+// ---------------------------------------------------------------------------
+// Visibility callbacks
+// ---------------------------------------------------------------------------
+
+const visibilityCallbacks: Array<(visible: boolean) => void> = [];
+
+export function onPillVisibilityChange(cb: (visible: boolean) => void): () => void {
+  visibilityCallbacks.push(cb);
+  return () => {
+    const i = visibilityCallbacks.indexOf(cb);
+    if (i >= 0) visibilityCallbacks.splice(i, 1);
+  };
+}
+
+function notifyVisibility(visible: boolean): void {
+  for (const cb of visibilityCallbacks) {
+    try { cb(visible); } catch (err) {
+      log.warn('pill.notifyVisibility.error', { error: (err as Error).message });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,21 +179,8 @@ export function createPillWindow(): BrowserWindow {
     });
   });
 
-  let moveTimer: ReturnType<typeof setTimeout> | null = null;
-  pillWindow.on('move', () => {
-    if (!pillWindow || pillWindow.isDestroyed()) return;
-    if (moveTimer) clearTimeout(moveTimer);
-    moveTimer = setTimeout(() => {
-      if (!pillWindow || pillWindow.isDestroyed()) return;
-      const [x, y] = pillWindow.getPosition();
-      savePillPosition(x, y);
-      log.debug('pill.moved', { x, y });
-    }, 300);
-  });
-
   pillWindow.on('closed', () => {
     log.info('pill.closed', { message: 'Pill window closed — nulling reference' });
-    if (moveTimer) clearTimeout(moveTimer);
     pillWindow = null;
   });
 
@@ -219,24 +197,6 @@ export function createPillWindow(): BrowserWindow {
  * Show the pill window, repositioning it to center-top of the active display.
  * Measures show latency (§6 Acceptance #6 target: p95 ≤ 150ms).
  */
-const visibilityCallbacks: Array<(visible: boolean) => void> = [];
-
-export function onPillVisibilityChange(cb: (visible: boolean) => void): () => void {
-  visibilityCallbacks.push(cb);
-  return () => {
-    const i = visibilityCallbacks.indexOf(cb);
-    if (i >= 0) visibilityCallbacks.splice(i, 1);
-  };
-}
-
-function notifyVisibility(visible: boolean): void {
-  for (const cb of visibilityCallbacks) {
-    try { cb(visible); } catch (err) {
-      log.warn('pill.notifyVisibility.callbackError', { error: (err as Error).message });
-    }
-  }
-}
-
 export function showPill(): void {
   const t0 = performance.now();
 

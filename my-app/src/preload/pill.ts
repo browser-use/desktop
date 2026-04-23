@@ -48,6 +48,9 @@ log.info('preload.pill', { message: 'Pill preload script initializing' });
 // ---------------------------------------------------------------------------
 
 contextBridge.exposeInMainWorld('pillAPI', {
+  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number }>> => {
+    return ipcRenderer.invoke('sessions:list');
+  },
   /**
    * Submit a prompt to the agent.
    * Main process handles: get active CDP URL, generate task_id, send to daemon.
@@ -62,10 +65,6 @@ contextBridge.exposeInMainWorld('pillAPI', {
       attachmentCount: attachments?.length ?? 0,
     });
     return ipcRenderer.invoke('pill:submit', { prompt, attachments });
-  },
-
-  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number }>> => {
-    return ipcRenderer.invoke('sessions:list');
   },
 
   selectSession: (id: string): void => {
@@ -224,5 +223,5 @@ contextBridge.exposeInMainWorld('pillAPI', {
 });
 
 log.info('preload.pill.ready', {
-  message: 'Pill preload script ready — pillAPI exposed to renderer',
+  message: 'Pill preload script ready — pillAPI and electronAPI exposed to renderer',
 });

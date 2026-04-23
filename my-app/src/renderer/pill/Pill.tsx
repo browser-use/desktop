@@ -24,6 +24,14 @@ declare global {
         attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
       ) => Promise<{ resumed?: boolean; error?: string }>;
       onFollowUpMode: (cb: (data: { sessionId: string; sessionPrompt: string }) => void) => () => void;
+      // Mode management
+      setMode?: (mode: 'pill' | 'panel' | 'hidden') => Promise<{ mode: string }>;
+      getMode?: () => Promise<'pill' | 'panel' | 'hidden'>;
+      onPillModeChanged?: (cb: (mode: 'pill' | 'panel' | 'hidden') => void) => () => void;
+      // Active session
+      setActiveSession?: (id: string | null) => Promise<{ ok: boolean }>;
+      getActiveSession?: () => Promise<string | null>;
+      onActiveSessionChanged?: (cb: (id: string | null) => void) => () => void;
     };
   }
 }
