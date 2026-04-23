@@ -241,7 +241,12 @@ const config: ForgeConfig = {
       // KEEP TRUE — validates the SHA-256 integrity of asar contents at
       // startup using hashes embedded at package time. Detects tampering
       // with the app bundle after signing/notarization.
-      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+      // macOS-only caveat: when the app is unsigned, enabling this fuse
+      // makes the launcher refuse to start with "is damaged and can't be
+      // opened" — the integrity check requires a valid code signature to
+      // bootstrap. See electron/fuses#7. Gate on SHOULD_SIGN so dev/unsigned
+      // builds still launch; signed production builds keep the hardening.
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: SHOULD_SIGN,
 
       // KEEP TRUE — enforces that the Electron main process only loads JS
       // from the asar archive (not loose files). Combined with
