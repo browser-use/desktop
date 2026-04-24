@@ -33,6 +33,7 @@ export interface CodexLoginOptions {
 
 // ANSI-stripping regex — codex emits coloured output even under a pty.
 // Matches CSI sequences and the OSC-8 hyperlink wrappers codex sometimes uses.
+// eslint-disable-next-line no-control-regex -- intentionally matching ESC/BEL control bytes in ANSI/OSC sequences
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\]8;[^\x07]*\x07/g;
 
 // Device-verification URL and XXXX-XXXX code extraction. Both patterns are
