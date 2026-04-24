@@ -85,7 +85,11 @@ export interface EngineAdapter {
   // Onboarding probes
   probeInstalled(): Promise<InstallProbe>;
   probeAuthed(): Promise<AuthProbe>;
-  openLoginInTerminal(): Promise<{ opened: boolean; error?: string }>;
+  /** Kick off the engine's login flow. `opened` means "the flow is now
+   *  underway" — for Claude Code that's the OAuth browser handoff, for Codex
+   *  it's the device-auth URL + code returned in this result. Callers should
+   *  then poll `probeAuthed()` to detect when auth.json / OAuth creds appear. */
+  openLoginInTerminal(): Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }>;
 
   // Execution
   /** Produce the argv for spawning this engine in headless mode. */

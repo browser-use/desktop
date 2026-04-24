@@ -57,7 +57,7 @@ const onboardingAPI = {
   useCodex: (): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('onboarding:use-codex'),
 
-  openCodexLoginTerminal: (): Promise<{ opened: boolean; error?: string }> =>
+  openCodexLoginTerminal: (): Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }> =>
     ipcRenderer.invoke('onboarding:open-codex-login-terminal'),
 
   openExternal: (url: string): Promise<{ opened: boolean }> =>

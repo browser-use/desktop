@@ -127,6 +127,12 @@ const config: ForgeConfig = {
       // against Electron's headers before asar packaging.
       const { rebuild } = await import('@electron/rebuild');
       await rebuild({ buildPath, electronVersion, arch: process.arch });
+      // npm (like yarn) drops the executable bit off node-pty's spawn-helper.
+      // Restore it on the packaged tree so `codex login` doesn't crash with
+      // `posix_spawnp failed` the first time a user opens onboarding.
+      execSync(`node ${path.resolve(__dirname, 'scripts/chmod-node-pty-helpers.mjs')} "${buildPath}"`, {
+        stdio: 'inherit',
+      });
     },
 
     // Ad-hoc sign the .app on macOS for unsigned builds. macOS 26 refuses

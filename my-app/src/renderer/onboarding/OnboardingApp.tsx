@@ -51,7 +51,7 @@ declare global {
         error?: string | null;
       }>;
       useCodex: () => Promise<{ ok: boolean }>;
-      openCodexLoginTerminal: () => Promise<{ opened: boolean; error?: string }>;
+      openCodexLoginTerminal: () => Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }>;
       openExternal: (url: string) => Promise<{ opened: boolean }>;
       requestNotifications: () => Promise<{ supported: boolean }>;
       listenShortcut: () => Promise<{ ok: boolean; accelerator: string }>;
@@ -271,6 +271,10 @@ export function OnboardingApp() {
   } | null>(null);
   const [usingCodex, setUsingCodex] = useState(false);
   const [waitingForCodexLogin, setWaitingForCodexLogin] = useState(false);
+  // Device-auth flow state: the URL the user visits + the one-time code they
+  // paste. Populated by handleStartCodexLogin and cleared once auth completes.
+  const [codexDeviceCode, setCodexDeviceCode] = useState<string | null>(null);
+  const [codexVerificationUrl, setCodexVerificationUrl] = useState<string | null>(null);
 
   const refreshClaudeStatus = useCallback(async () => {
     try {
@@ -352,18 +356,32 @@ export function OnboardingApp() {
   const handleStartCodexLogin = useCallback(async () => {
     console.log('[onboarding] handleStartCodexLogin: invoking openCodexLoginTerminal');
     setWaitingForCodexLogin(true);
+    setCodexDeviceCode(null);
+    setCodexVerificationUrl(null);
     try {
       const res = await window.onboardingAPI.openCodexLoginTerminal();
       console.log('[onboarding] handleStartCodexLogin: result', res);
       if (!res.opened) {
         console.warn('[onboarding] openCodexLoginTerminal failed', res.error);
         setWaitingForCodexLogin(false);
+        return;
       }
+      if (res.deviceCode) setCodexDeviceCode(res.deviceCode);
+      if (res.verificationUrl) setCodexVerificationUrl(res.verificationUrl);
     } catch (err) {
       console.error('[onboarding] openCodexLoginTerminal threw', err);
       setWaitingForCodexLogin(false);
     }
   }, []);
+
+  // Clear the device code as soon as the backend observes auth.json — the
+  // polling effect below flips waitingForCodexLogin off and we follow suit.
+  useEffect(() => {
+    if (!waitingForCodexLogin && (codexDeviceCode || codexVerificationUrl)) {
+      setCodexDeviceCode(null);
+      setCodexVerificationUrl(null);
+    }
+  }, [waitingForCodexLogin, codexDeviceCode, codexVerificationUrl]);
 
   // Poll while waiting for Claude Code to finish browser-based login.
   // Stops when authed becomes true or after a cap.
@@ -904,27 +922,46 @@ export function OnboardingApp() {
 
             {/* Codex — installed but not authed */}
             {codex && !codex.authed && !usingCodex && (
-              <button
-                type="button"
-                className="claude-code-card"
-                onClick={handleStartCodexLogin}
-                disabled={waitingForCodexLogin}
-              >
-                <div className="claude-code-card__icon">
-                  <img src={codexLogo} alt="" />
-                </div>
-                <div className="claude-code-card__text">
-                  <div className="claude-code-card__title">
-                    {waitingForCodexLogin ? 'Waiting for login…' : 'Log in to Codex'}
+              <>
+                <button
+                  type="button"
+                  className="claude-code-card"
+                  onClick={handleStartCodexLogin}
+                  disabled={waitingForCodexLogin}
+                >
+                  <div className="claude-code-card__icon">
+                    <img src={codexLogo} alt="" />
                   </div>
-                  <div className="claude-code-card__sub">
-                    {waitingForCodexLogin
-                      ? 'Finish the browser flow in Terminal. We’ll detect it automatically.'
-                      : 'Opens Terminal with `codex login` — sign in once, we’ll detect it.'}
+                  <div className="claude-code-card__text">
+                    <div className="claude-code-card__title">
+                      {waitingForCodexLogin ? 'Waiting for login…' : 'Log in to Codex'}
+                    </div>
+                    <div className="claude-code-card__sub">
+                      {waitingForCodexLogin && codexDeviceCode
+                        ? 'Enter the code shown below on the verification page.'
+                        : waitingForCodexLogin
+                          ? 'Starting device-auth flow…'
+                          : 'Opens a browser with a one-time code — sign in once, we’ll detect it.'}
+                    </div>
                   </div>
-                </div>
-                <div className="claude-code-card__chevron">{waitingForCodexLogin ? '…' : '›'}</div>
-              </button>
+                  <div className="claude-code-card__chevron">{waitingForCodexLogin ? '…' : '›'}</div>
+                </button>
+                {codexDeviceCode && (
+                  <div className="codex-device-auth">
+                    <div className="codex-device-auth__label">One-time code</div>
+                    <div className="codex-device-auth__code">{codexDeviceCode}</div>
+                    {codexVerificationUrl && (
+                      <button
+                        type="button"
+                        className="codex-device-auth__link"
+                        onClick={() => window.onboardingAPI.openExternal?.(codexVerificationUrl)}
+                      >
+                        Open verification page ↗
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
             <>

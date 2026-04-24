@@ -19,10 +19,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { shell } from 'electron';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
 import { enrichedEnv } from '../pathEnrich';
+import { runCodexDeviceLogin } from '../../../identity/codexLogin';
 import type {
   AuthProbe,
   EngineAdapter,
@@ -111,21 +111,10 @@ const codexAdapter: EngineAdapter = {
     }
   },
 
-  async openLoginInTerminal(): Promise<{ opened: boolean; error?: string }> {
-    if (process.platform !== 'darwin') {
-      shell.openExternal('https://developers.openai.com/codex/auth').catch(() => {});
-      return { opened: false, error: 'macOS only — follow docs to run `codex login`' };
-    }
-    const script = `tell application "Terminal"\nactivate\ndo script "codex login"\nend tell`;
-    return new Promise((resolve) => {
-      const osa = spawn('osascript', ['-e', script]);
-      let stderrBuf = '';
-      osa.stderr.on('data', (d) => (stderrBuf += String(d)));
-      osa.on('close', (code) => {
-        if (code === 0) resolve({ opened: true });
-        else resolve({ opened: false, error: stderrBuf.trim() || `osascript exit ${code}` });
-      });
-    });
+  async openLoginInTerminal() {
+    // Cross-platform device-auth flow via node-pty. See codexLogin.ts for the
+    // PTY-is-required-for-stdout rationale and the URL/code parsing logic.
+    return runCodexDeviceLogin();
   },
 
   wrapPrompt(ctx: SpawnContext): string {
