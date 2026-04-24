@@ -88,6 +88,20 @@ arg.
 - Same-origin nested iframes don't show up as CDP targets — walk `contentDocument` instead.
 - Shadow DOM `querySelector` does **not** pierce — walk `element.shadowRoot` recursively.
 
+## Domain skills (read-only reference)
+
+`./domain-skills/` contains per-site playbooks pulled from
+[browser-use/harnessless](https://github.com/browser-use/harnessless).
+Before acting on a task for a specific site, check for a matching folder
+(e.g. `./domain-skills/amazon/`, `./domain-skills/github/`) and read any
+`.md` files you find there — they document selectors, flows, and gotchas
+that are cheaper to reuse than to rediscover.
+
+These files are **read-only**. They are fully overwritten from the bundle
+on every app launch, so any edits you make will be lost. If you learn
+something new about a site, add it to `helpers.js` or a comment there
+instead.
+
 ## Uploads and outputs
 
 - **Uploads**: if the user attached files, they appear in the seed prompt with
