@@ -289,7 +289,7 @@ export function parseSocketLine(line: string): AgentEvent | DaemonResponse {
   try {
     parsed = JSON.parse(line);
   } catch (err) {
-    throw new Error(`Failed to parse socket line as JSON: ${line.slice(0, 200)}`);
+    throw new Error(`Failed to parse socket line as JSON: ${line.slice(0, 200)}`, { cause: err });
   }
   assertVersion(parsed);
   return parsed as AgentEvent | DaemonResponse;
