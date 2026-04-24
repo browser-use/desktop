@@ -128,12 +128,15 @@ export function runCodexDeviceLogin(opts: CodexLoginOptions = {}): Promise<Codex
       // the redirect, no user-typed code required).
       const ready = opts.deviceAuth ? Boolean(foundUrl && foundCode) : Boolean(foundUrl);
       if (ready && !settled) {
-        // Open the verification page in the user's default browser. If this
-        // fails (no browser, headless CI, etc.) we still return the URL so
-        // the renderer can show a copyable link.
-        shell.openExternal(foundUrl!).catch((err) => {
-          mainLogger.warn('codexLogin.openExternalFailed', { error: (err as Error).message });
-        });
+        // Only auto-open the browser in device-auth mode — plain `codex login`
+        // already launches the browser itself, so calling shell.openExternal
+        // too would spawn two windows. We still return the URL so the UI can
+        // show a "didn't auto-open?" fallback button if needed.
+        if (opts.deviceAuth) {
+          shell.openExternal(foundUrl!).catch((err) => {
+            mainLogger.warn('codexLogin.openExternalFailed', { error: (err as Error).message });
+          });
+        }
         finish({ opened: true, verificationUrl: foundUrl, deviceCode: foundCode });
       }
     });

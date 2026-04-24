@@ -322,22 +322,26 @@ export function OnboardingApp() {
     void refreshCodexStatus();
   }, [refreshCodexStatus]);
 
-  // Poll while the user completes `codex login` in Terminal.
+  // Poll while the user completes codex login. Short interval + immediate
+  // first tick so the UI flips to "configured" within a second of auth.json
+  // appearing, not after the full 3s loop.
   useEffect(() => {
     if (!waitingForCodexLogin) return;
     let cancelled = false;
     let attempts = 0;
-    const MAX_ATTEMPTS = 60;
+    const MAX_ATTEMPTS = 180; // 3 minutes at 1s
     const tick = async () => {
       if (cancelled) return;
       attempts++;
       const res = await refreshCodexStatus();
       if (res?.authed) { setWaitingForCodexLogin(false); return; }
       if (attempts >= MAX_ATTEMPTS) { setWaitingForCodexLogin(false); return; }
-      setTimeout(tick, 3000);
+      setTimeout(tick, 1000);
     };
-    const id = setTimeout(tick, 3000);
-    return () => { cancelled = true; clearTimeout(id); };
+    // Kick off immediately (not after 3s) so the first detection happens
+    // right after the main-process write, not a full interval later.
+    void tick();
+    return () => { cancelled = true; };
   }, [waitingForCodexLogin, refreshCodexStatus]);
 
   const handleUseCodex = useCallback(async () => {
