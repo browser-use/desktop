@@ -1,38 +1,38 @@
 /**
- * Stores all auth credentials (Anthropic API key + OAuth, OpenAI API key,
- * active auth-mode flag) under ONE macOS Keychain entry, JSON-encoded.
+ * Stores user-managed credentials only:
+ *   - Anthropic API key (manual entry; alternative to subscription)
+ *   - OpenAI API key (manual entry; alternative to ChatGPT subscription)
+ *   - active auth-mode flag ('apiKey' | 'claudeCode')
  *
- * Why one entry: each separate keychain entry triggers its own "allow"
- * prompt the first time an unsigned/ad-hoc-signed binary touches it.
- * Pre-consolidation we had four entries — and four prompts on first launch.
- * Now we have one prompt that decrypts everything; subsequent reads in the
- * same process come from the in-memory cache and never touch keychain again.
+ * Claude Code subscription OAuth tokens are NOT stored here. They live in
+ * the Claude CLI's own macOS Keychain entry; we read them on demand via
+ * `readClaudeCodeCredentials()` so the Settings UI always reflects the
+ * actual CLI state. Storing a copy of those tokens here only created drift
+ * (our copy could go stale, log out from the terminal would not propagate)
+ * and a redundant keychain prompt for a value the agent never reads at
+ * runtime — the spawned `claude` CLI uses its own keychain entry directly.
  *
  * Storage layout in macOS Keychain (via keytar):
  *   service = "com.browser-use.desktop.credentials"
  *   account = "default"
- *   password = JSON.stringify(Credentials)
+ *   password = JSON.stringify(Credentials)   (one entry → one prompt)
  *
- * On first load we attempt to migrate from the legacy 4-entry layout
+ * On first load we migrate the legacy 4-entry layout
  * (com.browser-use.desktop.{anthropic, anthropic-oauth, openai, auth-mode})
- * for users who upgrade from the pre-consolidation build. After a successful
- * migration we delete the legacy entries so future launches go straight
- * through the consolidated path.
+ * for users upgrading from older builds. The OAuth blob is read once for
+ * subscriptionType extraction (kept on the new blob until we can derive it
+ * from the live Claude CLI state) and the legacy entry is then deleted.
  */
 
 import { mainLogger } from '../logger';
-import {
-  refreshClaudeOAuth,
-  isExpiringSoon,
-  type ClaudeOAuthCredentials,
-} from './claudeCodeAuth';
+import { readClaudeCodeCredentials } from './claudeCodeAuth';
 
 const CREDENTIALS_SERVICE = 'com.browser-use.desktop.credentials';
 const DEFAULT_ACCOUNT = 'default';
 
-// Legacy services — read once on migration, deleted afterwards. Kept here so
-// any external code that references them (e.g. for diagnostic dumps) still
-// has a name to import. New code should NOT call keytar directly with these.
+// Legacy services — read once for migration, deleted afterwards. Exported so
+// any external diagnostic code that imports them still resolves; new code
+// must NOT call keytar with these.
 export const API_KEY_SERVICE = 'com.browser-use.desktop.anthropic';
 export const OPENAI_KEY_SERVICE = 'com.browser-use.desktop.openai';
 export const OAUTH_SERVICE = 'com.browser-use.desktop.anthropic-oauth';
@@ -42,7 +42,6 @@ export type AuthMode = 'apiKey' | 'claudeCode';
 
 export type ResolvedAuth =
   | { type: 'apiKey'; value: string }
-  | { type: 'oauth'; value: string; subscriptionType?: string }
   | null;
 
 interface KeytarLike {
@@ -63,31 +62,21 @@ function getKeytar(): KeytarLike | null {
 interface Credentials {
   authMode: AuthMode | null;
   anthropicApiKey: string | null;
-  anthropicOAuth: ClaudeOAuthCredentials | null;
   openaiApiKey: string | null;
 }
 
 function emptyCredentials(): Credentials {
-  return { authMode: null, anthropicApiKey: null, anthropicOAuth: null, openaiApiKey: null };
+  return { authMode: null, anthropicApiKey: null, openaiApiKey: null };
 }
 
 // In-memory cache. Populated on first read; mutated by save/clear functions
-// and persisted via persistCache. Lifetime = process; cleared if/when the
-// app quits. Renderer never sees this — it goes through IPC handlers.
+// and persisted via persistCache. Lifetime = process.
 let cached: Credentials | null = null;
 let loadingPromise: Promise<Credentials> | null = null;
 
-function safeParseOAuth(raw: string): ClaudeOAuthCredentials | null {
-  try { return JSON.parse(raw) as ClaudeOAuthCredentials; }
-  catch (err) {
-    mainLogger.warn('authStore.parseOAuth.failed', { error: (err as Error).message });
-    return null;
-  }
-}
-
 /**
- * Resolve and cache the full credentials blob. Concurrent calls reuse the
- * same in-flight load so we never hit keychain twice.
+ * Resolve and cache the credentials blob. Concurrent calls reuse the same
+ * in-flight load so we never hit keychain twice.
  */
 async function getAll(): Promise<Credentials> {
   if (cached) return cached;
@@ -106,7 +95,6 @@ async function getAll(): Promise<Credentials> {
           cached = {
             authMode: parsed.authMode === 'apiKey' || parsed.authMode === 'claudeCode' ? parsed.authMode : null,
             anthropicApiKey: parsed.anthropicApiKey ?? null,
-            anthropicOAuth: parsed.anthropicOAuth ?? null,
             openaiApiKey: parsed.openaiApiKey ?? null,
           };
           return cached;
@@ -114,9 +102,9 @@ async function getAll(): Promise<Credentials> {
           mainLogger.warn('authStore.parseBlob.failed', { error: (err as Error).message });
         }
       }
-      // No blob yet — try the legacy 4-entry layout. This path runs at most
-      // once per install: after migration we save the new blob and delete
-      // the old entries.
+      // No new blob yet — try the legacy 4-entry layout. We DROP the legacy
+      // anthropic-oauth blob: subscription state now comes live from
+      // readClaudeCodeCredentials() (the Claude CLI's own keychain entry).
       const [authModeRaw, apiKeyRaw, oauthRaw, openaiRaw] = await Promise.all([
         keytar.getPassword(AUTH_MODE_SERVICE, DEFAULT_ACCOUNT),
         keytar.getPassword(API_KEY_SERVICE, DEFAULT_ACCOUNT),
@@ -126,19 +114,18 @@ async function getAll(): Promise<Credentials> {
       cached = {
         authMode: authModeRaw === 'apiKey' || authModeRaw === 'claudeCode' ? authModeRaw : null,
         anthropicApiKey: apiKeyRaw ?? null,
-        anthropicOAuth: oauthRaw ? safeParseOAuth(oauthRaw) : null,
         openaiApiKey: openaiRaw ?? null,
       };
       const hasLegacyData =
         cached.authMode !== null ||
         cached.anthropicApiKey !== null ||
-        cached.anthropicOAuth !== null ||
+        oauthRaw !== null ||
         cached.openaiApiKey !== null;
       if (hasLegacyData) {
         mainLogger.info('authStore.migration.start', {
           hasAuthMode: cached.authMode !== null,
           hasApiKey: cached.anthropicApiKey !== null,
-          hasOAuth: cached.anthropicOAuth !== null,
+          hadLegacyOAuth: oauthRaw !== null,
           hasOpenAi: cached.openaiApiKey !== null,
         });
         await persistCache();
@@ -176,7 +163,7 @@ async function persistCache(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Public API — same surface as before; backed by the consolidated blob.
+// Public API
 // ---------------------------------------------------------------------------
 
 export async function setAuthMode(mode: AuthMode): Promise<void> {
@@ -193,7 +180,6 @@ async function getAuthMode(): Promise<AuthMode | null> {
 export async function saveApiKey(key: string): Promise<void> {
   const c = await getAll();
   c.anthropicApiKey = key;
-  c.anthropicOAuth = null;
   c.authMode = 'apiKey';
   await persistCache();
   mainLogger.info('authStore.saveApiKey.ok');
@@ -217,48 +203,54 @@ export async function deleteOpenAIKey(): Promise<void> {
   mainLogger.info('authStore.deleteOpenAIKey.ok');
 }
 
-export async function saveOAuth(creds: ClaudeOAuthCredentials): Promise<void> {
+/**
+ * Mark the user's choice to use Claude Code subscription. We don't copy the
+ * CLI's OAuth tokens into our keychain — the agent spawns `claude` directly
+ * and it reads from its own keychain. This call exists so the auth-mode
+ * flag is consistent with what the user clicked in Settings/onboarding.
+ */
+export async function useClaudeCodeSubscription(): Promise<void> {
   const c = await getAll();
-  c.anthropicOAuth = creds;
-  c.anthropicApiKey = null;
+  c.authMode = 'claudeCode';
   await persistCache();
-  mainLogger.info('authStore.saveOAuth.ok', {
-    subscriptionType: creds.subscriptionType,
-    expiresAt: creds.expiresAt,
-  });
+  mainLogger.info('authStore.useClaudeCodeSubscription');
 }
 
+/** Forget the saved Anthropic API key. Claude CLI subscription is unaffected
+ *  — that lives in the CLI's own keychain. To log out of the subscription,
+ *  callers should run `claude auth logout` (apiKeyIpc.ts handles that). */
 export async function clearAuth(): Promise<void> {
   const c = await getAll();
   c.anthropicApiKey = null;
-  c.anthropicOAuth = null;
   await persistCache();
   mainLogger.info('authStore.clearAuth');
-}
-
-async function loadOAuth(): Promise<ClaudeOAuthCredentials | null> {
-  return (await getAll()).anthropicOAuth;
 }
 
 async function loadApiKey(): Promise<string | null> {
   return (await getAll()).anthropicApiKey;
 }
 
-/** Read the stored Claude OAuth credential's subscriptionType ("max" | "pro"
- *  | ...) without touching active auth mode. Used at session-spawn time to
- *  label a session with the subscription tier that actually ran it. Returns
- *  null if no OAuth creds are stored or the field is missing. */
+/** Probe the Claude CLI's own keychain entry to read the subscription tier
+ *  ("max" | "pro" | ...). Returns null if the CLI isn't authed. Used at
+ *  session-spawn time so the session record reflects which subscription
+ *  ran it. */
 export async function loadClaudeSubscriptionType(): Promise<string | null> {
-  return (await loadOAuth())?.subscriptionType ?? null;
+  try {
+    const creds = await readClaudeCodeCredentials();
+    return creds?.subscriptionType ?? null;
+  } catch (err) {
+    mainLogger.warn('authStore.loadClaudeSubscriptionType.failed', { error: (err as Error).message });
+    return null;
+  }
 }
 
-/** Aggregated status surface for the Settings UI — replaces the per-key
- *  keytar reads that used to live in apiKeyIpc.ts. Returning everything
- *  in one shape keeps the consolidated cache hot and lets the renderer
- *  render its full state from a single round trip. */
+/** Aggregated status surface for the Settings UI. Anthropic state combines
+ *  the saved API key (our keychain) with the Claude CLI's live auth state
+ *  (the CLI's keychain), so the panel always matches reality even if the
+ *  user `claude auth logout`s from a terminal. */
 export interface CredentialStatus {
   anthropic:
-    | { type: 'oauth'; masked: string | undefined; subscriptionType: string | null; expiresAt: number | undefined }
+    | { type: 'oauth'; subscriptionType: string | null }
     | { type: 'apiKey'; masked: string }
     | { type: 'none' };
   openai: { present: boolean; masked?: string };
@@ -271,16 +263,30 @@ function maskKey(key: string): string {
 
 export async function getCredentialStatus(): Promise<CredentialStatus> {
   const c = await getAll();
-  const anthropic: CredentialStatus['anthropic'] = c.anthropicOAuth
-    ? {
-        type: 'oauth',
-        masked: c.anthropicOAuth.accessToken ? maskKey(c.anthropicOAuth.accessToken) : undefined,
-        subscriptionType: c.anthropicOAuth.subscriptionType ?? null,
-        expiresAt: c.anthropicOAuth.expiresAt,
+  // API key wins when explicitly chosen; otherwise prefer the live CLI
+  // subscription if one is authed; otherwise nothing.
+  let anthropic: CredentialStatus['anthropic'];
+  if (c.authMode === 'apiKey' && c.anthropicApiKey) {
+    anthropic = { type: 'apiKey', masked: maskKey(c.anthropicApiKey) };
+  } else {
+    let liveSub: string | null = null;
+    try {
+      const live = await readClaudeCodeCredentials();
+      if (live && live.scopes.includes('user:inference')) {
+        liveSub = live.subscriptionType ?? null;
       }
-    : c.anthropicApiKey
-      ? { type: 'apiKey', masked: maskKey(c.anthropicApiKey) }
-      : { type: 'none' };
+    } catch (err) {
+      mainLogger.warn('authStore.getCredentialStatus.claudeProbeFailed', { error: (err as Error).message });
+    }
+    if (liveSub !== null || (c.authMode !== 'apiKey' && (await readClaudeCodeCredentials())?.scopes.includes('user:inference'))) {
+      anthropic = { type: 'oauth', subscriptionType: liveSub };
+    } else if (c.anthropicApiKey) {
+      // No CLI subscription, but the user has stored an API key.
+      anthropic = { type: 'apiKey', masked: maskKey(c.anthropicApiKey) };
+    } else {
+      anthropic = { type: 'none' };
+    }
+  }
   const openai: CredentialStatus['openai'] = c.openaiApiKey
     ? { present: true, masked: maskKey(c.openaiApiKey) }
     : { present: false };
@@ -288,41 +294,16 @@ export async function getCredentialStatus(): Promise<CredentialStatus> {
 }
 
 /**
- * Resolve the current auth. Prefers OAuth (if stored and refreshable), falls
- * back to API key, then environment ANTHROPIC_API_KEY.
- *
- * Behaviour matches the pre-consolidation version exactly: only returns a
- * non-null value when authStore mode is 'apiKey'; in 'claudeCode' (or unset)
- * mode we let the Claude CLI's own keychain entry win.
+ * Resolve the API-key auth (or null). The OAuth/subscription branch was
+ * unused at runtime — Claude CLI handles its own auth via its own keychain
+ * — so this function only returns a stored API key when the user has
+ * explicitly chosen 'apiKey' mode, plus an env-var fallback for dev.
  */
 export async function resolveAuth(): Promise<ResolvedAuth> {
   const mode = await getAuthMode();
   if (mode !== 'apiKey') {
     mainLogger.info('authStore.resolveAuth.claudeCodeMode', { mode: mode ?? 'default' });
     return null;
-  }
-
-  const oauth = await loadOAuth();
-  if (oauth) {
-    let current = oauth;
-    if (isExpiringSoon(current)) {
-      mainLogger.info('authStore.resolveAuth.refreshing', {
-        expiresAt: current.expiresAt,
-      });
-      try {
-        current = await refreshClaudeOAuth(current.refreshToken);
-        await saveOAuth(current);
-      } catch (err) {
-        mainLogger.warn('authStore.resolveAuth.refreshFailed', {
-          error: (err as Error).message,
-        });
-      }
-    }
-    return {
-      type: 'oauth',
-      value: current.accessToken,
-      subscriptionType: current.subscriptionType,
-    };
   }
 
   const apiKey = await loadApiKey();

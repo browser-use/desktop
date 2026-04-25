@@ -11,7 +11,7 @@ import { mainLogger } from '../logger';
 import { assertString } from '../ipc-validators';
 import {
   saveApiKey,
-  saveOAuth,
+  useClaudeCodeSubscription,
   clearAuth,
   saveOpenAIKey,
   deleteOpenAIKey,
@@ -49,13 +49,11 @@ export interface AuthStatus {
 
 async function handleGetStatus(): Promise<AuthStatus> {
   const { anthropic } = await getCredentialStatus();
+  // OAuth path is now sourced from the live Claude CLI keychain probe; we
+  // no longer cache an accessToken or expiresAt locally — the CLI handles
+  // its own refresh — so the renderer just gets type + subscriptionType.
   if (anthropic.type === 'oauth') {
-    return {
-      type: 'oauth',
-      subscriptionType: anthropic.subscriptionType,
-      expiresAt: anthropic.expiresAt,
-      masked: anthropic.masked,
-    };
+    return { type: 'oauth', subscriptionType: anthropic.subscriptionType };
   }
   if (anthropic.type === 'apiKey') {
     return { type: 'apiKey', masked: anthropic.masked };
@@ -131,12 +129,18 @@ async function handleClaudeCodeAvailable(): Promise<{ available: boolean; subscr
 }
 
 async function handleUseClaudeCode(): Promise<{ subscriptionType: string | null }> {
+  // Verify the Claude CLI is actually authed (we want to fail fast if the
+  // user clicks "Sign in with Claude" without having run `claude auth login`).
+  // We do NOT copy the OAuth tokens into our keychain — the agent spawns
+  // `claude` directly which reads from the CLI's own keychain entry.
   const creds = await readClaudeCodeCredentials();
   if (!creds) throw new Error('Claude Code credentials not found');
   if (!creds.scopes.includes('user:inference')) {
     throw new Error('Claude Code token missing user:inference scope');
   }
-  await saveOAuth(creds);
+  // Just record the user's mode preference so resolveAuth() doesn't return
+  // a stored API key when they've explicitly chosen the subscription path.
+  await useClaudeCodeSubscription();
   return { subscriptionType: creds.subscriptionType ?? null };
 }
 
