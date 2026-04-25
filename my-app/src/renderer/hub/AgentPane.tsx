@@ -284,10 +284,27 @@ function FileOutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
   }, [menuOpen]);
 
   const onOpenInEditor = useCallback(async (editorId: string) => {
-    if (!entry.tool) return;
+    console.log('[file_output] onOpenInEditor click', { editorId, path: entry.tool });
+    if (!entry.tool) {
+      console.warn('[file_output] onOpenInEditor: entry.tool is falsy; aborting');
+      return;
+    }
     setMenuOpen(false);
-    try { await window.electronAPI?.sessions?.openInEditor?.(editorId, entry.tool); }
-    catch (err) { console.error('[file_output] openInEditor failed', err); }
+    const api = window.electronAPI?.sessions?.openInEditor;
+    if (!api) {
+      console.error('[file_output] window.electronAPI.sessions.openInEditor is undefined — preload bridge missing');
+      return;
+    }
+    try {
+      const res = await api(editorId, entry.tool);
+      console.log('[file_output] openInEditor success', res);
+    } catch (err) {
+      console.error('[file_output] openInEditor failed', err);
+      // Fallback so the user gets *some* response: reveal the file in Finder
+      // so they can open it manually.
+      try { await window.electronAPI?.sessions?.revealOutput?.(entry.tool); }
+      catch (revealErr) { console.error('[file_output] reveal fallback also failed', revealErr); }
+    }
   }, [entry.tool]);
 
   const onOpenWithDefault = useCallback(async () => {

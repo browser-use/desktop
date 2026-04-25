@@ -136,10 +136,25 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
   }, [menuOpen]);
 
   const onOpenInEditor = useCallback(async (editorId: string) => {
-    if (!entry.path) return;
+    console.log('[LogsApp file] onOpenInEditor click', { editorId, path: entry.path });
+    if (!entry.path) {
+      console.warn('[LogsApp file] entry.path is falsy; aborting');
+      return;
+    }
     setMenuOpen(false);
-    try { await window.electronAPI?.sessions.openInEditor(editorId, entry.path); }
-    catch (err) { console.error('[LogsApp file] openInEditor failed', err); }
+    const api = window.electronAPI?.sessions?.openInEditor;
+    if (!api) {
+      console.error('[LogsApp file] window.electronAPI.sessions.openInEditor is undefined — preload bridge missing');
+      return;
+    }
+    try {
+      const res = await api(editorId, entry.path);
+      console.log('[LogsApp file] openInEditor success', res);
+    } catch (err) {
+      console.error('[LogsApp file] openInEditor failed', err);
+      try { await window.electronAPI?.sessions?.revealOutput?.(entry.path); }
+      catch (revealErr) { console.error('[LogsApp file] reveal fallback also failed', revealErr); }
+    }
   }, [entry.path]);
 
   const onReveal = useCallback(async () => {
