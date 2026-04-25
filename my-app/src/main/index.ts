@@ -551,6 +551,8 @@ app.whenReady().then(async () => {
   });
   sessionManager.onEvent('session-completed', (session) => {
     shellWindow?.webContents.send('session-updated', session);
+    sendToPill('session-updated', session);
+    forwardSessionUpdatedToLogs(session);
     notifiedStuck.delete(session.id);
     const doneEvent = session.output.find(
       (e: { type: string }) => e.type === 'done',
@@ -570,6 +572,8 @@ app.whenReady().then(async () => {
   });
   sessionManager.onEvent('session-error', (session) => {
     shellWindow?.webContents.send('session-updated', session);
+    sendToPill('session-updated', session);
+    forwardSessionUpdatedToLogs(session);
     notifiedStuck.delete(session.id);
     sendSessionNotification({
       title: 'Session failed',
