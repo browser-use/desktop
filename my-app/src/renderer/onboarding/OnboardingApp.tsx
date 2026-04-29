@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { DomainList } from './DomainList';
+import { CookieBrowser, type CookieBrowserApi } from '../shared/CookieBrowser';
 import introImage from './intro.png';
 import chromeLogo from './chrome-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
@@ -27,6 +27,26 @@ declare global {
     onboardingAPI: {
       detectChromeProfiles: () => Promise<ChromeProfile[]>;
       importChromeProfileCookies: (profileDir: string) => Promise<CookieImportResult>;
+      listSessionCookies: () => Promise<Array<{
+        name: string;
+        domain: string;
+        path: string;
+        secure: boolean;
+        httpOnly: boolean;
+        expires: number | null;
+        sameSite: string;
+      }>>;
+      getChromeProfileSyncs: () => Promise<Record<string, {
+        last_synced_at: string;
+        imported: number;
+        total: number;
+        domain_count: number;
+        new_cookies?: number;
+        updated_cookies?: number;
+        unchanged_cookies?: number;
+        new_domain_count?: number;
+        updated_domain_count?: number;
+      }>>;
       saveApiKey: (key: string) => Promise<void>;
       testApiKey: (key: string) => Promise<{ success: boolean; error?: string }>;
       saveOpenAIKey: (key: string) => Promise<void>;
@@ -64,6 +84,8 @@ declare global {
       setTelemetryConsent: (optedIn: boolean) => Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }>;
       capture: (name: string, props?: Record<string, string | number | boolean>) => void;
       complete: (opts?: { initialHubView?: 'dashboard' | 'grid' | 'list' }) => Promise<void>;
+      getState: () => Promise<{ lastStep: string | null }>;
+      setStep: (step: string) => Promise<void>;
       whatsapp: {
         connect: () => Promise<{ status: string }>;
         disconnect: () => Promise<{ status: string }>;
@@ -214,8 +236,33 @@ function PreferencesStep({
   );
 }
 
+const VALID_STEPS: readonly Step[] = ['intro', 'profile', 'apikey', 'whatsapp', 'notifications', 'shortcut'];
+
 export function OnboardingApp() {
   const [step, setStep] = useState<Step>('intro');
+  const [hydrated, setHydrated] = useState(false);
+
+  // Restore the user's last step on mount — onboarding can be closed mid-flow
+  // (e.g. user accidentally dismisses the window) and reopened later. We
+  // resume where they left off instead of starting over from intro.
+  useEffect(() => {
+    let cancelled = false;
+    window.onboardingAPI.getState?.().then((state) => {
+      if (cancelled) return;
+      const candidate = state?.lastStep;
+      if (candidate && (VALID_STEPS as readonly string[]).includes(candidate)) {
+        setStep(candidate as Step);
+      }
+      setHydrated(true);
+    }).catch(() => { setHydrated(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist the current step so a window close + reopen lands here, not intro.
+  useEffect(() => {
+    if (!hydrated) return;
+    window.onboardingAPI.setStep?.(step).catch(() => { /* best-effort */ });
+  }, [step, hydrated]);
 
   // Fire once on mount — the denominator for the onboarding funnel. Every
   // subsequent drop-off is measured against this event count.
@@ -773,19 +820,23 @@ export function OnboardingApp() {
 
             {importResult && (
               <div className="import-results">
-                <DomainList
-                  domains={importResult.domains}
-                  collapsible
-                  header={(
-                    <span className="import-stat import-stat-success">
-                      <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
-                        <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span>
-                        Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
-                      </span>
-                    </span>
-                  )}
+                <span className="import-stat import-stat-success">
+                  <svg className="import-stat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>
+                    Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
+                  </span>
+                </span>
+
+                <CookieBrowser
+                  hideHeader
+                  api={{
+                    detectProfiles: () => window.onboardingAPI.detectChromeProfiles(),
+                    importCookies: (dir) => window.onboardingAPI.importChromeProfileCookies(dir),
+                    listCookies: () => window.onboardingAPI.listSessionCookies(),
+                    getSyncs: () => window.onboardingAPI.getChromeProfileSyncs(),
+                  } satisfies CookieBrowserApi}
                 />
 
                 <div className="apikey-actions">

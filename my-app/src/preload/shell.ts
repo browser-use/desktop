@@ -199,6 +199,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
       clearAuth: (): Promise<{ status: string }> => ipcRenderer.invoke('channels:whatsapp:clear-auth'),
     },
   },
+  chromeImport: {
+    detectProfiles: (): Promise<Array<{ directory: string; name: string; email: string; avatarIcon: string }>> =>
+      ipcRenderer.invoke('chrome-import:detect-profiles'),
+    importCookies: (profileDir: string): Promise<{
+      total: number;
+      imported: number;
+      failed: number;
+      skipped: number;
+      domains: string[];
+      failedDomains: string[];
+      errorReasons: Record<string, number>;
+    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+    listCookies: (): Promise<Array<{
+      name: string;
+      domain: string;
+      path: string;
+      secure: boolean;
+      httpOnly: boolean;
+      expires: number | null;
+      sameSite: string;
+    }>> => ipcRenderer.invoke('chrome-import:list-cookies'),
+    getSyncs: (): Promise<Record<string, {
+      last_synced_at: string;
+      imported: number;
+      total: number;
+      domain_count: number;
+      new_cookies?: number;
+      updated_cookies?: number;
+      unchanged_cookies?: number;
+      new_domain_count?: number;
+      updated_domain_count?: number;
+    }>> => ipcRenderer.invoke('chrome-import:get-syncs'),
+  },
   on: {
     windowReady: (cb: () => void): (() => void) => {
       const handler = () => cb();

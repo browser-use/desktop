@@ -18,15 +18,33 @@ const API_TEST_TIMEOUT_MS = 8000;
 
 export interface OnboardingHandlerDeps {
   accountStore: AccountStore;
-  onboardingWindow: BrowserWindow;
+  /** Lazy getter so handlers survive an onboarding window being closed and
+   *  reopened (e.g. user closes mid-flow, then reopens via app activation). */
+  getOnboardingWindow: () => BrowserWindow | null;
   openShellWindow: () => BrowserWindow;
 }
 
 export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
-  const { accountStore, onboardingWindow, openShellWindow } = deps;
+  const { accountStore, getOnboardingWindow, openShellWindow } = deps;
 
-  mainLogger.info('onboardingHandlers.register', {
-    windowId: onboardingWindow.id,
+  // Local helper: returns the live window or null if it's been closed/destroyed.
+  const liveOnboardingWindow = (): BrowserWindow | null => {
+    const w = getOnboardingWindow();
+    return w && !w.isDestroyed() ? w : null;
+  };
+
+  mainLogger.info('onboardingHandlers.register');
+
+  ipcMain.handle('onboarding:get-state', () => {
+    const lastStep = accountStore.getLastOnboardingStep();
+    mainLogger.info('onboardingHandlers.getState', { lastStep });
+    return { lastStep };
+  });
+
+  ipcMain.handle('onboarding:set-step', (_event, step: string) => {
+    const validatedStep = assertString(step, 'step', 64);
+    accountStore.setLastOnboardingStep(validatedStep);
+    mainLogger.debug('onboardingHandlers.setStep', { step: validatedStep });
   });
 
   ipcMain.handle('onboarding:save-api-key', async (_event, key: string) => {
@@ -307,8 +325,9 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
     if (!pillCreated) {
       createPillWindow();
       onPillVisibilityChange((visible) => {
-        if (onboardingWindow.isDestroyed()) return;
-        onboardingWindow.webContents.send(visible ? 'pill-shown' : 'pill-hidden');
+        const w = liveOnboardingWindow();
+        if (!w) return;
+        w.webContents.send(visible ? 'pill-shown' : 'pill-hidden');
       });
       pillCreated = true;
       mainLogger.info('onboardingHandlers.pillCreated');
@@ -318,9 +337,8 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
     const ok = globalShortcut.register(accelerator, () => {
       mainLogger.info('onboardingHandlers.shortcutFired', { accelerator });
       togglePill();
-      if (!onboardingWindow.isDestroyed()) {
-        onboardingWindow.webContents.send('shortcut-activated');
-      }
+      const w = liveOnboardingWindow();
+      if (w) w.webContents.send('shortcut-activated');
     });
     if (ok) currentAccelerator = accelerator;
     return ok;
@@ -362,6 +380,8 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
     accountStore.save({
       created_at: existing?.created_at,
       onboarding_completed_at: new Date().toISOString(),
+      // Clear the resume marker — onboarding is done, no step to return to.
+      last_onboarding_step: undefined,
     });
 
     mainLogger.info('onboardingHandlers.complete.accountSaved');
@@ -392,8 +412,9 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       }
     }
 
-    if (!onboardingWindow.isDestroyed()) {
-      onboardingWindow.close();
+    const w = liveOnboardingWindow();
+    if (w) {
+      w.close();
       mainLogger.info('onboardingHandlers.complete.onboardingWindowClosed');
     }
   });

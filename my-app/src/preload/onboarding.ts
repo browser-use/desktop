@@ -24,6 +24,28 @@ const onboardingAPI = {
   importChromeProfileCookies: (profileDir: string): Promise<CookieImportResult> =>
     ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
 
+  listSessionCookies: (): Promise<Array<{
+    name: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    httpOnly: boolean;
+    expires: number | null;
+    sameSite: string;
+  }>> => ipcRenderer.invoke('chrome-import:list-cookies'),
+
+  getChromeProfileSyncs: (): Promise<Record<string, {
+    last_synced_at: string;
+    imported: number;
+    total: number;
+    domain_count: number;
+    new_cookies?: number;
+    updated_cookies?: number;
+    unchanged_cookies?: number;
+    new_domain_count?: number;
+    updated_domain_count?: number;
+  }>> => ipcRenderer.invoke('chrome-import:get-syncs'),
+
   saveApiKey: (key: string): Promise<void> =>
     ipcRenderer.invoke('onboarding:save-api-key', key),
 
@@ -123,6 +145,12 @@ const onboardingAPI = {
 
   complete: (opts?: { initialHubView?: 'dashboard' | 'grid' | 'list' }): Promise<void> =>
     ipcRenderer.invoke('onboarding:complete', opts),
+
+  getState: (): Promise<{ lastStep: string | null }> =>
+    ipcRenderer.invoke('onboarding:get-state'),
+
+  setStep: (step: string): Promise<void> =>
+    ipcRenderer.invoke('onboarding:set-step', step),
 
   whatsapp: {
     connect: (): Promise<{ status: string }> =>

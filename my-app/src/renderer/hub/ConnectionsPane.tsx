@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import anthropicLogo from './anthropic-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogo from './openai-logo.svg';
 import codexLogo from './codex-logo.svg';
+import { CookieBrowser, type CookieBrowserApi } from '../shared/CookieBrowser';
 
 type WaStatus = 'disconnected' | 'connecting' | 'qr_ready' | 'connected' | 'error';
 type AuthType = 'oauth' | 'apiKey' | 'none';
@@ -32,6 +33,17 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
   const [waIdentity, setWaIdentity] = useState<string | null>(null);
   const [waDetail, setWaDetail] = useState<string | undefined>();
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  const cookieBrowserApi = useMemo<CookieBrowserApi | null>(() => {
+    const api = window.electronAPI?.chromeImport;
+    if (!api) return null;
+    return {
+      detectProfiles: api.detectProfiles,
+      importCookies: api.importCookies,
+      listCookies: api.listCookies,
+      getSyncs: api.getSyncs,
+    };
+  }, []);
 
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ type: 'none' });
   const [claudeCodeAvailable, setClaudeCodeAvailable] = useState<{ available: boolean; subscriptionType?: string | null }>({ available: false });
@@ -354,6 +366,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     setQrDataUrl(null);
   }, []);
 
+
   const statusDotClass =
     waStatus === 'connected' ? 'conn-card__dot--connected' :
     waStatus === 'connecting' || waStatus === 'qr_ready' ? 'conn-card__dot--connecting' :
@@ -644,6 +657,12 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
           </div>
         )}
       </div>
+
+      {cookieBrowserApi && (
+        <div className="conn-card conn-card--cookies">
+          <CookieBrowser api={cookieBrowserApi} />
+        </div>
+      )}
     </div>
   );
 }

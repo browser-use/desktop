@@ -90,7 +90,7 @@ describe('onboardingHandlers.ts', () => {
     openShellWindow = vi.fn(() => ({ id: 2 }));
     deps = {
       accountStore,
-      onboardingWindow: onboardingWindow as never,
+      getOnboardingWindow: () => onboardingWindow as never,
       openShellWindow: openShellWindow as never,
     };
     registerOnboardingHandlers(deps);
@@ -141,7 +141,7 @@ describe('onboardingHandlers.ts', () => {
 
     it('does not close when window is destroyed', async () => {
       onboardingWindow = makeWindow(true);
-      deps.onboardingWindow = onboardingWindow as never;
+      deps.getOnboardingWindow = () => onboardingWindow as never;
       handlers.clear();
       registerOnboardingHandlers(deps);
 

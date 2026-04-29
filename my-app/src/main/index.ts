@@ -73,12 +73,12 @@ import type { AgentEvent } from '../shared/types';
 // Identity
 import { AccountStore } from './identity/AccountStore';
 import { createOnboardingWindow } from './identity/onboardingWindow';
-import { registerOnboardingHandlers, unregisterOnboardingHandlers } from './identity/onboardingHandlers';
+import { registerOnboardingHandlers } from './identity/onboardingHandlers';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
 import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
 import { captureEvent } from './telemetry';
-import { registerChromeImportHandlers, unregisterChromeImportHandlers } from './chrome-import/ipc';
+import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
 import {
   resolveUserDataDir,
@@ -1251,21 +1251,23 @@ app.whenReady().then(async () => {
 
   buildApplicationMenu();
 
+  // Register onboarding + chrome-import IPC once at app boot. Previously these
+  // were tied to the onboarding window's lifetime, so closing the window
+  // mid-flow and reopening (via app.activate) gave you a renderer that fired
+  // IPC into a void — CC and profile detection silently broke. Handlers now
+  // use a getter so they always reach the live window.
+  registerChromeImportHandlers({ accountStore });
+  registerOnboardingHandlers({
+    accountStore,
+    getOnboardingWindow: () => onboardingWindow,
+    openShellWindow: () => openShellAndWire(),
+  });
+
   if (!onboardingComplete) {
     mainLogger.info('main.onboardingGate.fresh', { msg: 'Opening onboarding window' });
     onboardingWindow = createOnboardingWindow();
-
-    registerChromeImportHandlers();
-    registerOnboardingHandlers({
-      accountStore,
-      onboardingWindow,
-      openShellWindow: () => openShellAndWire(),
-    });
-
     onboardingWindow.on('closed', () => {
       mainLogger.info('main.onboardingWindow.closed');
-      unregisterOnboardingHandlers();
-      unregisterChromeImportHandlers();
       onboardingWindow = null;
     });
   } else {
@@ -1312,6 +1314,10 @@ app.whenReady().then(async () => {
         openShellAndWire();
       } else {
         onboardingWindow = createOnboardingWindow();
+        onboardingWindow.on('closed', () => {
+          mainLogger.info('main.onboardingWindow.closed');
+          onboardingWindow = null;
+        });
       }
     } else if (shellWindow && !shellWindow.isDestroyed()) {
       mainLogger.info('main.activate', { msg: 'Re-activating app (showing shell)' });

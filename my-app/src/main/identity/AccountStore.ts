@@ -19,6 +19,32 @@ export interface AccountData {
   created_at?: string;
   /** ISO 8601 — set when the user completes onboarding */
   onboarding_completed_at?: string;
+  /** The onboarding step the user was last on. Lets a closed-mid-flow
+   *  onboarding window reopen to where the user left off, instead of
+   *  starting from intro. Cleared once onboarding completes. */
+  last_onboarding_step?: string;
+  /** Per-Chrome-profile sync history, keyed by profile directory (e.g. "Default",
+   *  "Profile 1"). Lets the cookies UI show "Synced 5m ago" instead of treating
+   *  every reopen as a first-time view. */
+  chrome_profile_syncs?: Record<string, ChromeProfileSyncRecord>;
+}
+
+export interface ChromeProfileSyncRecord {
+  /** ISO 8601 timestamp of the most recent successful sync */
+  last_synced_at: string;
+  imported: number;
+  total: number;
+  domain_count: number;
+  /** Cookies whose (name, domain, path) didn't exist in the Electron jar pre-sync. */
+  new_cookies?: number;
+  /** Cookies whose key existed but value changed. */
+  updated_cookies?: number;
+  /** Cookies whose key+value matched what was already there. */
+  unchanged_cookies?: number;
+  /** Domains that had zero cookies pre-sync. */
+  new_domain_count?: number;
+  /** Domains that already had at least one cookie pre-sync. */
+  updated_domain_count?: number;
 }
 
 export class AccountStore {
@@ -84,5 +110,25 @@ export class AccountStore {
 
   isOnboardingComplete(): boolean {
     return !!this.load()?.onboarding_completed_at;
+  }
+
+  getLastOnboardingStep(): string | null {
+    return this.load()?.last_onboarding_step ?? null;
+  }
+
+  setLastOnboardingStep(step: string): void {
+    const existing = this.load() ?? {};
+    this.save({ ...existing, last_onboarding_step: step });
+  }
+
+  getChromeProfileSyncs(): Record<string, ChromeProfileSyncRecord> {
+    return this.load()?.chrome_profile_syncs ?? {};
+  }
+
+  recordChromeProfileSync(profileDir: string, summary: Omit<ChromeProfileSyncRecord, 'last_synced_at'>): void {
+    const existing = this.load() ?? {};
+    const syncs = { ...(existing.chrome_profile_syncs ?? {}) };
+    syncs[profileDir] = { ...summary, last_synced_at: new Date().toISOString() };
+    this.save({ ...existing, chrome_profile_syncs: syncs });
   }
 }

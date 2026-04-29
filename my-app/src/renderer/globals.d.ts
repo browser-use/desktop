@@ -84,6 +84,54 @@ interface ElectronChannelsAPI {
   };
 }
 
+interface ChromeProfileSummary {
+  directory: string;
+  name: string;
+  email: string;
+  avatarIcon: string;
+}
+
+interface CookieImportResult {
+  total: number;
+  imported: number;
+  failed: number;
+  skipped: number;
+  domains: string[];
+  failedDomains: string[];
+  errorReasons: Record<string, number>;
+}
+
+interface SessionCookieSummary {
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  /** Unix seconds, or null for session cookies */
+  expires: number | null;
+  sameSite: string;
+}
+
+interface ChromeProfileSyncRecord {
+  /** ISO 8601 */
+  last_synced_at: string;
+  imported: number;
+  total: number;
+  domain_count: number;
+  new_cookies?: number;
+  updated_cookies?: number;
+  unchanged_cookies?: number;
+  new_domain_count?: number;
+  updated_domain_count?: number;
+}
+
+interface ElectronChromeImportAPI {
+  detectProfiles: () => Promise<ChromeProfileSummary[]>;
+  importCookies: (profileDir: string) => Promise<CookieImportResult>;
+  listCookies: () => Promise<SessionCookieSummary[]>;
+  getSyncs: () => Promise<Record<string, ChromeProfileSyncRecord>>;
+}
+
 interface ElectronOnAPI {
   sessionUpdated: (cb: (session: import('./hub/types').AgentSession) => void) => () => void;
   sessionBrowserGone: (cb: (id: string) => void) => () => void;
@@ -190,6 +238,7 @@ interface ElectronAPI {
   takeover?: ElectronTakeoverAPI;
   sessions: ElectronSessionAPI;
   channels: ElectronChannelsAPI;
+  chromeImport?: ElectronChromeImportAPI;
   hotkeys?: ElectronHotkeysAPI;
   shell?: ElectronShellAPI;
   settings?: ElectronSettingsAPI;

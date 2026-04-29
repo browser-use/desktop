@@ -55,6 +55,17 @@ export interface CookieImportResult {
   domains: string[];
   failedDomains: string[];
   errorReasons: Record<string, number>;
+  /** Cookies whose (name, domain, path) triple wasn't in the Electron jar
+   *  before this sync. */
+  newCookies: number;
+  /** Cookies whose (name, domain, path) triple existed but value changed. */
+  updatedCookies: number;
+  /** Cookies whose (name, domain, path, value) matched what was already there. */
+  unchangedCookies: number;
+  /** Domains that had zero cookies in the Electron jar before this sync. */
+  newDomains: string[];
+  /** Domains that already had at least one cookie in the Electron jar. */
+  updatedDomains: string[];
 }
 
 interface CdpCookie {
@@ -230,6 +241,69 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   const failedDomainSet = new Set<string>();
   const errorReasons: Record<string, number> = {};
 
+  // Conservative re-sync: for every domain present in the new Chrome export,
+  // wipe the Electron jar's existing cookies on that domain before writing the
+  // fresh set. Without this, re-syncing only updates cookies whose
+  // (name, domain, path) triple still exists in Chrome — stale cookies (e.g.
+  // logged-out sessions, rotated names) linger forever and the agent keeps
+  // using outdated state. We only touch domains the user is actually
+  // re-importing — cookies for unrelated sites (e.g. ones the agent set
+  // itself during a session) are preserved.
+  const targetDomains = new Set<string>();
+  for (const c of cookies) {
+    const d = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
+    if (d) targetDomains.add(d);
+  }
+
+  // Snapshot the pre-clear state so we can diff after import:
+  //  - priorValueByKey[key] → previous value (for new vs updated detection)
+  //  - priorCountByDomain[domain] → cookie count (for new vs updated domain)
+  // Key = `${normalizedDomain}|${path}|${name}`, matching how new cookies are
+  // keyed below.
+  const priorValueByKey = new Map<string, string>();
+  const priorCountByDomain = new Map<string, number>();
+  let cleared = 0;
+  for (const domain of targetDomains) {
+    let existing: Electron.Cookie[] = [];
+    try {
+      existing = await electronSession.cookies.get({ domain });
+    } catch (err) {
+      mainLogger.warn('chromeImport.preClear.getFailed', {
+        domain,
+        error: (err as Error).message,
+      });
+      continue;
+    }
+    for (const ec of existing) {
+      const host = ec.domain?.startsWith('.') ? ec.domain.substring(1) : ec.domain;
+      if (!host) continue;
+      const path = ec.path ?? '/';
+      const scheme = ec.secure ? 'https' : 'http';
+      const url = `${scheme}://${host}${path}`;
+      const key = `${host}|${path}|${ec.name}`;
+      priorValueByKey.set(key, ec.value);
+      priorCountByDomain.set(host, (priorCountByDomain.get(host) ?? 0) + 1);
+      try {
+        await electronSession.cookies.remove(url, ec.name);
+        cleared++;
+      } catch (err) {
+        mainLogger.debug('chromeImport.preClear.removeFailed', {
+          domain: ec.domain,
+          name: ec.name,
+          error: (err as Error).message,
+        });
+      }
+    }
+  }
+  mainLogger.info('chromeImport.preClear.done', {
+    targetDomains: targetDomains.size,
+    cleared,
+  });
+
+  let newCookies = 0;
+  let updatedCookies = 0;
+  let unchangedCookies = 0;
+
   for (const cookie of cookies) {
     if (!cookie.value || !cookie.name) {
       skipped++;
@@ -254,6 +328,18 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
       });
       imported++;
       importedDomains.add(domain);
+
+      // Diff against the pre-clear snapshot so the UI can show
+      // "X new / Y updated" instead of just a flat imported count.
+      const key = `${domain}|${cookie.path}|${cookie.name}`;
+      const prior = priorValueByKey.get(key);
+      if (prior === undefined) {
+        newCookies++;
+      } else if (prior !== cookie.value) {
+        updatedCookies++;
+      } else {
+        unchangedCookies++;
+      }
     } catch (err) {
       failed++;
       failedDomainSet.add(domain);
@@ -274,6 +360,16 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   const domains = Array.from(importedDomains);
   const failedDomains = Array.from(failedDomainSet).filter((d) => !importedDomains.has(d));
 
+  // A domain is "new" if the Electron jar held zero cookies for it pre-clear,
+  // and "updated" if it held at least one. Failed-only domains aren't counted
+  // either way since nothing landed for them.
+  const newDomains: string[] = [];
+  const updatedDomains: string[] = [];
+  for (const d of domains) {
+    if ((priorCountByDomain.get(d) ?? 0) > 0) updatedDomains.push(d);
+    else newDomains.push(d);
+  }
+
   const result: CookieImportResult = {
     total: cookies.length,
     imported,
@@ -282,6 +378,11 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
     domains,
     failedDomains,
     errorReasons,
+    newCookies,
+    updatedCookies,
+    unchangedCookies,
+    newDomains,
+    updatedDomains,
   };
 
   mainLogger.info('chromeImport.importCookies.done', {
@@ -289,6 +390,39 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
     imported: result.imported,
     failed: result.failed,
     skipped: result.skipped,
+    newCookies,
+    updatedCookies,
+    unchangedCookies,
+    newDomainCount: newDomains.length,
+    updatedDomainCount: updatedDomains.length,
   });
   return result;
+}
+
+export interface SessionCookie {
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  /** Unix seconds, or null for session cookies */
+  expires: number | null;
+  sameSite: string;
+}
+
+/** List every cookie in the app's default Electron session jar. Used by the
+ *  Settings + Onboarding cookie viewer so the user can see (and search) what
+ *  was actually imported. Read-only — values are not returned. */
+export async function listSessionCookies(): Promise<SessionCookie[]> {
+  const electronSession = session.defaultSession;
+  const all = await electronSession.cookies.get({});
+  return all.map((c) => ({
+    name: c.name,
+    domain: c.domain ?? '',
+    path: c.path ?? '/',
+    secure: !!c.secure,
+    httpOnly: !!c.httpOnly,
+    expires: typeof c.expirationDate === 'number' ? c.expirationDate : null,
+    sameSite: c.sameSite ?? 'unspecified',
+  }));
 }

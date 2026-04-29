@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from './domain-utils';
+import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from '../shared/domain-utils';
 
 interface DomainListProps {
   domains: string[] | null | undefined;
