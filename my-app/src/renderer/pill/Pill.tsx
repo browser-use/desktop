@@ -270,7 +270,9 @@ export function Pill(): React.ReactElement {
       if (!url) continue;
       const img = new Image();
       img.onload = () => {
-        const valid = img.naturalWidth === FAVICON_SIZE && img.naturalHeight === FAVICON_SIZE;
+        // Google's globe fallback always renders at 16x16 even when sz=64
+        // is requested; real favicons come back at 32x32 or 64x64.
+        const valid = img.naturalWidth >= 32 && img.naturalHeight >= 32;
         console.log(`[Pill] favicon probe ${JSON.stringify({
           domain,
           naturalW: img.naturalWidth,
