@@ -38,6 +38,7 @@ declare global {
       setMode?: (mode: 'pill' | 'panel' | 'hidden') => Promise<{ mode: string }>;
       getMode?: () => Promise<'pill' | 'panel' | 'hidden'>;
       onPillModeChanged?: (cb: (mode: 'pill' | 'panel' | 'hidden') => void) => () => void;
+      onShown?: (cb: () => void) => () => void;
       setActiveSession?: (id: string | null) => Promise<{ ok: boolean }>;
       getActiveSession?: () => Promise<string | null>;
       onActiveSessionChanged?: (cb: (id: string | null) => void) => () => void;
@@ -210,8 +211,16 @@ export function Pill(): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    const refetch = (): void => {
+      window.pillAPI.listSessions().then(setSessions).catch(() => {});
+    };
     setTimeout(() => ref.current?.focus(), 50);
-    window.pillAPI.listSessions().then(setSessions).catch(() => {});
+    refetch();
+    const unsub = window.pillAPI.onShown?.(() => {
+      setTimeout(() => ref.current?.focus(), 50);
+      refetch();
+    });
+    return () => { unsub?.(); };
   }, []);
 
   useEffect(() => {
@@ -229,13 +238,21 @@ export function Pill(): React.ReactElement {
 
   const recents = useMemo(() => {
     if (value.trim()) return [];
+    const ACTIVE = new Set(['running', 'idle', 'stuck']);
     return [...sessions]
-      .sort((a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt))
+      .sort((a, b) => {
+        const aActive = ACTIVE.has(a.status) ? 1 : 0;
+        const bActive = ACTIVE.has(b.status) ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        return (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt);
+      })
       .slice(0, MAX_RECENTS);
   }, [value, sessions]);
 
   const showDashboard = !value.trim();
   const hasRecents = showDashboard && recents.length > 0;
+
+  const navList = hasResults ? results : recents;
 
   const detectedDomains = useMemo(() => extractDomains(value), [value]);
 
@@ -335,19 +352,19 @@ export function Pill(): React.ReactElement {
 
   const submit = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed && attachments.length === 0) return;
-    if (!trimmed) return;
-    const attachArg = attachments.length > 0 ? attachments : undefined;
-    if (hasResults && selectedIdx >= 0 && selectedIdx < results.length) {
-      window.pillAPI.selectSession(results[selectedIdx].id);
+    if (!trimmed && attachments.length === 0 && !(showDashboard && selectedIdx >= 0)) return;
+    if (selectedIdx >= 0 && selectedIdx < navList.length) {
+      window.pillAPI.selectSession(navList[selectedIdx].id);
       setValue('');
       return;
     }
+    if (!trimmed) return;
+    const attachArg = attachments.length > 0 ? attachments : undefined;
     window.pillAPI.submit(trimmed, attachArg, engine);
     setValue('');
     setAttachments([]);
     setAttachError(null);
-  }, [value, hasResults, selectedIdx, results, attachments, engine]);
+  }, [value, selectedIdx, navList, showDashboard, attachments, engine]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -359,7 +376,7 @@ export function Pill(): React.ReactElement {
         window.pillAPI.hide();
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIdx((i) => Math.min(i + 1, results.length - 1));
+        setSelectedIdx((i) => Math.min(i + 1, navList.length - 1));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedIdx((i) => Math.max(i - 1, -1));
@@ -378,7 +395,7 @@ export function Pill(): React.ReactElement {
         submit();
       }
     },
-    [submit, value, results.length, attachments, engine],
+    [submit, value, navList.length, attachments, engine],
   );
 
   const highlightVisible = hasResults && selectedIdx >= 0;
@@ -518,7 +535,7 @@ export function Pill(): React.ReactElement {
                     return (
                       <button
                         key={s.id}
-                        className="cmdbar__result"
+                        className={`cmdbar__result${selectedIdx === i ? ' cmdbar__result--active' : ''}`}
                         style={{ animationDelay: `${i * 30}ms` }}
                         onClick={() => { window.pillAPI.selectSession(s.id); }}
                       >
@@ -544,10 +561,7 @@ export function Pill(): React.ReactElement {
         )}
 
         {hasResults && (
-          <div
-            className="cmdbar__results"
-            onMouseLeave={() => setSelectedIdx(-1)}
-          >
+          <div className="cmdbar__results">
             <div
               className="cmdbar__highlight"
               style={{
@@ -567,7 +581,6 @@ export function Pill(): React.ReactElement {
                   className="cmdbar__result"
                   style={{ animationDelay: `${i * 30}ms` }}
                   onClick={() => { window.pillAPI.selectSession(s.id); setValue(''); }}
-                  onMouseEnter={() => setSelectedIdx(i)}
                 >
                   <span className="cmdbar__row-icon">
                     {favicon ? (

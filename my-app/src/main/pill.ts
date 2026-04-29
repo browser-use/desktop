@@ -228,6 +228,7 @@ export function showPill(): void {
   pillWindow.showInactive();
   pillWindow.setAlwaysOnTop(true, 'screen-saver');
   pillWindow.focus();
+  pillWindow.webContents.send('pill:shown');
   notifyVisibility(true);
 
   const latency_ms = performance.now() - t0;
