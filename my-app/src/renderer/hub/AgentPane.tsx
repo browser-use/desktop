@@ -1045,18 +1045,20 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
               {session.authMode === 'subscription' ? 'SUBSCRIPTION' : 'KEY'}
             </span>
           )}
-          {typeof session.costUsd === 'number' && session.costUsd > 0 && (
+          {/* Cost chip is hidden under subscription auth (Claude Code / Codex
+              OAuth) — billing is covered by the subscription, so the
+              API-equivalent figure is noise. Only show for direct API-key
+              auth where the user is actually paying per-token. */}
+          {typeof session.costUsd === 'number' && session.costUsd > 0 && session.authMode !== 'subscription' && (
             <span
               className="pane__cost"
               title={
-                session.authMode === 'subscription'
-                  ? `Notional API-equivalent cost (covered by subscription) · ${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
-                  : session.costSource === 'estimated'
-                    ? `Estimated from token count × local price table · ${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
-                    : `${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
+                session.costSource === 'estimated'
+                  ? `Estimated from token count × local price table · ${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
+                  : `${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
               }
             >
-              {session.authMode === 'subscription' || session.costSource === 'estimated' ? '~' : ''}
+              {session.costSource === 'estimated' ? '~' : ''}
               {formatCostUsd(session.costUsd)}
             </span>
           )}
