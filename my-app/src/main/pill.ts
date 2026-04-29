@@ -44,6 +44,7 @@ const PILL_TOP_OFFSET = 160;
 // ---------------------------------------------------------------------------
 
 let pillWindow: BrowserWindow | null = null;
+let requestedPillHeight = PILL_HEIGHT_COLLAPSED;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -53,7 +54,11 @@ let pillWindow: BrowserWindow | null = null;
  * Compute the x position so the pill is horizontally centered on the display
  * nearest the cursor.
  */
-function computePillBounds(): { x: number; y: number; width: number; height: number } {
+function clampPillHeight(height: number): number {
+  return Math.max(PILL_HEIGHT_COLLAPSED, Math.min(height, PILL_HEIGHT_EXPANDED));
+}
+
+function computePillBounds(height = requestedPillHeight): { x: number; y: number; width: number; height: number } {
   let displayBounds = { x: 0, y: 0, width: 1920, height: 1080 };
 
   try {
@@ -77,7 +82,7 @@ function computePillBounds(): { x: number; y: number; width: number; height: num
     displayBounds,
   });
 
-  return { x, y, width: PILL_WIDTH, height: PILL_HEIGHT_COLLAPSED };
+  return { x, y, width: PILL_WIDTH, height };
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +128,8 @@ export function createPillWindow(): BrowserWindow {
     width: PILL_WIDTH,
     height: PILL_HEIGHT_COLLAPSED,
   });
+
+  requestedPillHeight = PILL_HEIGHT_COLLAPSED;
 
   pillWindow = new BrowserWindow({
     width: PILL_WIDTH,
@@ -333,14 +340,17 @@ export { PILL_HEIGHT_COLLAPSED, PILL_HEIGHT_EXPANDED };
  * Resize pill window height (grows downward as toast/result appear).
  */
 export function setPillHeight(height: number): void {
+  const nextHeight = clampPillHeight(height);
+  requestedPillHeight = nextHeight;
+
   if (!pillWindow || pillWindow.isDestroyed()) return;
 
   const current = pillWindow.getBounds();
-  pillWindow.setBounds({ ...current, height });
+  pillWindow.setBounds({ ...current, height: nextHeight });
 
   log.debug('pill.setPillHeight', {
     message: 'Pill height updated',
     previous: current.height,
-    next: height,
+    next: nextHeight,
   });
 }

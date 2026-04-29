@@ -168,7 +168,9 @@ export function Pill(): React.ReactElement {
     const chipsRows = attachments.length > 0 ? Math.ceil(attachments.length / 3) : 0;
     const chipsHeight = chipsRows * 26;
     const errorHeight = attachError ? 20 : 0;
-    window.pillAPI.setExpanded(baseHeight + resultHeight + chipsHeight + errorHeight);
+    const total = baseHeight + resultHeight + chipsHeight + errorHeight;
+    console.log('[Pill.resize]', { textareaHeight, baseHeight, resultHeight, chipsHeight, errorHeight, total, scrollHeight: ta?.scrollHeight, valueLength: value.length });
+    window.pillAPI.setExpanded(total);
   }, [hasResults, results.length, value, attachments.length, attachError]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
