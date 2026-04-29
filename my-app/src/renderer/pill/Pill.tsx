@@ -96,6 +96,27 @@ function statusDot(status: string): string {
   }
 }
 
+function statusTagClass(status: string): string {
+  switch (status) {
+    case 'running': return 'cmdbar__result-status--running';
+    case 'stuck': return 'cmdbar__result-status--stuck';
+    case 'idle': return 'cmdbar__result-status--idle';
+    case 'draft': return 'cmdbar__result-status--draft';
+    default: return 'cmdbar__result-status--stopped';
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'running': return 'RUN';
+    case 'stuck': return 'STUCK';
+    case 'idle': return 'IDLE';
+    case 'draft': return 'DRAFT';
+    case 'stopped': return 'STOP';
+    default: return status.toUpperCase();
+  }
+}
+
 export function Pill(): React.ReactElement {
   const [value, setValue] = useState('');
   const [sessions, setSessions] = useState<SessionLite[]>([]);
@@ -141,8 +162,8 @@ export function Pill(): React.ReactElement {
       ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
     }
     const textareaHeight = ta ? Math.min(ta.scrollHeight, 240) : 28;
-    const baseHeight = 82 + textareaHeight;
-    const resultHeight = hasResults ? Math.min(results.length + 1, 9) * 36 + 2 : 0;
+    const baseHeight = 116 + textareaHeight;
+    const resultHeight = hasResults ? Math.min(results.length + 1, 9) * 44 + 2 : 0;
     // Chips row is ~24px; wraps every ~3 chips. Error row adds ~18px.
     const chipsRows = attachments.length > 0 ? Math.ceil(attachments.length / 3) : 0;
     const chipsHeight = chipsRows * 26;
@@ -329,38 +350,41 @@ export function Pill(): React.ReactElement {
             rows={1}
             aria-label="Search or create"
           />
-          <button
-            type="button"
-            className="cmdbar__attach has-tooltip"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Attach files"
-            data-tooltip="Attach files"
-          >
-            <PaperclipIcon />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) void addFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          {!followUp && (
-            <div className="cmdbar__engine-picker">
-              <EnginePicker value={engine} onChange={setEngine} onOpenChange={setEngineMenuOpen} />
-            </div>
-          )}
-          <button
-            className="cmdbar__send"
-            onClick={submit}
-            disabled={!value.trim() && attachments.length === 0}
-            aria-label="Submit"
-          >
-            <ArrowUpIcon />
-          </button>
+          <div className="cmdbar__actions">
+            <button
+              type="button"
+              className="cmdbar__attach has-tooltip"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach files"
+              data-tooltip="Attach files"
+            >
+              <PaperclipIcon />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) void addFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <div className="cmdbar__actions-spacer" />
+            {!followUp && (
+              <div className="cmdbar__engine-picker">
+                <EnginePicker value={engine} onChange={setEngine} onOpenChange={setEngineMenuOpen} />
+              </div>
+            )}
+            <button
+              className="cmdbar__send"
+              onClick={submit}
+              disabled={!value.trim() && attachments.length === 0}
+              aria-label="Submit"
+            >
+              <ArrowUpIcon />
+            </button>
+          </div>
         </div>
 
         {hasResults && !followUp && (
@@ -383,8 +407,12 @@ export function Pill(): React.ReactElement {
               >
                 <span className={`cmdbar__dot ${statusDot(s.status)}`} />
                 <span className="cmdbar__result-prompt">{s.prompt}</span>
-                <span className="cmdbar__result-time">{formatElapsed(s.createdAt)}</span>
-                <span className="cmdbar__result-status">{s.status}</span>
+                <span className="cmdbar__result-meta">
+                  <span className="cmdbar__result-time">{formatElapsed(s.createdAt)}</span>
+                  <span className={`cmdbar__result-status ${statusTagClass(s.status)}`}>
+                    {statusLabel(s.status)}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
