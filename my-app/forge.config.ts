@@ -88,16 +88,13 @@ const config: ForgeConfig = {
     }),
 
     // osxNotarize: submits to Apple notarization service after signing.
-    // Requires @electron/notarize (listed in .track-F-deps.txt).
-    // TODO: uncomment and install @electron/notarize when credentials available.
-    // ...(SHOULD_SIGN && APPLE_ID && {
-    //   osxNotarize: {
-    //     tool: 'notarytool',
-    //     appleId: APPLE_ID,
-    //     appleIdPassword: APPLE_APP_SPECIFIC_PASSWORD,
-    //     teamId: APPLE_TEAM_ID,
-    //   },
-    // }),
+    ...(SHOULD_SIGN && APPLE_ID && {
+      osxNotarize: {
+        appleId: APPLE_ID,
+        appleIdPassword: APPLE_APP_SPECIFIC_PASSWORD,
+        teamId: APPLE_TEAM_ID,
+      },
+    }),
 
     // App metadata
     appBundleId: 'com.browser-use.desktop',

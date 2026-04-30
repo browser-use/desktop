@@ -17,5 +17,47 @@
     -->
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
+
+    <!--
+        com.apple.security.cs.allow-jit
+        Required by V8/Chromium JIT in the renderer process. Without it,
+        hardened runtime kills the renderer on first JS execution.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!--
+        com.apple.security.cs.allow-unsigned-executable-memory
+        V8 writes generated machine code to RWX pages. Hardened runtime
+        blocks this by default; Electron requires it.
+    -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!--
+        com.apple.security.cs.disable-library-validation
+        Allows loading native modules (better-sqlite3, keytar, node-pty)
+        that aren't signed by the same Team ID as the host app. Standard
+        for Electron apps with native deps.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!--
+        com.apple.security.cs.allow-dyld-environment-variables
+        node-pty's spawn-helper reads DYLD_* vars on launch. Without this,
+        spawning subprocess CLIs (claude, codex) silently fails under
+        hardened runtime.
+    -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!--
+        com.apple.security.inherit
+        Child processes inherit the parent's sandbox/entitlements. Needed
+        so spawned CLIs (claude, codex) keep network + file access.
+    -->
+    <key>com.apple.security.inherit</key>
+    <true/>
 </dict>
 </plist>

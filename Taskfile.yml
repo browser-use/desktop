@@ -158,3 +158,89 @@ tasks:
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run make
+
+  release:dev:
+    desc: Unsigned ad-hoc build for local testing (fast, no Apple credentials)
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - SKIP_SIGNING=1 npm run make
+
+  release:signed:
+    desc: Signed but NOT notarized — runs on your Mac with right-click bypass, not for public distribution
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - |
+        if [ ! -f .env.signing ]; then
+          echo "Missing .env.signing — see notary:setup"
+          exit 1
+        fi
+        set -a; . ./.env.signing; set +a
+        unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+        npm run make
+
+  release:full:
+    desc: Signed + notarized DMG for public distribution (slow — Apple notarization adds 5-30+ min)
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - |
+        if [ ! -f .env.signing ]; then
+          echo "Missing .env.signing — see notary:setup"
+          exit 1
+        fi
+        set -a; . ./.env.signing; set +a
+        npm run make
+
+  notary:setup:
+    desc: One-time — store Apple notary credentials in macOS keychain so notary:* tasks work without env vars
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - |
+        if [ ! -f .env.signing ]; then
+          echo "Create my-app/.env.signing with APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID first"
+          exit 1
+        fi
+        set -a; . ./.env.signing; set +a
+        xcrun notarytool store-credentials "browseruse-notary" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID"
+
+  notary:status:
+    desc: List recent Apple notarization submissions and their status
+    silent: true
+    cmds:
+      - xcrun notarytool history --keychain-profile "browseruse-notary"
+
+  notary:log:
+    desc: Show detailed Apple log for a submission, e.g. task notary:log ID=abc123-...
+    silent: true
+    cmds:
+      - |
+        ID="{{default "" .ID}}"
+        if [ -z "$ID" ]; then
+          echo "Set ID, e.g. task notary:log ID=abc123-..."
+          exit 1
+        fi
+        xcrun notarytool log "$ID" --keychain-profile "browseruse-notary"
+
+  notary:wait:
+    desc: Block until a notarization submission finishes, e.g. task notary:wait ID=abc123-...
+    silent: true
+    cmds:
+      - |
+        ID="{{default "" .ID}}"
+        if [ -z "$ID" ]; then
+          echo "Set ID, e.g. task notary:wait ID=abc123-..."
+          exit 1
+        fi
+        xcrun notarytool wait "$ID" --keychain-profile "browseruse-notary"
+
+  notary:staple:
+    desc: Manually attach a notarization ticket to a .app or .dmg, e.g. task notary:staple PATH=out/make/.../Browser-Use.dmg
+    silent: true
+    cmds:
+      - |
+        TARGET="{{default "" .PATH}}"
+        if [ -z "$TARGET" ]; then
+          echo "Set PATH, e.g. task notary:staple PATH=my-app/out/make/.../Browser-Use.dmg"
+          exit 1
+        fi
+        xcrun stapler staple "$TARGET"
+        xcrun stapler validate "$TARGET"

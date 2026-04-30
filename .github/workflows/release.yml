@@ -11,9 +11,10 @@ name: Release
 #      (`v0.0.0-dev-<timestamp>`) so the manual path always yields a
 #      prerelease that is easy to identify and discard.
 #
-# Signing is optional. Without Apple secrets the build is unsigned (the same
-# output the previous manual workflow produced). With the secrets present and
-# `skip-signing=false`, the DMG is signed + notarized. See SIGNING.md.
+# Signing has three modes: unsigned, signed (Developer ID only), and
+# notarized (signed + Apple notary). Tag pushes default to `signed` while
+# Apple's notary queue is congested; switch back to `notarized` in the
+# resolve step once turnaround normalizes. See SIGNING.md.
 #
 # The job also uploads the DMG/zip as a workflow artifact (14-day retention)
 # so internal users can grab builds without waiting for the Release page to
@@ -25,10 +26,14 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
     inputs:
-      skip-signing:
-        description: 'Build unsigned (no Apple Developer credentials needed)'
-        type: boolean
-        default: true
+      signing-mode:
+        description: 'unsigned (fastest), signed (Developer ID, no notarization), notarized (signed + Apple notarization)'
+        type: choice
+        options:
+          - unsigned
+          - signed
+          - notarized
+        default: signed
       tag:
         description: 'Tag/release name for this manual run (defaults to v0.0.0-dev-<timestamp>)'
         type: string
@@ -99,36 +104,77 @@ jobs:
         # --frozen-lockfile keeps CI deps identical to dev.
         run: yarn install --frozen-lockfile
 
-      # Decide signed vs unsigned. The rule:
-      #   - `workflow_dispatch` respects the `skip-signing` input (default true).
-      #   - Tag pushes auto-sign IF the required secrets are present; else
-      #     fall back to unsigned so the workflow still works with just
-      #     GITHUB_TOKEN.
-      # We detect secret presence by testing whether SIGNING_IDENTITY is a
-      # non-empty string — secrets cannot be referenced directly in `if:`
-      # expressions, but they can flow through env + a resolve step.
+      # Decide signing mode. Three values:
+      #   unsigned   — SKIP_SIGNING=1, no Apple credentials needed
+      #   signed     — Developer ID code-signed, NOT notarized (fast; users
+      #                must right-click → Open the first time)
+      #   notarized  — fully signed + Apple-notarized (slow; depends on
+      #                Apple's notary queue, can take 5-60+ min)
+      #
+      # Resolution rules:
+      #   - workflow_dispatch: honor the `signing-mode` input (default `signed`).
+      #   - tag push: default to `signed` for now while Apple's notary queue
+      #     is congested. Switch back to `notarized` here once queues normalize.
+      #     Falls back to `unsigned` if signing secrets are missing.
       - name: Resolve signing mode
         id: signing
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          SKIP_SIGNING_INPUT: ${{ github.event.inputs.skip-signing }}
+          MODE_INPUT: ${{ github.event.inputs.signing-mode }}
           HAS_SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY != '' }}
+          HAS_CERT: ${{ secrets.APPLE_CERT_P12_BASE64 != '' }}
         run: |
           set -euo pipefail
-          mode="unsigned"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            if [[ "$SKIP_SIGNING_INPUT" == "false" ]]; then
-              mode="signed"
-            fi
+            mode="${MODE_INPUT:-signed}"
           else
-            # Tag push: sign automatically when the signing secret is present.
-            if [[ "$HAS_SIGNING_IDENTITY" == "true" ]]; then
-              mode="signed"
+            # Tag push default — change to "notarized" when ready.
+            mode="signed"
+          fi
+          # Fall back to unsigned if cert secrets are missing (so manual
+          # workflow_dispatch runs don't fail on a fresh fork).
+          if [[ "$mode" != "unsigned" ]]; then
+            if [[ "$HAS_SIGNING_IDENTITY" != "true" || "$HAS_CERT" != "true" ]]; then
+              echo "::warning::Signing requested but APPLE_CERT_P12_BASE64 / SIGNING_IDENTITY not set — falling back to unsigned"
+              mode="unsigned"
             fi
           fi
           echo "mode=${mode}" >> "$GITHUB_OUTPUT"
           echo "Signing mode: ${mode}"
+
+      # Import the Developer ID Application certificate into a temporary
+      # keychain so codesign can find it. macos-latest runners ship with an
+      # empty user keychain — without this, signing silently no-ops.
+      #
+      # Required secrets:
+      #   APPLE_CERT_P12_BASE64 — base64-encoded .p12 export of the
+      #     Developer ID Application cert + private key
+      #   APPLE_CERT_PASSWORD   — password used when exporting the .p12
+      - name: Import signing certificate
+        if: ${{ steps.signing.outputs.mode != 'unsigned' }}
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+
+          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Prepend our keychain so codesign finds it before the empty default.
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | tr -d '"')
+
+          rm -f "$CERT_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: electron-forge make (unsigned)
         if: ${{ steps.signing.outputs.mode == 'unsigned' }}
@@ -137,12 +183,19 @@ jobs:
           SKIP_SIGNING: '1'
         run: npm run make
 
-      - name: electron-forge make (signed + notarized)
+      - name: electron-forge make (signed, no notarization)
         if: ${{ steps.signing.outputs.mode == 'signed' }}
         working-directory: my-app
         env:
-          # Only exposed to the forge process when signing is explicitly
-          # requested — keeps credentials out of the unsigned-build path.
+          # Forge config notarizes only when APPLE_ID is set, so we
+          # deliberately omit it here.
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: npm run make
+
+      - name: electron-forge make (signed + notarized)
+        if: ${{ steps.signing.outputs.mode == 'notarized' }}
+        working-directory: my-app
+        env:
           SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
