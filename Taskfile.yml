@@ -34,6 +34,12 @@ tasks:
     cmds:
       - npm run start:reset-onboarding
 
+  reset:sessions:
+    desc: Delete sessions.db so the next launch shows no sessions
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run start:reset-sessions
+
   lint:
     desc: Run eslint
     dir: "{{.APP_DIR}}"

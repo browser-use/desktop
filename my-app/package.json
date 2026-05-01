@@ -36,6 +36,7 @@
     "qa:review": "open tests/visual/review.html",
     "qa": "npm run lint && npm run typecheck && npm run test",
     "start:reset-onboarding": "node scripts/reset-onboarding.mjs",
+    "start:reset-sessions": "node scripts/reset-sessions.mjs",
     "sync-domain-skills": "node scripts/sync-domain-skills.mjs",
     "postinstall": "node scripts/chmod-node-pty-helpers.mjs"
   },
