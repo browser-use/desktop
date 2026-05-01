@@ -190,6 +190,62 @@ tasks:
         set -a; . ./.env.signing; set +a
         npm run make
 
+  release:publish:
+    desc: Cut a new notarized release on GitHub. Auto-bumps patch from latest tag, or pass VERSION=X.Y.Z. Pushes tag to trigger CI; CI runs ONLY on tag pushes, never on regular commits.
+    silent: true
+    cmds:
+      - |
+        set -euo pipefail
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+          echo "✗ Working tree dirty — commit or stash first."
+          exit 1
+        fi
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$branch" != "main" ]; then
+          echo "✗ Not on main (currently on $branch)."
+          exit 1
+        fi
+        git fetch origin main --tags --quiet
+        if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+          echo "✗ Local main is out of sync with origin/main — push or pull first."
+          exit 1
+        fi
+
+        VERSION="{{default "" .VERSION}}"
+        if [ -z "$VERSION" ]; then
+          latest=$(git tag --list 'v*.*.*' --sort=-version:refname | head -1)
+          if [ -z "$latest" ]; then
+            VERSION="0.0.1"
+          else
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            VERSION="${major}.${minor}.$((patch + 1))"
+          fi
+          echo "→ auto-bumped from ${latest:-<none>} to v$VERSION"
+        fi
+        if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "✗ Invalid VERSION '$VERSION' (expected X.Y.Z)"
+          exit 1
+        fi
+        tag="v$VERSION"
+        if git rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
+          echo "✗ Tag $tag already exists."
+          exit 1
+        fi
+
+        echo "→ tagging $tag → release.yml will build a notarized DMG and publish to GitHub Releases"
+        git tag -a "$tag" -m "Release $tag"
+        git push origin "$tag"
+        echo
+        echo "✓ pushed. Watch the run:"
+        sleep 3
+        run_id=$(gh run list --repo "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
+        if [ -n "$run_id" ]; then
+          echo "  gh run watch $run_id"
+          echo "  https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions/runs/$run_id"
+        fi
+        echo "Once green:"
+        echo "  https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/releases/tag/$tag"
+
   notary:setup:
     desc: One-time — store Apple notary credentials in macOS keychain so notary:* tasks work without env vars
     dir: "{{.APP_DIR}}"

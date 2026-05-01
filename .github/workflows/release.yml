@@ -54,7 +54,11 @@ jobs:
   make:
     name: Package + make DMG (macOS)
     runs-on: macos-latest
-    timeout-minutes: 40
+    # 90 min covers a slow Apple notary queue (we've seen 30+ min of "In
+    # Progress"). If the workflow times out mid-notarize, no release is
+    # published and /releases/latest stays pinned to the previous good
+    # notarized version — users keep getting a working DMG.
+    timeout-minutes: 90
     # Least-privilege: only this job needs contents:write (to publish the
     # Release + upload assets via softprops/action-gh-release).
     permissions:
@@ -127,10 +131,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            mode="${MODE_INPUT:-signed}"
+            mode="${MODE_INPUT:-notarized}"
           else
-            # Tag push default — change to "notarized" when ready.
-            mode="signed"
+            # Tag push always notarizes — Sequoia removed the right-click
+            # bypass, so signed-only is unusable for end users on macOS 15+.
+            mode="notarized"
           fi
           # Fall back to unsigned if cert secrets are missing (so manual
           # workflow_dispatch runs don't fail on a fresh fork).
