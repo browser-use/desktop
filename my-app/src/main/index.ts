@@ -199,7 +199,13 @@ function openShellAndWire(): BrowserWindow {
   // Create logs overlay window (hidden) and anchor it to the hub
   createLogsWindow();
   attachLogsToHub(shellWindow);
-  createTray(sessionManager);
+  mainLogger.info('main.tray.beforeCreate', { typeofCreateTray: typeof createTray });
+  try {
+    createTray(sessionManager);
+    mainLogger.info('main.tray.afterCreate');
+  } catch (err) {
+    mainLogger.warn('main.tray.threw', { error: (err as Error).message, stack: (err as Error).stack });
+  }
   const togglePillAndNotify = () => {
     togglePill();
     if (shellWindow && !shellWindow.isDestroyed()) {
