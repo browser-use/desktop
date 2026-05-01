@@ -572,6 +572,16 @@ function ResumeIcon(): React.ReactElement {
   );
 }
 
+function GifIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M4 2.5v9M10 2.5v9M1.5 5h2.5M10 5h2.5M1.5 9h2.5M10 9h2.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5.7 8.6V5.4h2.8M8.5 7H7.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 interface FollowUpAttachment { idx: number; name: string; mime: string; bytes: Uint8Array }
 
 async function fileToAttachment(file: File, idx: number): Promise<FollowUpAttachment> {
@@ -766,6 +776,8 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
   // Logs overlay is a separate window (see logsPill.ts). The pane tracks
   // visibility only to reflect it in the Logs button's active state.
   const [logsOpen, setLogsOpen] = useState(false);
+  const [gifExporting, setGifExporting] = useState(false);
+  const [gifExportError, setGifExportError] = useState<string | null>(null);
   // Auto-open the logs overlay once per fresh session id so users see the
   // agent's stream as soon as a task starts.
   const autoLogsTriggeredRef = useRef<Set<string>>(new Set());
@@ -847,6 +859,23 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
       : undefined;
     void api.logs.toggle(session.id, anchor).then((nowOpen) => setLogsOpen(nowOpen));
   }, [session.id]);
+
+  const handleExportGif = useCallback(() => {
+    const api = window.electronAPI;
+    if (!api?.sessions?.exportGif || gifExporting) return;
+    setGifExporting(true);
+    setGifExportError(null);
+    void api.sessions.exportGif(session.id)
+      .then((result) => {
+        if ('error' in result) {
+          setGifExportError(result.error);
+        }
+      })
+      .catch((err) => {
+        setGifExportError((err as Error).message);
+      })
+      .finally(() => setGifExporting(false));
+  }, [gifExporting, session.id]);
 
   // On session change, push the new session id to the floating logs overlay
   // so it re-targets (also handles first-mount auto-show for running sessions).
@@ -1036,6 +1065,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
     (session.status === 'idle' || session.status === 'stopped') &&
     (browserDead || browserMissing || session.status === 'stopped'),
   );
+  const gifReady = session.status !== 'draft' && session.status !== 'running' && session.status !== 'stuck' && session.hasBrowser !== false && !browserDead && !browserMissing;
 
   return (
     <div
@@ -1095,6 +1125,9 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
           )}
         </div>
         <div className="pane__actions">
+          {gifExportError && (
+            <span className="pane__action-note" title={gifExportError}>GIF failed</span>
+          )}
           {browserDead && (
             <span className="pane__action-btn pane__action-btn--disabled">
               <BrowserIcon />
@@ -1109,6 +1142,16 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
           >
             <SplitIcon />
             <span>Logs</span>
+          </button>
+          <button
+            className={`pane__action-btn${gifExporting ? ' pane__action-btn--active' : ''}`}
+            onClick={(e) => { e.stopPropagation(); handleExportGif(); }}
+            aria-label="Export run GIF"
+            data-tip={gifReady ? 'Export run GIF' : 'GIF records while the run is active'}
+            disabled={!gifReady || gifExporting}
+          >
+            {gifExporting ? <span className="pane__mini-spinner" /> : <GifIcon />}
+            <span>{gifExporting ? 'Saving' : session.status === 'running' || session.status === 'stuck' ? 'Recording' : 'GIF'}</span>
           </button>
           {onRerun && (
             <button
