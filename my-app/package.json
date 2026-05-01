@@ -1,7 +1,7 @@
 {
   "name": "browser-use-desktop",
   "productName": "Browser Use",
-  "version": "1.0.0",
+  "version": "0.0.24",
   "description": "Browser Use — a desktop agent hub for Claude Code and Codex",
   "homepage": "https://github.com/browser-use/desktop-app",
   "repository": {
