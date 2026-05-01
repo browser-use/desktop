@@ -62,6 +62,7 @@ app.setAboutPanelOptions({
 
 import started from 'electron-squirrel-startup';
 import { createShellWindow } from './window';
+import { createTray, refreshTrayMenu } from './tray';
 // Track B — Pill + hotkeys
 import { createPillWindow, togglePill, showPill, hidePill, sendToPill, setPillHeight, PILL_HEIGHT_COLLAPSED, PILL_HEIGHT_EXPANDED } from './pill';
 import { createLogsWindow, attachToHub as attachLogsToHub, toggleLogs, hideLogs, getLogsWindow, showLogs, setLogsMode, updateLogsAnchor, focusLogsFollowUp } from './logsPill';
@@ -198,6 +199,7 @@ function openShellAndWire(): BrowserWindow {
   // Create logs overlay window (hidden) and anchor it to the hub
   createLogsWindow();
   attachLogsToHub(shellWindow);
+  createTray(sessionManager);
   const togglePillAndNotify = () => {
     togglePill();
     if (shellWindow && !shellWindow.isDestroyed()) {
@@ -221,6 +223,7 @@ function openShellAndWire(): BrowserWindow {
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send('hotkeys:global-changed', result.accelerator);
       }
+      refreshTrayMenu();
     }
     return result;
   });
