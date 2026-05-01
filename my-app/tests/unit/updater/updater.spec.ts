@@ -57,9 +57,51 @@ class FakeAutoUpdater {
   }
 }
 
+class FakeWindowsAutoUpdater {
+  public feedURL: unknown = null;
+  public checkCount = 0;
+  public quitAndInstallCalled = false;
+  private listeners = new Map<string, Listener[]>();
+
+  reset(): void {
+    this.feedURL = null;
+    this.checkCount = 0;
+    this.quitAndInstallCalled = false;
+    this.listeners = new Map<string, Listener[]>();
+  }
+
+  setFeedURL(opts: unknown): void {
+    this.feedURL = opts;
+  }
+
+  on(event: string, listener: Listener): this {
+    const list = this.listeners.get(event) ?? [];
+    list.push(listener);
+    this.listeners.set(event, list);
+    return this;
+  }
+
+  emit(event: string, ...args: unknown[]): void {
+    for (const l of this.listeners.get(event) ?? []) l(...args);
+  }
+
+  checkForUpdates(): void {
+    this.checkCount += 1;
+  }
+
+  quitAndInstall(): void {
+    this.quitAndInstallCalled = true;
+  }
+
+  hasListener(event: string): boolean {
+    return (this.listeners.get(event)?.length ?? 0) > 0;
+  }
+}
+
 // vi.mock is hoisted; expose the instance through a getter so the test body
 // can grab the current mock after each import.
 const fakeAutoUpdater = new FakeAutoUpdater();
+const fakeWindowsAutoUpdater = new FakeWindowsAutoUpdater();
 
 vi.mock('electron-updater', () => ({
   autoUpdater: fakeAutoUpdater,
@@ -74,8 +116,13 @@ type ElectronModule = typeof import('electron');
 
 async function loadUpdaterFresh(
   packaged: boolean,
+  platform: NodeJS.Platform = 'darwin',
 ): Promise<{ updater: UpdaterModule; electron: ElectronModule }> {
   vi.resetModules();
+  Object.defineProperty(process, 'platform', {
+    value: platform,
+    configurable: true,
+  });
   // Clear captured state on the shared fake so assertions remain isolated.
   fakeAutoUpdater.autoDownload = false;
   fakeAutoUpdater.autoInstallOnAppQuit = false;
@@ -86,10 +133,16 @@ async function loadUpdaterFresh(
   fakeAutoUpdater.quitAndInstallCalled = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (fakeAutoUpdater as any).listeners = new Map<string, Listener[]>();
+  fakeWindowsAutoUpdater.reset();
 
   // Import the fresh electron mock AFTER resetModules so we can mutate the
   // `isPackaged` field before the updater module reads it.
   const electron = (await import('electron')) as ElectronModule;
+  const nativeUpdater = electron.autoUpdater as unknown as Record<string, unknown>;
+  nativeUpdater.setFeedURL = fakeWindowsAutoUpdater.setFeedURL.bind(fakeWindowsAutoUpdater);
+  nativeUpdater.on = fakeWindowsAutoUpdater.on.bind(fakeWindowsAutoUpdater);
+  nativeUpdater.checkForUpdates = fakeWindowsAutoUpdater.checkForUpdates.bind(fakeWindowsAutoUpdater);
+  nativeUpdater.quitAndInstall = fakeWindowsAutoUpdater.quitAndInstall.bind(fakeWindowsAutoUpdater);
   Object.defineProperty(electron.app, 'isPackaged', {
     value: packaged,
     configurable: true,
@@ -104,6 +157,7 @@ async function loadUpdaterFresh(
 // ---------------------------------------------------------------------------
 describe('updater (Issue #202)', () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalPlatform = process.platform;
 
   beforeEach(() => {
     process.env.NODE_ENV = 'production';
@@ -111,6 +165,10 @@ describe('updater (Issue #202)', () => {
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+    Object.defineProperty(process, 'platform', {
+      value: originalPlatform,
+      configurable: true,
+    });
     vi.restoreAllMocks();
   });
 
@@ -130,6 +188,13 @@ describe('updater (Issue #202)', () => {
       process.env.NODE_ENV = 'production';
       const { updater } = await loadUpdaterFresh(true);
       expect(updater.shouldSkipUpdates()).toBe(false);
+    });
+
+    it('supports macOS and Windows update backends only', async () => {
+      const { updater } = await loadUpdaterFresh(false);
+      expect(updater.supportsUpdates('darwin')).toBe(true);
+      expect(updater.supportsUpdates('win32')).toBe(true);
+      expect(updater.supportsUpdates('linux')).toBe(false);
     });
   });
 
@@ -160,6 +225,21 @@ describe('updater (Issue #202)', () => {
         provider: 'generic',
         url: 'https://github.com/browser-use/desktop-app/releases/latest/download',
       });
+
+      updater.stopUpdater();
+    });
+
+    it('configures the native Squirrel.Windows feed on Windows', async () => {
+      const { updater } = await loadUpdaterFresh(true, 'win32');
+
+      await updater.initUpdater();
+
+      expect(fakeWindowsAutoUpdater.feedURL).toEqual({
+        url: 'https://github.com/browser-use/desktop-app/releases/latest/download',
+      });
+      expect(fakeWindowsAutoUpdater.checkCount).toBe(1);
+      expect(fakeWindowsAutoUpdater.hasListener('update-downloaded')).toBe(true);
+      expect(fakeAutoUpdater.feedURL).toBeNull();
 
       updater.stopUpdater();
     });

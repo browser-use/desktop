@@ -79,6 +79,20 @@ export const dialog = {
     Promise.resolve({ canceled: true }),
 };
 
+type MockAutoUpdater = {
+  setFeedURL: (_opts: unknown) => void;
+  on: (_event: string, _handler: (...args: unknown[]) => void) => MockAutoUpdater;
+  checkForUpdates: () => void;
+  quitAndInstall: () => void;
+};
+
+export const autoUpdater: MockAutoUpdater = {
+  setFeedURL: (_opts: unknown): void => undefined,
+  on: (_event: string, _handler: (...args: unknown[]) => void): typeof autoUpdater => autoUpdater,
+  checkForUpdates: (): void => undefined,
+  quitAndInstall: (): void => undefined,
+};
+
 // safeStorage stub — used by PasswordStore (passwords) and KeychainStore
 // fallback path. The mock implements a deterministic XOR-style "encryption"
 // purely for round-trip testing; the encrypted payload is NOT the same bytes
@@ -282,6 +296,7 @@ export default {
   nativeImage,
   shell,
   dialog,
+  autoUpdater,
   safeStorage,
   systemPreferences,
   session,

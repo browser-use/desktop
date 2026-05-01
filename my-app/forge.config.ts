@@ -29,9 +29,11 @@ const SIGNING_IDENTITY = process.env.SIGNING_IDENTITY ?? '';
 const APPLE_ID = process.env.APPLE_ID ?? '';
 const APPLE_APP_SPECIFIC_PASSWORD = process.env.APPLE_APP_SPECIFIC_PASSWORD ?? '';
 const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID ?? '';
+const WINDOWS_SIGN_WITH_PARAMS = process.env.WINDOWS_SIGN_WITH_PARAMS ?? '';
 
 const IS_MAC = process.platform === 'darwin';
 const SHOULD_SIGN = IS_MAC && !SKIP_SIGNING && SIGNING_IDENTITY !== '';
+const WINDOWS_ICON_PATH = path.resolve(__dirname, 'assets/icon.ico');
 
 // ---------------------------------------------------------------------------
 // Forge configuration
@@ -164,8 +166,17 @@ const config: ForgeConfig = {
       ['darwin'],
     ),
 
-    // Windows: Squirrel installer (unchanged from scaffold)
-    new MakerSquirrel({}),
+    // Windows: Squirrel installer + RELEASES/.nupkg update feed for Electron's
+    // native Windows autoUpdater. Authenticode signing is optional and injected
+    // by CI via WINDOWS_SIGN_WITH_PARAMS when a certificate pipeline exists.
+    new MakerSquirrel({
+      name: 'browser_use_desktop',
+      title: 'Browser Use',
+      setupExe: 'Browser-Use-Setup.exe',
+      setupIcon: WINDOWS_ICON_PATH,
+      noMsi: true,
+      ...(WINDOWS_SIGN_WITH_PARAMS ? { signWithParams: WINDOWS_SIGN_WITH_PARAMS } : {}),
+    }),
 
     // Linux: deb + rpm (unchanged from scaffold)
     new MakerDeb({}),

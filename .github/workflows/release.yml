@@ -1,7 +1,7 @@
 name: Release
 
-# Produces a downloadable DMG plus the electron-updater macOS feed for a
-# given ref and attaches them to a GitHub Release page. Two entry points:
+# Produces downloadable macOS and Windows installers plus the update feeds for
+# a given ref and attaches them to a GitHub Release page. Two entry points:
 #
 #   1. Push a git tag matching v*.*.* (e.g. `git tag v1.2.3 && git push origin v1.2.3`).
 #      This is the primary way to cut a release. The release name equals the tag.
@@ -80,7 +80,7 @@ jobs:
           elif [[ -n "${INPUT_TAG}" ]]; then
             TAG="${INPUT_TAG}"
           else
-            TAG="v0.0.0-dev-$(date -u +%Y%m%d%H%M%S)"
+            TAG="v0.0.0-dev-${GITHUB_RUN_ID}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           # Prerelease if the tag contains a recognized pre-release suffix.
@@ -392,3 +392,159 @@ jobs:
               sleep 5
             done
           done < update-assets.txt
+
+  make-windows:
+    name: Package + make Squirrel (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: tag
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $tag = $env:GITHUB_REF.Substring('refs/tags/'.Length)
+          } elseif ($env:INPUT_TAG) {
+            $tag = $env:INPUT_TAG
+          } else {
+            $tag = "v0.0.0-dev-$env:GITHUB_RUN_ID"
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if ($tag -match '-(dev|rc|beta|alpha)') {
+            'prerelease=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            'prerelease=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+          "Resolved tag: $tag"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: my-app/yarn.lock
+
+      - name: Rewrite git SSH to HTTPS
+        shell: pwsh
+        run: git config --global 'url.https://github.com/.insteadOf' 'ssh://git@github.com/'
+
+      - name: Install JS dependencies
+        working-directory: my-app
+        run: yarn install --frozen-lockfile
+
+      - name: Validate package version for tag releases
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.tag.outputs.tag }}'
+          $tagVersion = $tag.TrimStart('v')
+          $packageVersion = node -p "require('./my-app/package.json').version"
+          if ($tagVersion -ne $packageVersion) {
+            Write-Error "Tag $tag does not match my-app/package.json version $packageVersion. Windows updates compare against the packaged app version, so publishing would not update users correctly."
+            exit 1
+          }
+          "Package version matches release tag: $packageVersion"
+
+      - name: electron-forge make (Windows Squirrel)
+        working-directory: my-app
+        env:
+          WINDOWS_SIGN_WITH_PARAMS: ${{ secrets.WINDOWS_SIGN_WITH_PARAMS }}
+        run: yarn run make -- --platform=win32 --arch=x64
+
+      - name: Collect Windows release assets
+        shell: pwsh
+        run: |
+          $assetDir = 'release-assets-windows'
+          $sourceDir = 'my-app/out/make/squirrel.windows/x64'
+          New-Item -ItemType Directory -Force $assetDir | Out-Null
+          if (-not (Test-Path $sourceDir)) {
+            Write-Error "No Squirrel.Windows output found at $sourceDir"
+            exit 1
+          }
+          Copy-Item -Path "$sourceDir/*" -Destination $assetDir -Force
+
+          if (-not (Test-Path "$assetDir/RELEASES")) {
+            Write-Error 'No RELEASES file produced by Squirrel.Windows'
+            exit 1
+          }
+          if (@(Get-ChildItem $assetDir -Filter '*.nupkg' -File).Count -eq 0) {
+            Write-Error 'No .nupkg file produced by Squirrel.Windows'
+            exit 1
+          }
+          if (@(Get-ChildItem $assetDir -Filter '*.exe' -File).Count -eq 0) {
+            Write-Error 'No setup .exe produced by Squirrel.Windows'
+            exit 1
+          }
+
+          Get-ChildItem $assetDir | Format-Table -AutoSize
+
+      - name: Upload Windows artifact (backup)
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-squirrel-${{ github.sha }}
+          path: release-assets-windows/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          target_commitish: ${{ github.sha }}
+          fail_on_unmatched_files: false
+          files: release-assets-windows/*
+
+      - name: Verify published Windows update feed
+        shell: pwsh
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $baseUrl = "https://github.com/$env:REPOSITORY/releases/download/$env:TAG"
+          $releaseFile = 'RELEASES'
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            curl.exe -fsSL "$baseUrl/RELEASES" -o $releaseFile
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            if ($attempt -eq 12) {
+              Write-Error "RELEASES is not publicly downloadable at $baseUrl/RELEASES. Windows autoUpdater runs without GitHub credentials, so release assets must be public."
+              exit 1
+            }
+            "Waiting for RELEASES to become publicly downloadable (attempt $attempt/12)"
+            Start-Sleep -Seconds 5
+          }
+
+          $packages = Get-Content $releaseFile |
+            Where-Object { $_.Trim() } |
+            ForEach-Object { ($_ -split '\s+')[-1] } |
+            Where-Object { $_ -like '*.nupkg' }
+          if (@($packages).Count -eq 0) {
+            Write-Error 'RELEASES does not reference any .nupkg package'
+            exit 1
+          }
+          foreach ($package in $packages) {
+            "Verifying $baseUrl/$package"
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+              curl.exe -fsIL "$baseUrl/$package" | Out-Null
+              if ($LASTEXITCODE -eq 0) {
+                break
+              }
+              if ($attempt -eq 12) {
+                Write-Error "$package is not publicly downloadable at $baseUrl/$package. Windows autoUpdater cannot install updates unless the RELEASES package assets are public."
+                exit 1
+              }
+              "Waiting for $package to become publicly downloadable (attempt $attempt/12)"
+              Start-Sleep -Seconds 5
+            }
+          }

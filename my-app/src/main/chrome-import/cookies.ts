@@ -7,13 +7,15 @@ import net from 'node:net';
 import { session } from 'electron';
 import WebSocket from 'ws';
 import { mainLogger } from '../logger';
-import { getChromeUserDataDir } from './profiles';
+import { resolveChromeProfilePath } from './profiles';
 
-const CHROME_PATHS_MACOS = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-];
+type Platform = NodeJS.Platform;
+
+interface ChromeBinaryOptions {
+  platform?: Platform;
+  env?: NodeJS.ProcessEnv;
+  homedir?: string;
+}
 
 const SKIP_DIRS = new Set([
   'Service Worker', 'Extensions', 'IndexedDB', 'Local Extension Settings',
@@ -27,10 +29,73 @@ const SKIP_FILES = new Set([
 const CDP_STARTUP_TIMEOUT_MS = 15000;
 const CDP_COOKIE_TIMEOUT_MS = 10000;
 
-function findChromeBinary(): string {
-  for (const p of CHROME_PATHS_MACOS) {
+function executableNames(name: string, platform: Platform): string[] {
+  if (platform !== 'win32') return [name];
+  const lower = name.toLowerCase();
+  return lower.endsWith('.exe') ? [name] : [name, `${name}.exe`];
+}
+
+function findOnPath(names: string[], env: NodeJS.ProcessEnv, platform: Platform): string | null {
+  const pathValue = platform === 'win32' ? env.Path ?? env.PATH ?? '' : env.PATH ?? '';
+  const delimiter = platform === 'win32' ? ';' : ':';
+  const pathMod = platform === 'win32' ? path.win32 : path;
+  for (const dir of pathValue.split(delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = pathMod.join(dir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+export function chromeBinaryCandidates(opts: ChromeBinaryOptions = {}): string[] {
+  const platform = opts.platform ?? process.platform;
+  const env = opts.env ?? process.env;
+  const home = opts.homedir ?? os.homedir();
+  const pathMod = platform === 'win32' ? path.win32 : path;
+
+  if (platform === 'darwin') {
+    return [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ];
+  }
+
+  if (platform === 'win32') {
+    const localAppData = env.LOCALAPPDATA ?? pathMod.join(home, 'AppData', 'Local');
+    const programFiles = env.ProgramFiles ?? 'C:\\Program Files';
+    const programFilesX86 = env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)';
+    return [
+      pathMod.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      pathMod.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      pathMod.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      pathMod.join(localAppData, 'Google', 'Chrome SxS', 'Application', 'chrome.exe'),
+      pathMod.join(programFiles, 'Chromium', 'Application', 'chrome.exe'),
+    ];
+  }
+
+  return [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+  ];
+}
+
+export function findChromeBinary(opts: ChromeBinaryOptions = {}): string {
+  const platform = opts.platform ?? process.platform;
+  const env = opts.env ?? process.env;
+  for (const p of chromeBinaryCandidates(opts)) {
     if (fs.existsSync(p)) return p;
   }
+  const onPath = findOnPath(
+    ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', ...executableNames('chrome', platform)],
+    env,
+    platform,
+  );
+  if (onPath) return onPath;
   throw new Error('Chrome not found. Install Google Chrome to import cookies.');
 }
 
@@ -214,7 +279,7 @@ async function getCookiesViaCdp(port: number): Promise<CdpCookie[]> {
 export async function importChromeProfileCookies(profileDir: string): Promise<CookieImportResult> {
   mainLogger.info('chromeImport.importCookies.start', { profileDir });
 
-  const profilePath = path.join(getChromeUserDataDir(), profileDir);
+  const profilePath = resolveChromeProfilePath(profileDir);
   const tempDir = await copyProfileToTemp(profilePath);
   const debugPort = await getFreePort();
 
@@ -264,7 +329,7 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   const priorCountByDomain = new Map<string, number>();
   let cleared = 0;
   for (const domain of targetDomains) {
-    let existing: Electron.Cookie[] = [];
+    let existing: Electron.Cookie[];
     try {
       existing = await electronSession.cookies.get({ domain });
     } catch (err) {

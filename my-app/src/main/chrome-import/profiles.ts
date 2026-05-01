@@ -10,20 +10,77 @@ export interface ChromeProfile {
   avatarIcon: string;
 }
 
-const CHROME_USER_DATA_DIR = path.join(
-  os.homedir(),
-  'Library',
-  'Application Support',
-  'Google',
-  'Chrome',
-);
+type Platform = NodeJS.Platform;
 
-export function getChromeUserDataDir(): string {
-  return CHROME_USER_DATA_DIR;
+interface ChromePathOptions {
+  platform?: Platform;
+  env?: NodeJS.ProcessEnv;
+  homedir?: string;
+}
+
+export function getChromeUserDataDirCandidates(opts: ChromePathOptions = {}): string[] {
+  const platform = opts.platform ?? process.platform;
+  const env = opts.env ?? process.env;
+  const home = opts.homedir ?? os.homedir();
+  const pathMod = platform === 'win32' ? path.win32 : path;
+
+  if (platform === 'darwin') {
+    return [
+      pathMod.join(home, 'Library', 'Application Support', 'Google', 'Chrome'),
+      pathMod.join(home, 'Library', 'Application Support', 'Chromium'),
+      pathMod.join(home, 'Library', 'Application Support', 'Google', 'Chrome Canary'),
+    ];
+  }
+
+  if (platform === 'win32') {
+    const localAppData = env.LOCALAPPDATA ?? pathMod.join(home, 'AppData', 'Local');
+    return [
+      pathMod.join(localAppData, 'Google', 'Chrome', 'User Data'),
+      pathMod.join(localAppData, 'Google', 'Chrome SxS', 'User Data'),
+      pathMod.join(localAppData, 'Chromium', 'User Data'),
+    ];
+  }
+
+  const configHome = env.XDG_CONFIG_HOME ?? pathMod.join(home, '.config');
+  return [
+    pathMod.join(configHome, 'google-chrome'),
+    pathMod.join(configHome, 'google-chrome-beta'),
+    pathMod.join(configHome, 'google-chrome-unstable'),
+    pathMod.join(configHome, 'chromium'),
+  ];
+}
+
+export function getChromeUserDataDir(opts: ChromePathOptions = {}): string {
+  const candidates = getChromeUserDataDirCandidates(opts);
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'Local State'))) return candidate;
+  }
+  return candidates[0];
+}
+
+function hasCookieStore(userDataDir: string, profileDir: string): boolean {
+  return [
+    path.join(userDataDir, profileDir, 'Cookies'),
+    path.join(userDataDir, profileDir, 'Network', 'Cookies'),
+  ].some((cookiePath) => fs.existsSync(cookiePath));
+}
+
+export function resolveChromeProfilePath(profileDir: string, opts: ChromePathOptions = {}): string {
+  const platform = opts.platform ?? process.platform;
+  const pathMod = platform === 'win32' ? path.win32 : path;
+  if (!profileDir || pathMod.isAbsolute(profileDir)) {
+    throw new Error('Invalid Chrome profile directory');
+  }
+  const userDataDir = getChromeUserDataDir(opts);
+  const resolved = pathMod.resolve(userDataDir, profileDir);
+  const root = pathMod.resolve(userDataDir);
+  if (resolved !== root && resolved.startsWith(root + pathMod.sep)) return resolved;
+  throw new Error('Invalid Chrome profile directory');
 }
 
 export function detectChromeProfiles(): ChromeProfile[] {
-  const localStatePath = path.join(CHROME_USER_DATA_DIR, 'Local State');
+  const chromeUserDataDir = getChromeUserDataDir();
+  const localStatePath = path.join(chromeUserDataDir, 'Local State');
 
   if (!fs.existsSync(localStatePath)) {
     mainLogger.warn('chromeImport.detectProfiles.noLocalState', {
@@ -62,8 +119,7 @@ export function detectChromeProfiles(): ChromeProfile[] {
   const profiles: ChromeProfile[] = [];
 
   for (const [dir, info] of Object.entries(infoCache)) {
-    const cookiesPath = path.join(CHROME_USER_DATA_DIR, dir, 'Cookies');
-    if (!fs.existsSync(cookiesPath)) {
+    if (!hasCookieStore(chromeUserDataDir, dir)) {
       mainLogger.debug('chromeImport.detectProfiles.noCookiesDb', { dir });
       continue;
     }

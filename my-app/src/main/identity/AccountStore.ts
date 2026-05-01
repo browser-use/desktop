@@ -9,6 +9,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { mainLogger } from '../logger';
 
@@ -58,7 +59,7 @@ export class AccountStore {
         const { app } = require('electron') as typeof import('electron');
         return app.getPath('userData');
       } catch {
-        return '/tmp/agentic-browser';
+        return path.join(os.tmpdir(), 'agentic-browser');
       }
     })();
 
