@@ -223,16 +223,55 @@ async function js(ctx, expression) {
   return r.result?.value;
 }
 
+async function callFunction(ctx, functionDeclaration, args = []) {
+  const global = await ctx.cdp.send('Runtime.evaluate', { expression: 'globalThis', returnByValue: false });
+  const objectId = global.result?.objectId;
+  if (!objectId) throw new Error('Runtime.evaluate did not return globalThis objectId');
+  try {
+    const r = await ctx.cdp.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration,
+      arguments: args.map((value) => ({ value })),
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+    return r.result?.value;
+  } finally {
+    await ctx.cdp.send('Runtime.releaseObject', { objectId }).catch(() => {});
+  }
+}
+
 async function reactSetValue(ctx, selector, value) {
-  const sel = JSON.stringify(selector); const v = JSON.stringify(value);
-  await js(ctx, `(()=>{const el=document.querySelector(${sel});if(!el)throw new Error('no element for '+${sel});const d=Object.getOwnPropertyDescriptor(el.__proto__,'value');if(d&&d.set){d.set.call(el,${v});}else{el.value=${v};}el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await callFunction(ctx, function setReactValue(selectorArg, valueArg) {
+    const el = document.querySelector(selectorArg);
+    if (!el) throw new Error(`no element for ${selectorArg}`);
+    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+    if (descriptor?.set) {
+      descriptor.set.call(el, valueArg);
+    } else {
+      el.value = valueArg;
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }.toString(), [selector, value]);
 }
 
 async function dispatchKey(ctx, selector, key = 'Enter', event = 'keypress') {
   const _KC = { Enter: 13, Tab: 9, Escape: 27, Backspace: 8, ' ': 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 };
   const kc = _KC[key] ?? (key.length === 1 ? key.charCodeAt(0) : 0);
-  const sel = JSON.stringify(selector); const ek = JSON.stringify(key); const ev = JSON.stringify(event);
-  await js(ctx, `(()=>{const e=document.querySelector(${sel});if(e){e.focus();e.dispatchEvent(new KeyboardEvent(${ev},{key:${ek},code:${ek},keyCode:${kc},which:${kc},bubbles:true}));}})()`);
+  await callFunction(ctx, function dispatchDomKey(selectorArg, keyArg, eventArg, keyCodeArg) {
+    const el = document.querySelector(selectorArg);
+    if (!el) return;
+    el.focus();
+    el.dispatchEvent(new KeyboardEvent(eventArg, {
+      key: keyArg,
+      code: keyArg,
+      keyCode: keyCodeArg,
+      which: keyCodeArg,
+      bubbles: true,
+    }));
+  }.toString(), [selector, key, event, kc]);
 }
 
 async function uploadFile(ctx, selector, paths) {
@@ -244,7 +283,18 @@ async function uploadFile(ctx, selector, paths) {
 }
 
 async function captureDialogs(ctx) {
-  await js(ctx, "window.__dialogs__=[];window.alert=m=>window.__dialogs__.push(String(m));window.confirm=m=>{window.__dialogs__.push(String(m));return true;};window.prompt=(m,d)=>{window.__dialogs__.push(String(m));return d||''}");
+  await callFunction(ctx, function capturePageDialogs() {
+    window.__dialogs__ = [];
+    window.alert = (message) => window.__dialogs__.push(String(message));
+    window.confirm = (message) => {
+      window.__dialogs__.push(String(message));
+      return true;
+    };
+    window.prompt = (message, defaultValue) => {
+      window.__dialogs__.push(String(message));
+      return defaultValue || '';
+    };
+  }.toString());
 }
 
 async function dialogs(ctx) {

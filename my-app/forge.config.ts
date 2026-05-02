@@ -1,5 +1,5 @@
 import path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
@@ -119,8 +119,9 @@ const config: ForgeConfig = {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       const prodDeps = Object.keys(pkg.dependencies ?? {});
       if (prodDeps.length === 0) return;
-      execSync(
-        `npm install --omit=dev --no-package-lock --no-save --legacy-peer-deps ${prodDeps.map((d) => `"${d}"`).join(' ')}`,
+      execFileSync(
+        'npm',
+        ['install', '--omit=dev', '--no-package-lock', '--no-save', '--legacy-peer-deps', ...prodDeps],
         { cwd: buildPath, stdio: 'inherit' },
       );
       // npm install just built native modules against the host Node ABI.
@@ -131,7 +132,7 @@ const config: ForgeConfig = {
       // npm (like yarn) drops the executable bit off node-pty's spawn-helper.
       // Restore it on the packaged tree so `codex login` doesn't crash with
       // `posix_spawnp failed` the first time a user opens onboarding.
-      execSync(`node ${path.resolve(__dirname, 'scripts/chmod-node-pty-helpers.mjs')} "${buildPath}"`, {
+      execFileSync(process.execPath, [path.resolve(__dirname, 'scripts/chmod-node-pty-helpers.mjs'), buildPath], {
         stdio: 'inherit',
       });
     },
@@ -146,11 +147,8 @@ const config: ForgeConfig = {
       for (const outputPath of packageResult.outputPaths ?? []) {
         const appPath = path.join(outputPath, 'Browser Use.app');
         if (!fs.existsSync(appPath)) continue;
-        execSync(
-          `codesign --deep --force --sign - "${appPath}"`,
-          { stdio: 'inherit' },
-        );
-        execSync(`codesign -dvv "${appPath}"`, { stdio: 'inherit' });
+        execFileSync('codesign', ['--deep', '--force', '--sign', '-', appPath], { stdio: 'inherit' });
+        execFileSync('codesign', ['-dvv', appPath], { stdio: 'inherit' });
       }
     },
   },

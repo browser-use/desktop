@@ -57,8 +57,16 @@ interface SessionLite {
 
 function cleanDomain(site: string | null | undefined): string | null {
   if (!site) return null;
-  const clean = site.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
-  return clean || null;
+  try {
+    const input = site.trim().toLowerCase();
+    if (!input) return null;
+    const url = new URL(input.includes('://') ? input : `https://${input}`);
+    const hostname = url.hostname.replace(/\.$/, '');
+    const validDomain = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+    return validDomain.test(hostname) ? hostname : null;
+  } catch {
+    return null;
+  }
 }
 
 const FAVICON_SIZE = 64;
@@ -66,7 +74,7 @@ const FAVICON_SIZE = 64;
 function faviconUrl(site: string | null | undefined): string | null {
   const clean = cleanDomain(site);
   if (!clean) return null;
-  return `https://www.google.com/s2/favicons?domain=${clean}&sz=${FAVICON_SIZE}`;
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=${FAVICON_SIZE}`;
 }
 
 const DOMAIN_RE = /\b((?:[a-z0-9-]+\.)+[a-z]{2,})(?:\/[^\s]*)?/i;

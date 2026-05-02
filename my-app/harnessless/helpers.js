@@ -7,7 +7,7 @@
 
 const net = require('net');
 const fs = require('fs');
-const { execSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const { runtimePaths } = require('./paths');
@@ -207,11 +207,46 @@ async function js(expression, target_id = null) {
   return r.result?.value;
 }
 
+async function call_function(functionDeclaration, args = [], target_id = null) {
+  let sid = null;
+  if (target_id) {
+    const a = await cdp('Target.attachToTarget', { targetId: target_id, flatten: true });
+    sid = a.sessionId;
+  }
+  const global = await cdp('Runtime.evaluate', { expression: 'globalThis', returnByValue: false }, sid);
+  const objectId = global.result?.objectId;
+  if (!objectId) throw new Error('Runtime.evaluate did not return globalThis objectId');
+  try {
+    const r = await cdp('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration,
+      arguments: args.map((value) => ({ value })),
+      returnByValue: true,
+      awaitPromise: true,
+    }, sid);
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+    return r.result?.value;
+  } finally {
+    await cdp('Runtime.releaseObject', { objectId }, sid).catch(() => {});
+  }
+}
+
 const _KC = { 'Enter': 13, 'Tab': 9, 'Escape': 27, 'Backspace': 8, ' ': 32, 'ArrowLeft': 37, 'ArrowUp': 38, 'ArrowRight': 39, 'ArrowDown': 40 };
 
 async function dispatch_key(selector, key = 'Enter', event = 'keypress') {
   const kc = _KC[key] || (key.length === 1 ? key.charCodeAt(0) : 0);
-  await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(e){e.focus();e.dispatchEvent(new KeyboardEvent(${JSON.stringify(event)},{key:${JSON.stringify(key)},code:${JSON.stringify(key)},keyCode:${kc},which:${kc},bubbles:true}));}})()`);
+  await call_function(function dispatchKey(selectorArg, keyArg, eventArg, keyCodeArg) {
+    const el = document.querySelector(selectorArg);
+    if (!el) return;
+    el.focus();
+    el.dispatchEvent(new KeyboardEvent(eventArg, {
+      key: keyArg,
+      code: keyArg,
+      keyCode: keyCodeArg,
+      which: keyCodeArg,
+      bubbles: true,
+    }));
+  }.toString(), [selector, key, event, kc]);
 }
 
 async function upload_file(selector, filepath) {
@@ -223,7 +258,18 @@ async function upload_file(selector, filepath) {
 }
 
 async function capture_dialogs() {
-  await js("window.__dialogs__=[];window.alert=m=>window.__dialogs__.push(String(m));window.confirm=m=>{window.__dialogs__.push(String(m));return true;};window.prompt=(m,d)=>{window.__dialogs__.push(String(m));return d||''}");
+  await call_function(function captureDialogs() {
+    window.__dialogs__ = [];
+    window.alert = (message) => window.__dialogs__.push(String(message));
+    window.confirm = (message) => {
+      window.__dialogs__.push(String(message));
+      return true;
+    };
+    window.prompt = (message, defaultValue) => {
+      window.__dialogs__.push(String(message));
+      return defaultValue || '';
+    };
+  }.toString());
 }
 
 async function dialogs() {
