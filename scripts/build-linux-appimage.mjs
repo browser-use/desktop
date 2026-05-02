@@ -12,7 +12,7 @@ function usage() {
 }
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const appRoot = path.join(repoRoot, 'my-app');
+const appRoot = path.join(repoRoot, 'app');
 const args = process.argv.slice(2);
 
 let packageDir = '';

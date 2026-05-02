@@ -28,23 +28,23 @@ RUN curl -fsSL "$APPIMAGETOOL_URL" -o /usr/local/bin/appimagetool \
 WORKDIR /workspace
 
 # Keep dependency install cacheable when source files change.
-COPY my-app/package.json my-app/yarn.lock ./my-app/
-COPY my-app/scripts/chmod-node-pty-helpers.mjs ./my-app/scripts/
-WORKDIR /workspace/my-app
+COPY app/package.json app/yarn.lock ./app/
+COPY app/scripts/chmod-node-pty-helpers.mjs ./app/scripts/
+WORKDIR /workspace/app
 RUN sed -i 's#git+ssh://git@github.com/#git+https://github.com/#g; s#ssh://git@github.com/#https://github.com/#g' yarn.lock package.json
 RUN yarn install --frozen-lockfile
 
 WORKDIR /workspace
 COPY . .
 
-WORKDIR /workspace/my-app
+WORKDIR /workspace/app
 RUN yarn run make -- --platform=linux --arch=x64
 RUN node ../scripts/build-linux-appimage.mjs \
-    --package-dir "/workspace/my-app/out/Browser Use-linux-x64" \
-    --output-dir /workspace/my-app/out/make/appimage/x64 \
+    --package-dir "/workspace/app/out/Browser Use-linux-x64" \
+    --output-dir /workspace/app/out/make/appimage/x64 \
   && node scripts/generate-linux-update-feed.mjs \
     --version "$(node -p 'require("./package.json").version')" \
     --release-date "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
-    --output /workspace/my-app/out/make/latest-linux.yml \
-    /workspace/my-app/out/make/appimage/x64/*.AppImage
+    --output /workspace/app/out/make/latest-linux.yml \
+    /workspace/app/out/make/appimage/x64/*.AppImage
 RUN node ../scripts/verify-linux-artifacts.mjs

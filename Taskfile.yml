@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  APP_DIR: my-app
+  APP_DIR: app
 
 tasks:
   default:
@@ -62,7 +62,7 @@ tasks:
           echo "No logs found in $LOG_DIR"
           exit 1
         fi
-        tail -n "${LINES:-200}" -F "$LOG_DIR"/*.log | LOG_COLOR="${LOG_COLOR:-1}" node my-app/scripts/pretty-logs.mjs --mode=all
+        tail -n "${LINES:-200}" -F "$LOG_DIR"/*.log | LOG_COLOR="${LOG_COLOR:-1}" node app/scripts/pretty-logs.mjs --mode=all
 
   logs:service:
     desc: Tail one local app log channel with colored formatting, e.g. task logs:service SERVICE=browser
@@ -80,7 +80,7 @@ tasks:
           echo "No log file found: $FILE"
           exit 1
         fi
-        tail -n "${LINES:-200}" -F "$FILE" | LOG_COLOR="${LOG_COLOR:-1}" node my-app/scripts/pretty-logs.mjs --mode=all
+        tail -n "${LINES:-200}" -F "$FILE" | LOG_COLOR="${LOG_COLOR:-1}" node app/scripts/pretty-logs.mjs --mode=all
 
   logs:main:
     desc: Tail main process logs
@@ -121,7 +121,7 @@ tasks:
           echo "No log file found: $FILE"
           exit 1
         fi
-        tail -n "${LINES:-200}" -F "$FILE" | LOG_COLOR="${LOG_COLOR:-1}" node my-app/scripts/pretty-logs.mjs --mode=startup
+        tail -n "${LINES:-200}" -F "$FILE" | LOG_COLOR="${LOG_COLOR:-1}" node app/scripts/pretty-logs.mjs --mode=startup
 
   logs:navigation:
     desc: Tail browser URL navigation timing logs with colored human-readable timing
@@ -134,7 +134,7 @@ tasks:
           echo "No log file found: $FILE"
           exit 1
         fi
-        tail -n "${LINES:-200}" -F "$FILE" | LOG_COLOR="${LOG_COLOR:-1}" node my-app/scripts/pretty-logs.mjs --mode=navigation
+        tail -n "${LINES:-200}" -F "$FILE" | LOG_COLOR="${LOG_COLOR:-1}" node app/scripts/pretty-logs.mjs --mode=navigation
 
   logs:session:
     desc: Tail log lines for one session, e.g. task logs:session SESSION_ID=abc123
@@ -151,7 +151,7 @@ tasks:
           echo "No logs found in $LOG_DIR"
           exit 1
         fi
-        tail -n "${LINES:-200}" -F "$LOG_DIR"/*.log | LOG_COLOR="${LOG_COLOR:-1}" node my-app/scripts/pretty-logs.mjs --mode=all --session="$SESSION_ID"
+        tail -n "${LINES:-200}" -F "$LOG_DIR"/*.log | LOG_COLOR="${LOG_COLOR:-1}" node app/scripts/pretty-logs.mjs --mode=all --session="$SESSION_ID"
 
   package:
     desc: Build an unpackaged app (electron-forge package)
@@ -171,7 +171,7 @@ tasks:
       - bash scripts/build-linux-docker.sh
 
   linux:verify-artifacts:
-    desc: Verify Linux .deb, .rpm, AppImage, and update feed artifacts exist under my-app/out/make
+    desc: Verify Linux .deb, .rpm, AppImage, and update feed artifacts exist under app/out/make
     cmds:
       - node scripts/verify-linux-artifacts.mjs
 
@@ -248,11 +248,11 @@ tasks:
           exit 1
         fi
 
-        package_version=$(node -p "require('./my-app/package.json').version")
+        package_version=$(node -p "require('./app/package.json').version")
         if [ "$package_version" != "$VERSION" ]; then
-          echo "→ bumping my-app/package.json from $package_version to $VERSION"
-          node -e "const fs=require('fs'); const p='my-app/package.json'; const pkg=JSON.parse(fs.readFileSync(p,'utf8')); pkg.version=process.argv[1]; fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');" "$VERSION"
-          git add my-app/package.json
+          echo "→ bumping app/package.json from $package_version to $VERSION"
+          node -e "const fs=require('fs'); const p='app/package.json'; const pkg=JSON.parse(fs.readFileSync(p,'utf8')); pkg.version=process.argv[1]; fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');" "$VERSION"
+          git add app/package.json
           git commit -m "Prepare release $tag" -m "Align the packaged Electron app version with the release tag so auto-update metadata advertises the same version that the app reports at runtime." -m "Constraint: electron-updater compares the published manifest version against app.getVersion()" -m "Confidence: high" -m "Scope-risk: narrow" -m "Tested: release.yml validates tag/package version before publishing" -m "Not-tested: signed CI build before tag push"
           git push origin HEAD:main
         else
@@ -318,7 +318,7 @@ tasks:
     cmds:
       - |
         if [ ! -f .env.signing ]; then
-          echo "Create my-app/.env.signing with APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID first"
+          echo "Create app/.env.signing with APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID first"
           exit 1
         fi
         set -a; . ./.env.signing; set +a
@@ -361,7 +361,7 @@ tasks:
       - |
         TARGET="{{default "" .PATH}}"
         if [ -z "$TARGET" ]; then
-          echo "Set PATH, e.g. task notary:staple PATH=my-app/out/make/.../Browser-Use.dmg"
+          echo "Set PATH, e.g. task notary:staple PATH=app/out/make/.../Browser-Use.dmg"
           exit 1
         fi
         xcrun stapler staple "$TARGET"

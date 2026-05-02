@@ -2,7 +2,7 @@ version: 2
 updates:
   # JavaScript/TypeScript deps in the Electron app
   - package-ecosystem: npm
-    directory: /my-app
+    directory: /app
     schedule:
       interval: weekly
       day: monday
@@ -36,7 +36,7 @@ updates:
 
   # Python daemon deps
   - package-ecosystem: pip
-    directory: /my-app/python
+    directory: /app/python
     schedule:
       interval: weekly
       day: monday

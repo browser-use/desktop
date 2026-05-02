@@ -1,35 +1,35 @@
 # Personal planning docs (reagan_ prefix per CLAUDE.md) — never committed
 reagan_*
-my-app/reagan_*
+app/reagan_*
 
 # Dependencies
 node_modules/
-my-app/node_modules/
+app/node_modules/
 
 # Build artifacts
-my-app/dist/
-my-app/docker/agent/dist/
-my-app/src/renderer/hub/dist/
-my-app/out/
-my-app/.vite/
-my-app/test-results/
-my-app/src/renderer/**/.vite/
-my-app/python/dist/
-my-app/python/build/
-my-app/python/__pycache__/
-my-app/python/**/__pycache__/
-my-app/python/.pytest_cache/
-my-app/python/**/*.pyc
-my-app/python/.venv/
-my-app/python/venv/
+app/dist/
+app/docker/agent/dist/
+app/src/renderer/hub/dist/
+app/out/
+app/.vite/
+app/test-results/
+app/src/renderer/**/.vite/
+app/python/dist/
+app/python/build/
+app/python/__pycache__/
+app/python/**/__pycache__/
+app/python/.pytest_cache/
+app/python/**/*.pyc
+app/python/.venv/
+app/python/venv/
 
 # Logs
 *.log
-my-app/logs/
+app/logs/
 
 # Test results / debug captures (ephemeral)
-my-app/tests/results/
-my-app/tests/debug/
+app/tests/results/
+app/tests/debug/
 
 # Harness runtime artifacts (session signals, ephemeral)
 .harness/
@@ -39,15 +39,15 @@ my-app/tests/debug/
 !.claude/settings.json
 
 # Visual capture outputs (ephemeral, manifest-driven)
-my-app/tests/visual/captures/
-my-app/tests/visual/diff/
+app/tests/visual/captures/
+app/tests/visual/diff/
 
 # Env / secrets
 .env
 .env.local
 .env.*.local
-my-app/.env
-my-app/.env.local
+app/.env
+app/.env.local
 
 # OS
 .DS_Store

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const makeDir = path.resolve(process.argv[2] ?? path.join(repoRoot, 'my-app', 'out', 'make'));
+const makeDir = path.resolve(process.argv[2] ?? path.join(repoRoot, 'app', 'out', 'make'));
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return [];

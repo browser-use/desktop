@@ -25,13 +25,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$ROOT_DIR/my-app/out/make"
+mkdir -p "$ROOT_DIR/app/out/make"
 rm -rf \
-  "$ROOT_DIR/my-app/out/make/deb" \
-  "$ROOT_DIR/my-app/out/make/rpm" \
-  "$ROOT_DIR/my-app/out/make/appimage" \
-  "$ROOT_DIR/my-app/out/make/latest-linux.yml"
-docker cp "$container_id:/workspace/my-app/out/make" "$tmp_dir/make"
-cp -R "$tmp_dir/make/." "$ROOT_DIR/my-app/out/make/"
+  "$ROOT_DIR/app/out/make/deb" \
+  "$ROOT_DIR/app/out/make/rpm" \
+  "$ROOT_DIR/app/out/make/appimage" \
+  "$ROOT_DIR/app/out/make/latest-linux.yml"
+docker cp "$container_id:/workspace/app/out/make" "$tmp_dir/make"
+cp -R "$tmp_dir/make/." "$ROOT_DIR/app/out/make/"
 
 node "$ROOT_DIR/scripts/verify-linux-artifacts.mjs"

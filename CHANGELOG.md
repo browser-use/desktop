@@ -93,7 +93,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Color palette (blue-grey body, shadow, highlight)
   - Animation timings (3s idle float, 0.8s thinking bounce, spring pop, sharp error shake)
 - **Wordmark** — Agentic Browser logotype
-  - Asset files in `/my-app/assets/brand/`
+  - Asset files in `/app/assets/brand/`
   - BRAND.md documentation (palette, brand essence, asset registry)
 - **App icon** — macOS icon set (icon.icns)
 - **Color system** — brand accent colors
@@ -173,7 +173,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Documentation
 
-- **README.md** (my-app root) — fresh quickstart + architecture
+- **README.md** (app root) — fresh quickstart + architecture
   - One-line description + feature overview
   - Prerequisites + quick start (3 commands)
   - Dev shortcuts table (npm scripts)

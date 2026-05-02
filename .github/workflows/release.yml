@@ -114,7 +114,7 @@ jobs:
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
       - name: Install JS dependencies
-        working-directory: my-app
+        working-directory: app
         # Repo's source of truth is yarn.lock (Taskfile runs `yarn install`).
         # --frozen-lockfile keeps CI deps identical to dev.
         run: yarn install --frozen-lockfile
@@ -194,14 +194,14 @@ jobs:
 
       - name: electron-forge make (unsigned)
         if: ${{ steps.signing.outputs.mode == 'unsigned' }}
-        working-directory: my-app
+        working-directory: app
         env:
           SKIP_SIGNING: '1'
         run: npm run make
 
       - name: electron-forge make (signed, no notarization)
         if: ${{ steps.signing.outputs.mode == 'signed' }}
-        working-directory: my-app
+        working-directory: app
         env:
           # Forge config notarizes only when APPLE_ID is set, so we
           # deliberately omit it here.
@@ -210,7 +210,7 @@ jobs:
 
       - name: electron-forge make (signed + notarized)
         if: ${{ steps.signing.outputs.mode == 'notarized' }}
-        working-directory: my-app
+        working-directory: app
         env:
           SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -225,9 +225,9 @@ jobs:
           set -euo pipefail
           tag="${{ steps.tag.outputs.tag }}"
           tag_version="${tag#v}"
-          package_version="$(node -p "require('./my-app/package.json').version")"
+          package_version="$(node -p "require('./app/package.json').version")"
           if [[ "$tag_version" != "$package_version" ]]; then
-            echo "::error::Tag ${tag} does not match my-app/package.json version ${package_version}. electron-updater compares against the packaged app version, so publishing would not update users correctly."
+            echo "::error::Tag ${tag} does not match app/package.json version ${package_version}. electron-updater compares against the packaged app version, so publishing would not update users correctly."
             exit 1
           fi
           echo "Package version matches release tag: ${package_version}"
@@ -262,7 +262,7 @@ jobs:
               *)          stable="Browser-Use.dmg" ;;
             esac
             cp "$f" "release-assets/${stable}"
-          done < <(find my-app/out/make -type f -name '*.dmg')
+          done < <(find app/out/make -type f -name '*.dmg')
 
           zip_count=0
           while IFS= read -r app; do
@@ -281,11 +281,11 @@ jobs:
             zip="release-assets/Browser-Use-${arch}-mac.zip"
             ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
             zip_count=$((zip_count + 1))
-          done < <(find my-app/out -type d -name '*.app' -prune -print)
+          done < <(find app/out -type d -name '*.app' -prune -print)
 
           if [[ "$zip_count" -eq 0 ]]; then
-            echo "::error::No .app bundle found under my-app/out — cannot create Squirrel.Mac update ZIP."
-            find my-app/out -maxdepth 4 -type d -print || true
+            echo "::error::No .app bundle found under app/out — cannot create Squirrel.Mac update ZIP."
+            find app/out -maxdepth 4 -type d -print || true
             exit 1
           fi
 
@@ -293,18 +293,18 @@ jobs:
             [[ -z "$f" ]] && continue
             cp "$f" release-assets/
             zip_count=$((zip_count + 1))
-          done < <(find my-app/out/make -type f -name '*.zip')
+          done < <(find app/out/make -type f -name '*.zip')
 
           if [[ "$dmg_count" -eq 0 ]]; then
             echo "::error::No DMG produced by electron-forge make — refusing to publish empty release."
-            ls -R my-app/out/make || true
+            ls -R app/out/make || true
             exit 1
           fi
 
           shopt -s nullglob
-          release_version="$(node -p "require('./my-app/package.json').version")"
+          release_version="$(node -p "require('./app/package.json').version")"
           release_date="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-          node my-app/scripts/generate-mac-update-feed.mjs \
+          node app/scripts/generate-mac-update-feed.mjs \
             --version "$release_version" \
             --release-date "$release_date" \
             --output release-assets/latest-mac.yml \
@@ -444,14 +444,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
-          cache-dependency-path: my-app/yarn.lock
+          cache-dependency-path: app/yarn.lock
 
       - name: Rewrite git SSH to HTTPS
         shell: pwsh
         run: git config --global 'url.https://github.com/.insteadOf' 'ssh://git@github.com/'
 
       - name: Install JS dependencies
-        working-directory: my-app
+        working-directory: app
         run: yarn install --frozen-lockfile
 
       - name: Validate package version for tag releases
@@ -460,15 +460,15 @@ jobs:
         run: |
           $tag = '${{ steps.tag.outputs.tag }}'
           $tagVersion = $tag.TrimStart('v')
-          $packageVersion = node -p "require('./my-app/package.json').version"
+          $packageVersion = node -p "require('./app/package.json').version"
           if ($tagVersion -ne $packageVersion) {
-            Write-Error "Tag $tag does not match my-app/package.json version $packageVersion. Windows updates compare against the packaged app version, so publishing would not update users correctly."
+            Write-Error "Tag $tag does not match app/package.json version $packageVersion. Windows updates compare against the packaged app version, so publishing would not update users correctly."
             exit 1
           }
           "Package version matches release tag: $packageVersion"
 
       - name: electron-forge make (Windows Squirrel)
-        working-directory: my-app
+        working-directory: app
         env:
           WINDOWS_SIGN_WITH_PARAMS: ${{ secrets.WINDOWS_SIGN_WITH_PARAMS }}
         run: yarn run make -- --platform=win32 --arch=x64
@@ -477,7 +477,7 @@ jobs:
         shell: pwsh
         run: |
           $assetDir = 'release-assets-windows'
-          $sourceDir = 'my-app/out/make/squirrel.windows/x64'
+          $sourceDir = 'app/out/make/squirrel.windows/x64'
           New-Item -ItemType Directory -Force $assetDir | Out-Null
           if (-not (Test-Path $sourceDir)) {
             Write-Error "No Squirrel.Windows output found at $sourceDir"
@@ -611,9 +611,9 @@ jobs:
           set -euo pipefail
           tag="${{ steps.tag.outputs.tag }}"
           tag_version="${tag#v}"
-          package_version="$(node -p "require('./my-app/package.json').version")"
+          package_version="$(node -p "require('./app/package.json').version")"
           if [[ "$tag_version" != "$package_version" ]]; then
-            echo "::error::Tag ${tag} does not match my-app/package.json version ${package_version}. Linux packages would report the wrong app version."
+            echo "::error::Tag ${tag} does not match app/package.json version ${package_version}. Linux packages would report the wrong app version."
             exit 1
           fi
           echo "Package version matches release tag: ${package_version}"
@@ -628,10 +628,10 @@ jobs:
           rm -rf linux-release-assets
           mkdir -p linux-release-assets
 
-          find my-app/out/make/deb/x64 -type f -name '*.deb' -exec cp {} linux-release-assets/ \;
-          find my-app/out/make/rpm/x64 -type f -name '*.rpm' -exec cp {} linux-release-assets/ \;
-          find my-app/out/make/appimage/x64 -type f -name '*.AppImage' -exec cp {} linux-release-assets/ \;
-          cp my-app/out/make/latest-linux.yml linux-release-assets/
+          find app/out/make/deb/x64 -type f -name '*.deb' -exec cp {} linux-release-assets/ \;
+          find app/out/make/rpm/x64 -type f -name '*.rpm' -exec cp {} linux-release-assets/ \;
+          find app/out/make/appimage/x64 -type f -name '*.AppImage' -exec cp {} linux-release-assets/ \;
+          cp app/out/make/latest-linux.yml linux-release-assets/
 
           appimage_count="$(find linux-release-assets -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')"
           if [[ "$appimage_count" -ne 1 ]]; then

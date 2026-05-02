@@ -31,13 +31,13 @@ STEP 1 - READ THE ISSUE:
 Run this command: gh issue view ${ISSUE}
 
 STEP 2 - EXPLORE THE CODEBASE:
-Read the relevant source files to understand existing patterns. The main app code is in my-app/src/main/ (main process) and my-app/src/renderer/ (React UI). Preload scripts are in my-app/src/preload/.
+Read the relevant source files to understand existing patterns. The main app code is in app/src/main/ (main process) and app/src/renderer/ (React UI). Preload scripts are in app/src/preload/.
 
 STEP 3 - IMPLEMENT THE FEATURE:
 Write clean, production-quality TypeScript code. Follow existing patterns in the codebase. Add verbose logging with context so agents can debug later.
 
 STEP 4 - VERIFY IT COMPILES:
-Run: cd my-app && npx tsc --noEmit
+Run: cd app && npx tsc --noEmit
 Fix any type errors before proceeding.
 
 STEP 5 - COMMIT YOUR CHANGES:

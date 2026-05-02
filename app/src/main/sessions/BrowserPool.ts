@@ -1,0 +1,674 @@
+import { WebContentsView, type BrowserWindow, type WebContents } from 'electron';
+import { browserLogger } from '../logger';
+import type { TabInfo } from './types';
+
+const DEFAULT_BROWSER_WIDTH = 1280;
+const DEFAULT_BROWSER_HEIGHT = 800;
+const DEFAULT_MAX_CONCURRENT = 10;
+const THROTTLED_FRAME_RATE = 4;
+const ACTIVE_FRAME_RATE = 60;
+// Fixed emulated viewport so sites always see a desktop-sized window,
+// regardless of how small the WebContentsView rect is in the hub. The
+// rendered content is scaled (fitToView) into the actual rect, so media
+// queries like @media (min-width: 768px) always evaluate against these
+// dimensions — no accidental tablet/mobile layouts.
+const EMULATED_VIEWPORT_WIDTH = 1440;
+const EMULATED_VIEWPORT_HEIGHT = 900;
+
+interface PoolEntry {
+  sessionId: string;
+  view: WebContentsView;
+  createdAt: number;
+  attached: boolean;
+}
+
+export class BrowserPool {
+  private entries: Map<string, PoolEntry> = new Map();
+  private maxConcurrent: number;
+  private queue: string[] = [];
+  private onGone?: (sessionId: string) => void;
+  private onNavigate?: (sessionId: string, url: string) => void;
+
+  constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT) {
+    this.maxConcurrent = maxConcurrent;
+    browserLogger.info('BrowserPool.init', { maxConcurrent });
+  }
+
+  /** Register a listener that fires when a session's WebContents is gone
+   *  (destroyed, crashed, or explicitly closed). Used to push a browser-gone
+   *  notification to the renderer so the UI can stop showing "Browser starting…". */
+  setOnGone(listener: (sessionId: string) => void): void {
+    this.onGone = listener;
+  }
+
+  /** Register a listener that fires on every top-frame navigation (including
+   *  in-page hash/pushState). Used by SessionManager to keep session.primarySite
+   *  in sync with the actual browser — the source of truth, not tool-call args. */
+  setOnNavigate(listener: (sessionId: string, url: string) => void): void {
+    this.onNavigate = listener;
+  }
+
+  private notifyGone(sessionId: string): void {
+    try { this.onGone?.(sessionId); } catch (err) {
+      browserLogger.warn('BrowserPool.notifyGone.listenerError', { sessionId, error: (err as Error).message });
+    }
+  }
+
+  private notifyNavigate(sessionId: string, url: string): void {
+    try { this.onNavigate?.(sessionId, url); } catch (err) {
+      browserLogger.warn('BrowserPool.notifyNavigate.listenerError', { sessionId, error: (err as Error).message });
+    }
+  }
+
+  get activeCount(): number {
+    return this.entries.size;
+  }
+
+  get queuedCount(): number {
+    return this.queue.length;
+  }
+
+  canCreate(): boolean {
+    return this.entries.size < this.maxConcurrent;
+  }
+
+  create(sessionId: string, sessionStartedAt?: number): WebContentsView | null {
+    if (this.entries.has(sessionId)) {
+      browserLogger.warn('BrowserPool.create.duplicate', { sessionId });
+      return this.entries.get(sessionId)!.view;
+    }
+
+    if (!this.canCreate()) {
+      this.queue.push(sessionId);
+      browserLogger.warn('BrowserPool.create.queued', {
+        sessionId,
+        activeCount: this.entries.size,
+        maxConcurrent: this.maxConcurrent,
+        queuePosition: this.queue.length,
+      });
+      return null;
+    }
+
+    const startupStartedAt = Date.now();
+    const timingStartedAt = sessionStartedAt ?? startupStartedAt;
+    const startupMs = (): number => Date.now() - startupStartedAt;
+    const sessionMs = (): number => Date.now() - timingStartedAt;
+    browserLogger.info('BrowserPool.startup.start', {
+      sessionId,
+      component: 'BrowserPool',
+      area: 'startup',
+      event: 'start',
+      msSinceSessionStart: sessionMs(),
+      activeCount: this.entries.size,
+      maxConcurrent: this.maxConcurrent,
+    });
+
+    const view = new WebContentsView({
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: true,
+      },
+    });
+    browserLogger.info('BrowserPool.startup.constructed', {
+      sessionId,
+      component: 'BrowserPool',
+      area: 'startup',
+      event: 'constructed',
+      msSinceCreate: startupMs(),
+      msSinceSessionStart: sessionMs(),
+      pid: view.webContents.getOSProcessId(),
+      wcId: view.webContents.id,
+    });
+
+    view.setBounds({
+      x: 0,
+      y: 0,
+      width: DEFAULT_BROWSER_WIDTH,
+      height: DEFAULT_BROWSER_HEIGHT,
+    });
+
+    // Anti-detection: replace the Electron default UA with a vanilla Chrome UA.
+    // The default contains TWO bot tells — the app name token (`app/x.y.z`)
+    // injected by Electron between `Gecko)` and `Chrome/`, and the Electron
+    // token (`Electron/x.y.z`) before `Safari/`. Strip both. We keep the real
+    // bundled Chromium version (process.versions.chrome) so feature-detection,
+    // Sec-CH-UA hints, and TLS fingerprint stay coherent with the engine.
+    try {
+      const defaultUa = view.webContents.getUserAgent();
+      const cleanedUa = defaultUa
+        .replace(/\sElectron\/\S+/, '')
+        .replace(/\s[A-Za-z][\w-]*\/\d+\.\d+\.\d+(?=\sChrome\/)/, '');
+      if (cleanedUa !== defaultUa) {
+        view.webContents.setUserAgent(cleanedUa);
+        browserLogger.info('BrowserPool.userAgent.stripped', { sessionId, before: defaultUa, after: cleanedUa });
+      }
+    } catch (err) {
+      browserLogger.warn('BrowserPool.userAgent.error', { sessionId, error: (err as Error).message });
+    }
+
+    // Anti-detection: hide `navigator.webdriver` on every frame load. Runs in
+    // the page's isolated world via executeJavaScript — does not touch the
+    // CDP session the agent uses, so driving behavior is unaffected.
+    const hideWebdriver = (): void => {
+      if (view.webContents.isDestroyed()) return;
+      view.webContents.executeJavaScript(
+        "try{Object.defineProperty(Navigator.prototype,'webdriver',{get:()=>undefined,configurable:true})}catch(e){}",
+        true,
+      ).catch(() => { /* frame may have navigated away */ });
+    };
+    view.webContents.on('dom-ready', hideWebdriver);
+
+    view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
+
+    // Pin the embedded page's viewport to a fixed desktop size so sites
+    // always render their desktop layout — no tablet/mobile reflow.
+    //
+    // Strategy: emulate screen/view at EMULATED_VIEWPORT_* (for media
+    // queries / window.innerWidth) but leave fitToView=false so Chromium
+    // renders at natural size. We then scale the visible content down via
+    // webContents.setZoomFactor so it fits the physical WebContentsView
+    // rect. setZoomFactor doesn't change CSS viewport, so the page still
+    // thinks it's 1440-wide even though we're drawing it smaller. Input
+    // coordinates are scaled correctly by Chromium's zoom pipeline, so
+    // clicks and scrolls land on the right DOM elements.
+    const applyEmulation = (): void => {
+      try {
+        if (view.webContents.isDestroyed()) return;
+        // `fitToView` is accepted at runtime but missing from Electron's
+        // Parameters typedef; cast to loosen the shape.
+        view.webContents.enableDeviceEmulation({
+          screenSize: { width: EMULATED_VIEWPORT_WIDTH, height: EMULATED_VIEWPORT_HEIGHT },
+          viewSize:   { width: EMULATED_VIEWPORT_WIDTH, height: EMULATED_VIEWPORT_HEIGHT },
+          deviceScaleFactor: 1,
+          viewPosition: { x: 0, y: 0 },
+          screenPosition: 'desktop',
+          fitToView: false,
+          offset: { x: 0, y: 0 },
+          scale: 1,
+        } as Parameters<typeof view.webContents.enableDeviceEmulation>[0]);
+        browserLogger.info('BrowserPool.deviceEmulation.applied', {
+          sessionId,
+          operationalViewport: {
+            width: EMULATED_VIEWPORT_WIDTH,
+            height: EMULATED_VIEWPORT_HEIGHT,
+            note: 'what the page sees via window.innerWidth / media queries',
+          },
+        });
+      } catch (err) {
+        browserLogger.warn('BrowserPool.deviceEmulation.error', {
+          sessionId,
+          error: (err as Error).message,
+        });
+      }
+    };
+    view.webContents.once('did-start-loading', applyEmulation);
+    view.webContents.on('did-finish-load', applyEmulation);
+
+    const entry: PoolEntry = {
+      sessionId,
+      view,
+      createdAt: startupStartedAt,
+      attached: false,
+    };
+
+    this.entries.set(sessionId, entry);
+
+    // Fire onGone if the renderer process crashes, closes, or otherwise dies
+    // out-of-band so the UI can react (stop showing "Browser starting…").
+    const wc = view.webContents;
+    let navigationSeq = 0;
+    let currentNavigation: { id: number; url: string; startedAt: number } | null = null;
+
+    const navigationElapsedMs = (): number | null =>
+      currentNavigation ? Date.now() - currentNavigation.startedAt : null;
+
+    wc.once('did-start-loading', () => {
+      browserLogger.info('BrowserPool.startup.didStartLoading', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'startup',
+        event: 'didStartLoading',
+        msSinceCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+        url: wc.getURL(),
+      });
+    });
+    wc.once('dom-ready', () => {
+      browserLogger.info('BrowserPool.startup.domReady', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'startup',
+        event: 'domReady',
+        msSinceCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+        url: wc.getURL(),
+      });
+    });
+    wc.once('did-finish-load', () => {
+      browserLogger.info('BrowserPool.startup.didFinishLoad', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'startup',
+        event: 'didFinishLoad',
+        msSinceCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+        url: wc.getURL(),
+      });
+    });
+    wc.once('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      browserLogger.warn('BrowserPool.startup.didFailLoad', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'startup',
+        event: 'didFailLoad',
+        msSinceCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+        errorCode,
+        errorDescription,
+        validatedURL,
+        isMainFrame,
+      });
+    });
+    wc.on('destroyed', () => {
+      browserLogger.info('BrowserPool.wc.destroyed', { sessionId, msSinceCreate: startupMs() });
+      this.entries.delete(sessionId);
+      this.notifyGone(sessionId);
+    });
+    wc.on('render-process-gone', (_event, details) => {
+      browserLogger.warn('BrowserPool.wc.renderProcessGone', { sessionId, reason: details.reason, msSinceCreate: startupMs() });
+      this.notifyGone(sessionId);
+    });
+    wc.on('did-start-navigation', (_event, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId) => {
+      if (!isMainFrame) return;
+      navigationSeq += 1;
+      currentNavigation = { id: navigationSeq, url, startedAt: Date.now() };
+      browserLogger.info('BrowserPool.navigation.start', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'navigation',
+        event: 'start',
+        navigationId: currentNavigation.id,
+        url,
+        msSinceBrowserCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        isInPlace,
+        isMainFrame,
+        frameProcessId,
+        frameRoutingId,
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+      });
+    });
+    wc.on('did-redirect-navigation', (_event, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId) => {
+      if (!isMainFrame) return;
+      const msSinceNavigationStart = navigationElapsedMs();
+      if (currentNavigation) currentNavigation.url = url;
+      browserLogger.info('BrowserPool.navigation.redirect', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'navigation',
+        event: 'redirect',
+        navigationId: currentNavigation?.id ?? null,
+        url,
+        isInPlace,
+        isMainFrame,
+        frameProcessId,
+        frameRoutingId,
+        msSinceNavigationStart,
+        msSinceBrowserCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+      });
+    });
+    // Top-frame navigation — full page load. Covers agent-driven goto(),
+    // user clicks on links, form submits, history back/forward, etc.
+    wc.on('did-navigate', (_event, url) => {
+      browserLogger.info('BrowserPool.navigation.didNavigate', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'navigation',
+        event: 'didNavigate',
+        navigationId: currentNavigation?.id ?? null,
+        url,
+        startedUrl: currentNavigation?.url ?? null,
+        msSinceNavigationStart: navigationElapsedMs(),
+        msSinceBrowserCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+      });
+      this.notifyNavigate(sessionId, url);
+    });
+    wc.on('did-finish-load', () => {
+      if (!currentNavigation) return;
+      browserLogger.info('BrowserPool.navigation.didFinishLoad', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'navigation',
+        event: 'didFinishLoad',
+        navigationId: currentNavigation.id,
+        url: wc.getURL(),
+        startedUrl: currentNavigation.url,
+        msSinceNavigationStart: navigationElapsedMs(),
+        msSinceBrowserCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+      });
+      currentNavigation = null;
+    });
+    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+      browserLogger.warn('BrowserPool.navigation.didFailLoad', {
+        sessionId,
+        component: 'BrowserPool',
+        area: 'navigation',
+        event: 'didFailLoad',
+        navigationId: currentNavigation?.id ?? null,
+        validatedURL,
+        startedUrl: currentNavigation?.url ?? null,
+        msSinceNavigationStart: navigationElapsedMs(),
+        msSinceBrowserCreate: startupMs(),
+        msSinceSessionStart: sessionMs(),
+        errorCode,
+        errorDescription,
+        pid: wc.getOSProcessId(),
+        wcId: wc.id,
+      });
+      if (errorCode !== -3) currentNavigation = null;
+    });
+    // SPA/hash navigation — pushState, replaceState, hash changes. Many
+    // sites (x.com, linkedin, gmail) never fire did-navigate after the
+    // initial load, so without this the primarySite gets stuck on the
+    // first URL and misses SPA route changes.
+    wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+      if (isMainFrame) {
+        browserLogger.info('BrowserPool.navigation.inPage', {
+          sessionId,
+          component: 'BrowserPool',
+          area: 'navigation',
+          event: 'inPage',
+          url,
+          msSinceBrowserCreate: startupMs(),
+          msSinceSessionStart: sessionMs(),
+          pid: wc.getOSProcessId(),
+          wcId: wc.id,
+        });
+        this.notifyNavigate(sessionId, url);
+      }
+    });
+
+    browserLogger.info('BrowserPool.create', {
+      sessionId,
+      activeCount: this.entries.size,
+      maxConcurrent: this.maxConcurrent,
+      pid: view.webContents.getOSProcessId(),
+    });
+
+    return view;
+  }
+
+  getWebContents(sessionId: string): WebContents | null {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return null;
+    return entry.view.webContents;
+  }
+
+  getView(sessionId: string): WebContentsView | null {
+    const entry = this.entries.get(sessionId);
+    return entry?.view ?? null;
+  }
+
+  attachToWindow(sessionId: string, window: BrowserWindow, bounds: { x: number; y: number; width: number; height: number }): boolean {
+    const entry = this.entries.get(sessionId);
+    if (!entry) {
+      browserLogger.warn('BrowserPool.attach.notFound', { sessionId });
+      return false;
+    }
+
+    if (entry.attached) {
+      browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
+      entry.view.setBounds(bounds);
+      // Don't touch zoom here — user's manual zoom (Cmd+=/Cmd+-) should
+      // persist across attach cycles.
+      return true;
+    }
+
+    entry.view.setBounds(bounds);
+    window.contentView.addChildView(entry.view);
+    entry.attached = true;
+
+    entry.view.webContents.setFrameRate(ACTIVE_FRAME_RATE);
+
+    // Scale the rendered page so the emulated 1440×900 viewport fits the
+    // physical rect. Use the smaller axis so content never overflows.
+    const zoom = Math.min(
+      bounds.width / EMULATED_VIEWPORT_WIDTH,
+      bounds.height / EMULATED_VIEWPORT_HEIGHT,
+    );
+    try {
+      entry.view.webContents.setZoomFactor(Math.max(0.25, Math.min(1, zoom)));
+    } catch (err) {
+      browserLogger.warn('BrowserPool.attach.setZoomFactor.error', { sessionId, zoom, error: (err as Error).message });
+    }
+
+    browserLogger.info('BrowserPool.attach', {
+      sessionId,
+      visualBounds: bounds,
+      operationalViewport: {
+        width: EMULATED_VIEWPORT_WIDTH,
+        height: EMULATED_VIEWPORT_HEIGHT,
+      },
+      zoomFactor: zoom,
+      frameRate: ACTIVE_FRAME_RATE,
+    });
+
+    return true;
+  }
+
+  detachFromWindow(sessionId: string, window: BrowserWindow): boolean {
+    const entry = this.entries.get(sessionId);
+    if (!entry) {
+      browserLogger.warn('BrowserPool.detach.notFound', { sessionId });
+      return false;
+    }
+
+    if (!entry.attached) {
+      browserLogger.debug('BrowserPool.detach.notAttached', { sessionId });
+      return false;
+    }
+
+    window.contentView.removeChildView(entry.view);
+    entry.attached = false;
+
+    entry.view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
+
+    browserLogger.info('BrowserPool.detach', {
+      sessionId,
+      frameRate: THROTTLED_FRAME_RATE,
+    });
+
+    return true;
+  }
+
+  detachAll(window: BrowserWindow): void {
+    const ids = Array.from(this.entries.keys());
+    for (const id of ids) {
+      this.detachFromWindow(id, window);
+    }
+    browserLogger.info('BrowserPool.detachAll', { count: ids.length });
+  }
+
+  temporarilyDetachAll(window: BrowserWindow): void {
+    for (const entry of this.entries.values()) {
+      if (entry.attached) {
+        window.contentView.removeChildView(entry.view);
+      }
+    }
+    browserLogger.info('BrowserPool.temporarilyDetachAll');
+  }
+
+  reattachAll(window: BrowserWindow): void {
+    for (const entry of this.entries.values()) {
+      if (entry.attached) {
+        window.contentView.addChildView(entry.view);
+      }
+    }
+    browserLogger.info('BrowserPool.reattachAll');
+  }
+
+  async getTabs(sessionId: string): Promise<TabInfo[]> {
+    const wc = this.getWebContents(sessionId);
+    if (!wc) return [];
+
+    try {
+      const url = wc.getURL();
+      const title = wc.getTitle();
+
+      return [{
+        targetId: String(wc.id),
+        url: url || 'about:blank',
+        title: title || 'New Tab',
+        type: 'page',
+        active: true,
+      }];
+    } catch (err) {
+      browserLogger.warn('BrowserPool.getTabs.error', {
+        sessionId,
+        error: (err as Error).message,
+      });
+      return [];
+    }
+  }
+
+  destroy(sessionId: string, window?: BrowserWindow): void {
+    const entry = this.entries.get(sessionId);
+    if (!entry) {
+      browserLogger.debug('BrowserPool.destroy.notFound', { sessionId });
+      return;
+    }
+
+    if (entry.attached && window) {
+      try {
+        window.contentView.removeChildView(entry.view);
+      } catch (err) {
+        browserLogger.warn('BrowserPool.destroy.detachError', {
+          sessionId,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    const lifetimeMs = Date.now() - entry.createdAt;
+
+    // Delete from map first so the wc.on('destroyed') listener's notifyGone
+    // is a clean no-op (it still fires, but the entry is already gone).
+    this.entries.delete(sessionId);
+
+    const wc = entry.view.webContents;
+    let closed = false;
+    try {
+      if (!wc.isDestroyed()) {
+        (wc as unknown as { close: (opts?: { waitForBeforeUnload?: boolean }) => void }).close();
+        closed = true;
+      }
+    } catch (err) {
+      browserLogger.warn('BrowserPool.destroy.closeError', {
+        sessionId,
+        error: (err as Error).message,
+      });
+    }
+
+    // wc.close() doesn't always destroy embedded WebContents synchronously
+    // (or at all, for views without an unload handler). Force teardown on the
+    // next tick if it's still alive — this fires the `destroyed` listener,
+    // which also calls notifyGone (idempotent on the renderer).
+    setImmediate(() => {
+      try {
+        if (!wc.isDestroyed()) {
+          (wc as unknown as { destroy?: () => void }).destroy?.();
+        }
+      } catch (err) {
+        browserLogger.warn('BrowserPool.destroy.forceError', {
+          sessionId,
+          error: (err as Error).message,
+        });
+      }
+    });
+
+    // Notify renderer synchronously so "Browser ended" paints immediately —
+    // we don't want to wait for the wc.destroyed event, which may be delayed
+    // or never fire if close() is a no-op.
+    this.notifyGone(sessionId);
+
+    browserLogger.info('BrowserPool.destroy', {
+      sessionId,
+      lifetimeMs,
+      remainingActive: this.entries.size,
+      closed,
+    });
+
+    this.drainQueue();
+  }
+
+  destroyAll(window?: BrowserWindow): void {
+    const sessionIds = Array.from(this.entries.keys());
+    browserLogger.info('BrowserPool.destroyAll', { count: sessionIds.length });
+
+    for (const sessionId of sessionIds) {
+      this.destroy(sessionId, window);
+    }
+
+    this.queue.length = 0;
+  }
+
+  isAttached(sessionId: string): boolean {
+    const entry = this.entries.get(sessionId);
+    return entry?.attached ?? false;
+  }
+
+  getStats(): {
+    active: number;
+    queued: number;
+    maxConcurrent: number;
+    sessions: Array<{ sessionId: string; attached: boolean; createdAt: number; pid: number }>;
+  } {
+    const sessions = Array.from(this.entries.values()).map((e) => ({
+      sessionId: e.sessionId,
+      attached: e.attached,
+      createdAt: e.createdAt,
+      pid: e.view.webContents.getOSProcessId(),
+    }));
+
+    return {
+      active: this.entries.size,
+      queued: this.queue.length,
+      maxConcurrent: this.maxConcurrent,
+      sessions,
+    };
+  }
+
+  private drainQueue(): void {
+    while (this.queue.length > 0 && this.canCreate()) {
+      const nextSessionId = this.queue.shift()!;
+      browserLogger.info('BrowserPool.drainQueue', {
+        sessionId: nextSessionId,
+        remainingQueued: this.queue.length,
+      });
+      // The session manager will need to call create() again for this session.
+      // We emit the session ID so the caller knows to retry.
+      // For now, just log — the session manager polls canCreate().
+    }
+  }
+}

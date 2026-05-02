@@ -62,12 +62,12 @@ Copy the full quoted string — this is your `SIGNING_IDENTITY`.
 
 ## Step 2 — Set environment variables locally
 
-Create `my-app/.env` from the template (never commit this file):
+Create `app/.env` from the template (never commit this file):
 ```
-cp my-app/.env.example my-app/.env
+cp app/.env.example app/.env
 ```
 
-Edit `my-app/.env` and fill in your real values:
+Edit `app/.env` and fill in your real values:
 ```
 APPLE_TEAM_ID=AB12CD34EF
 APPLE_ID=you@example.com
@@ -77,14 +77,14 @@ SIGNING_IDENTITY=Developer ID Application: Your Name (AB12CD34EF)
 
 Load the variables in your shell:
 ```
-set -a && source my-app/.env && set +a
+set -a && source app/.env && set +a
 ```
 
 ---
 
 ## Step 3 — Activate notarization in forge.config.ts
 
-The `osxNotarize` block in `my-app/forge.config.ts` is currently commented out.
+The `osxNotarize` block in `app/forge.config.ts` is currently commented out.
 Uncomment it when credentials are available:
 
 ```typescript
@@ -101,7 +101,7 @@ Uncomment it when credentials are available:
 
 Also ensure `@electron/notarize` is installed (it is listed in `.track-F-deps.txt`):
 ```
-cd my-app && npm install --save-dev @electron/notarize
+cd app && npm install --save-dev @electron/notarize
 ```
 
 ---
@@ -111,16 +111,16 @@ cd my-app && npm install --save-dev @electron/notarize
 From the repo root:
 ```bash
 # Load credentials
-set -a && source my-app/.env && set +a
+set -a && source app/.env && set +a
 
 # Build Python daemon, sign it, build + sign Electron app, notarize, staple
-cd my-app
+cd app
 bash scripts/release.sh
 ```
 
 Or step by step:
 ```bash
-cd my-app
+cd app
 
 # 1. Build Python daemon
 bash python/build.sh
@@ -180,7 +180,7 @@ https://github.com/<org>/<repo>/actions
 
 After a local or CI build, run:
 ```bash
-cd my-app
+cd app
 bash scripts/verify-signing.sh
 ```
 
@@ -266,7 +266,7 @@ After downloading from a browser, macOS quarantines the DMG. This is expected.
 After notarization and stapling, the quarantine flag is cleared automatically
 when the user opens the DMG in Finder. If testing from the command line:
 ```bash
-xattr -d com.apple.quarantine my-app.dmg
+xattr -d com.apple.quarantine app.dmg
 ```
 
 ### CI keychain import fails: "The specified item already exists"

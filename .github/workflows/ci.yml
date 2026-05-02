@@ -34,17 +34,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
-          cache-dependency-path: my-app/yarn.lock
+          cache-dependency-path: app/yarn.lock
 
       - name: Rewrite git+ssh → https (transitive deps use ssh://git@github.com)
         run: git config --global url."https://github.com/".insteadOf ssh://git@github.com/
 
       - name: Install dependencies
-        working-directory: my-app
+        working-directory: app
         run: yarn install --frozen-lockfile
 
       - name: ESLint
-        working-directory: my-app
+        working-directory: app
         run: yarn lint
 
   typecheck:
@@ -59,17 +59,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
-          cache-dependency-path: my-app/yarn.lock
+          cache-dependency-path: app/yarn.lock
 
       - name: Rewrite git+ssh → https (transitive deps use ssh://git@github.com)
         run: git config --global url."https://github.com/".insteadOf ssh://git@github.com/
 
       - name: Install dependencies
-        working-directory: my-app
+        working-directory: app
         run: yarn install --frozen-lockfile
 
       - name: tsc --noEmit
-        working-directory: my-app
+        working-directory: app
         run: yarn typecheck
 
   unit:
@@ -83,17 +83,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: yarn
-          cache-dependency-path: my-app/yarn.lock
+          cache-dependency-path: app/yarn.lock
 
       - name: Rewrite git+ssh → https (transitive deps use ssh://git@github.com)
         run: git config --global url."https://github.com/".insteadOf ssh://git@github.com/
 
       - name: Install dependencies
-        working-directory: my-app
+        working-directory: app
         run: yarn install --frozen-lockfile
 
       - name: Run vitest with coverage
-        working-directory: my-app
+        working-directory: app
         run: yarn test:coverage
 
       - name: Upload coverage (TS)
@@ -101,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: coverage-ts
-          path: my-app/tests/results/coverage/
+          path: app/tests/results/coverage/
           if-no-files-found: warn
 
       - name: Upload test results
@@ -109,5 +109,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: vitest-results
-          path: my-app/tests/results/
+          path: app/tests/results/
           if-no-files-found: ignore

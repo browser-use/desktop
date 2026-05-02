@@ -7,14 +7,14 @@
 
 # CI / build / release infrastructure
 /.github/                           @sauravpanda
-/my-app/forge.config.ts             @sauravpanda
-/my-app/vite.*.config.ts            @sauravpanda
-/my-app/package.json                @sauravpanda
+/app/forge.config.ts             @sauravpanda
+/app/vite.*.config.ts            @sauravpanda
+/app/package.json                @sauravpanda
 /Taskfile.yml                       @sauravpanda
 
 # Main process + shared types — high-blast-radius changes
-/my-app/src/main/                   @sauravpanda
-/my-app/src/shared/                 @sauravpanda
+/app/src/main/                   @sauravpanda
+/app/src/shared/                 @sauravpanda
 
 # Python agent daemon
-/my-app/python/                     @sauravpanda
+/app/python/                     @sauravpanda

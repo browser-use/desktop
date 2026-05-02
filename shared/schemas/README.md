@@ -158,7 +158,7 @@ task_done
 ## Code generation
 
 ```bash
-# From my-app/ directory:
+# From app/ directory:
 npm run codegen:schemas
 ```
 

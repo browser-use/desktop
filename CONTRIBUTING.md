@@ -16,7 +16,7 @@ This document covers setup, workflow, testing, and design rules for the Agentic 
 ```bash
 # Clone repo
 git clone https://github.com/<owner>/desktop-app
-cd desktop-app/my-app
+cd desktop-app/app
 
 # Install Node deps
 npm install
@@ -226,13 +226,13 @@ test('pill-flow: Cmd+K → agent task → done', async () => {
 ### Python tests (pytest)
 
 ```bash
-cd my-app/python
+cd app/python
 pytest              # Run all
 pytest -v           # Verbose
 pytest tests/test_budget.py  # Single file
 ```
 
-**Location:** `my-app/python/tests/`
+**Location:** `app/python/tests/`
 
 **Rules:**
 - Test sandbox security (blocked imports, safe builtins)
@@ -455,13 +455,13 @@ Check the Electron console (Cmd+Option+I) for:
 2. 404 errors on resources
 3. Preload bridge errors (`electron` undefined)
 
-See troubleshooting in `my-app/README.md`.
+See troubleshooting in `app/README.md`.
 
 ### Agent daemon not starting
 
 ```bash
 # Terminal 1 — start daemon manually
-cd my-app/python
+cd app/python
 source .venv/bin/activate
 DAEMON_SOCKET_PATH=/tmp/agent-test.sock python3 agent_daemon.py
 
@@ -502,8 +502,8 @@ echo '{"meta":"ping"}' | nc -U /tmp/agent-test.sock
 ## Getting help
 
 - Check memory: `/Users/reagan/.claude/projects/-Users-reagan-Documents-GitHub-desktop-app/memory/MEMORY.md`
-- Check design system: `my-app/src/renderer/design/DESIGN_SYSTEM.md`
-- Check brand: `my-app/assets/brand/BRAND.md`
+- Check design system: `app/src/renderer/design/DESIGN_SYSTEM.md`
+- Check brand: `app/assets/brand/BRAND.md`
 - Ask in issues or PRs
 
 ---
