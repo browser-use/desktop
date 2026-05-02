@@ -20,14 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
-RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" \
-  && git config --global url."https://github.com/".insteadOf "git@github.com:"
-
 WORKDIR /workspace
 
 # Keep dependency install cacheable when source files change.
 COPY my-app/package.json my-app/yarn.lock ./my-app/
 WORKDIR /workspace/my-app
+RUN sed -i 's#git+ssh://git@github.com/#git+https://github.com/#g; s#ssh://git@github.com/#https://github.com/#g' yarn.lock package.json
 RUN yarn install --frozen-lockfile
 
 WORKDIR /workspace
