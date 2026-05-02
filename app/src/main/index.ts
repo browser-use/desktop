@@ -218,8 +218,6 @@ function openShellAndWire(): BrowserWindow {
   }
 
   registerApiKeyHandlers();
-  registerConsentHandlers();
-  registerTelemetryHandlers();
   captureEvent('app_launched');
 
   ipcMain.handle('hotkeys:get-global', () => getGlobalCmdbarAccelerator());
@@ -332,6 +330,8 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   // Channel IPC handlers (registered early so onboarding can use them too)
   // ---------------------------------------------------------------------------
+  registerConsentHandlers();
+  registerTelemetryHandlers();
   registerChannelHandlers(channelRouter, whatsAppAdapter);
   whatsAppAdapter.onStatusChange((status, detail) => {
     const target = shellWindow ?? onboardingWindow;

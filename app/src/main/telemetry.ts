@@ -7,7 +7,7 @@
  *   telemetry.gauge('session_restore_success_rate', 0.99)
  *
  * In dev / opt-out mode: writes to local JSONL log at userData/telemetry.jsonl
- * In beta / opt-in mode: sends to PostHog (configured via POSTHOG_API_KEY env var)
+ * In beta / opt-in mode: sends to PostHog using the public project key below.
  *
  * Thresholds are checked on every observe() call. Threshold violations are
  * logged to the structured logger and emitted as 'threshold-violation' events.
@@ -351,6 +351,7 @@ export class TelemetryEmitter extends EventEmitter {
     const body = JSON.stringify({
       api_key: POSTHOG_PUBLIC_KEY,
       event: eventName,
+      distinct_id: getInstallId(),
       properties: { kind, value, ...tags },
       timestamp: new Date().toISOString(),
     });
