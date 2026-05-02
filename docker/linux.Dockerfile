@@ -24,6 +24,7 @@ WORKDIR /workspace
 
 # Keep dependency install cacheable when source files change.
 COPY my-app/package.json my-app/yarn.lock ./my-app/
+COPY my-app/scripts/chmod-node-pty-helpers.mjs ./my-app/scripts/
 WORKDIR /workspace/my-app
 RUN sed -i 's#git+ssh://git@github.com/#git+https://github.com/#g; s#ssh://git@github.com/#https://github.com/#g' yarn.lock package.json
 RUN yarn install --frozen-lockfile
