@@ -34,16 +34,6 @@ updates:
       # Typescript 4.5 is pinned intentionally — upgrade is a scoped project
       - dependency-name: 'typescript'
 
-  # Python daemon deps
-  - package-ecosystem: pip
-    directory: /app/python
-    schedule:
-      interval: weekly
-      day: monday
-      time: '09:00'
-      timezone: America/Los_Angeles
-    open-pull-requests-limit: 3
-
   # GitHub Actions versions
   - package-ecosystem: github-actions
     directory: /
