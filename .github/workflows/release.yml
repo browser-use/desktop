@@ -50,12 +50,9 @@ on:
         required: false
         default: ''
 
-# Scope concurrency to the tag/input so two simultaneous runs for the same
-# release cannot race each other. `github.ref` resolves to `refs/tags/<tag>`
-# on tag pushes, and the `tag` input (or the fallback) on manual runs.
-concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref }}
-  cancel-in-progress: false
+# Scope concurrency per tag and platform. Windows and Linux can publish
+# independent assets to the same release concurrently, while duplicate jobs for
+# the same platform/tag still queue instead of overwriting each other.
 
 env:
   NODE_VERSION: '22'
@@ -64,6 +61,9 @@ jobs:
   make:
     name: Package + make DMG (macOS)
     if: ${{ github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'mac' }}
+    concurrency:
+      group: release-${{ github.event.inputs.tag || github.ref_name }}-mac
+      cancel-in-progress: false
     runs-on: macos-latest
     # 90 min covers a slow Apple notary queue (we've seen 30+ min of "In
     # Progress"). If the workflow times out mid-notarize, no release is
@@ -407,6 +407,9 @@ jobs:
   make-windows:
     name: Package + make Squirrel (Windows)
     if: ${{ github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows' }}
+    concurrency:
+      group: release-${{ github.event.inputs.tag || github.ref_name }}-windows
+      cancel-in-progress: false
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -567,6 +570,9 @@ jobs:
   make-linux:
     name: Package Linux distros (Docker)
     if: ${{ github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux' }}
+    concurrency:
+      group: release-${{ github.event.inputs.tag || github.ref_name }}-linux
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
