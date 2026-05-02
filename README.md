@@ -5,7 +5,7 @@
 > Run a team of browser agents on your desktop.
 
 [![Download for macOS](https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/browser-use/desktop-app/releases/latest/download/Browser-Use-arm64.dmg)
-[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/browser-use/desktop-app/releases/latest/download/Browser-Use-Setup.exe)
+[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/browser-use/desktop-app/releases/latest/download/Browser-Use-Setup.exe)
 [![Download for Linux](https://img.shields.io/badge/Download_for_Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://github.com/browser-use/desktop-app/releases/latest/download/Browser-Use-x64.AppImage)
 
 Every AI browser tries to be both a browser *and* an agent. Keep your normal Chrome — this is just the agent half.
