@@ -14,6 +14,7 @@ import { engineLogger } from '../../logger';
 import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType } from '../../identity/authStore';
 import { helpersPath, toolsPath, skillPath } from '../harness';
 import { get as getAdapter } from './registry';
+import { resolveCliSpawn } from './pathEnrich';
 import type {
   EngineAdapter,
   ParseContext,
@@ -205,7 +206,8 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
 
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(adapter.binaryName, args, { cwd: opts.harnessDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const resolved = resolveCliSpawn(adapter.binaryName, args, { env });
+    child = spawn(resolved.command, resolved.args, { cwd: opts.harnessDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (err) {
     opts.onEvent({ type: 'error', message: `spawn_failed: ${(err as Error).message}` });
     return;

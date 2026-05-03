@@ -21,7 +21,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
-import { enrichedEnv } from '../pathEnrich';
+import { enrichedEnv, resolveCliSpawn } from '../pathEnrich';
 import { runCodexDeviceLogin } from '../../../identity/codexLogin';
 import type {
   AuthProbe,
@@ -41,7 +41,11 @@ const BIN = 'codex';
 function runCli(args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     let child;
-    try { child = spawn(BIN, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() }); }
+    try {
+      const env = enrichedEnv();
+      const resolved = resolveCliSpawn(BIN, args, { env });
+      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    }
     catch { resolve({ ok: false, stdout: '', stderr: 'spawn failed' }); return; }
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => (stdout += String(d)));

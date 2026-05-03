@@ -18,7 +18,7 @@ import {
   getCredentialStatus,
 } from '../identity/authStore';
 import { probeClaudeAuthStatus } from '../identity/claudeCodeAuth';
-import { enrichedEnv } from '../hl/engines/pathEnrich';
+import { enrichedEnv, resolveCliSpawn } from '../hl/engines/pathEnrich';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -143,9 +143,11 @@ async function handleClaudeCodeLogin(): Promise<{ ok: boolean; error?: string }>
     };
     let child;
     try {
-      child = spawn('claude', ['auth', 'login', '--claudeai'], {
+      const env = enrichedEnv();
+      const resolved = resolveCliSpawn('claude', ['auth', 'login', '--claudeai'], { env });
+      child = spawn(resolved.command, resolved.args, {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: enrichedEnv(),
+        env,
       });
     } catch (err) {
       finish({ ok: false, error: (err as Error).message });
@@ -252,7 +254,9 @@ function runLogoutCommand(bin: string, args: string[]): Promise<{ opened: boolea
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+      const env = enrichedEnv();
+      const resolved = resolveCliSpawn(bin, args, { env });
+      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     } catch (err) {
       resolve({ opened: false, error: `spawn failed: ${(err as Error).message}` });
       return;

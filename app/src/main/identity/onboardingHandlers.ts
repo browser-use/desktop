@@ -6,7 +6,7 @@ import { assertString } from '../ipc-validators';
 import { createPillWindow, togglePill, onPillVisibilityChange } from '../pill';
 import { saveApiKey as authSaveApiKey, setAuthMode as authSetMode, saveOpenAIKey as authSaveOpenAIKey } from './authStore';
 import { getAdapter } from '../hl/engines';
-import { enrichedEnv } from '../hl/engines/pathEnrich';
+import { enrichedEnv, resolveCliSpawn } from '../hl/engines/pathEnrich';
 
 const GLOBAL_SHORTCUT = 'CommandOrControl+Shift+Space';
 
@@ -100,7 +100,9 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
    * directly without needing Terminal in the common case.
    */
   ipcMain.handle('onboarding:run-claude-login', async () => {
-    const child = spawn('claude', ['auth', 'login', '--claudeai'], { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+    const env = enrichedEnv();
+    const resolved = resolveCliSpawn('claude', ['auth', 'login', '--claudeai'], { env });
+    const child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     let stderrBuf = '';
     let stdoutBuf = '';
     child.stdout?.on('data', (d) => { stdoutBuf += String(d); if (stdoutBuf.length > 4096) stdoutBuf = stdoutBuf.slice(-4096); });
@@ -472,7 +474,9 @@ function runCli(bin: string, args: string[], timeoutMs = 5000): Promise<{ ok: bo
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+      const env = enrichedEnv();
+      const resolved = resolveCliSpawn(bin, args, { env });
+      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     } catch (err) {
       resolve({ ok: false, stdout: '', stderr: '', error: (err as Error).message });
       return;

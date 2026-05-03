@@ -8,6 +8,7 @@
  * user-level binary directories on top of whatever PATH the process was given.
  */
 
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -129,4 +130,86 @@ export function enrichedEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.Pr
   const platform = process.platform;
   const key = pathKeyForEnv(baseEnv, platform);
   return { ...baseEnv, [key]: enrichedPath(pathValueFromEnv(baseEnv, platform), { platform, env: baseEnv }) };
+}
+
+/**
+ * Windows CreateProcess can't execute `.cmd` / `.bat` shims directly — it only
+ * runs true `.exe` files. npm-installed CLIs (like `codex`) ship as `.cmd`
+ * shims with no `.exe`, so a plain `spawn('codex', …)` returns ENOENT (-4058)
+ * even though the command works fine in any shell.
+ *
+ * `resolveCliSpawn` finds the actual file the OS would run (PATHEXT order),
+ * and if it's a `.cmd`/`.bat`, rewrites the call to go through `cmd.exe` with
+ * `/d /s /c` so each user-supplied arg stays a separate argv element. This is
+ * safer than `shell: true`, which would word-split prompts containing spaces
+ * or quotes.
+ *
+ * On non-Windows platforms it's a no-op (returns the inputs unchanged).
+ */
+const WIN_SHIM_EXTS = ['.cmd', '.bat'] as const;
+
+function findOnWindowsPath(name: string, env: NodeJS.ProcessEnv): string | null {
+  const pathStr = pathValueFromEnv(env, 'win32');
+  if (!pathStr) return null;
+  const dirs = pathStr.split(';').filter(Boolean);
+  // PATHEXT is the canonical search order. We always check `.exe` first so
+  // a native binary wins over an npm shim with the same stem.
+  const pathExt = (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').map((e) => e.toLowerCase()).filter(Boolean);
+  const exts = name.includes('.') && pathExt.includes(path.win32.extname(name).toLowerCase())
+    ? ['']
+    : pathExt;
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = path.win32.join(dir, name + ext);
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch { /* not here, keep looking */ }
+    }
+  }
+  return null;
+}
+
+/** Quote one arg the way `cmd.exe` expects when it parses `/c "<cmdline>"`. */
+function quoteForCmdExe(arg: string): string {
+  if (arg === '') return '""';
+  // If no whitespace and no cmd metacharacters, no quoting needed.
+  if (!/[\s"&|<>^()%!]/.test(arg)) return arg;
+  // Escape embedded double-quotes by doubling them, then wrap in quotes.
+  return '"' + arg.replace(/"/g, '""') + '"';
+}
+
+export interface ResolvedCli {
+  command: string;
+  args: string[];
+  /** True iff we rewrote the call to go through cmd.exe. */
+  viaCmdShell: boolean;
+}
+
+export function resolveCliSpawn(
+  name: string,
+  args: readonly string[],
+  opts: { platform?: Platform; env?: NodeJS.ProcessEnv } = {},
+): ResolvedCli {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== 'win32') return { command: name, args: [...args], viaCmdShell: false };
+
+  const env = opts.env ?? enrichedEnv();
+  const resolved = findOnWindowsPath(name, env);
+  if (!resolved) return { command: name, args: [...args], viaCmdShell: false };
+
+  const ext = path.win32.extname(resolved).toLowerCase();
+  if (!WIN_SHIM_EXTS.includes(ext as (typeof WIN_SHIM_EXTS)[number])) {
+    // Native .exe (or .com) — spawn it directly. Use the resolved absolute
+    // path so we're not at the mercy of PATH ordering at exec time.
+    return { command: resolved, args: [...args], viaCmdShell: false };
+  }
+
+  // .cmd / .bat: route through cmd.exe. Each token is quoted independently
+  // and joined into ONE string after `/c`, which is the form cmd.exe expects.
+  const cmdline = [resolved, ...args].map(quoteForCmdExe).join(' ');
+  return {
+    command: process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/s', '/c', cmdline],
+    viaCmdShell: true,
+  };
 }
