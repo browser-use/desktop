@@ -25,7 +25,11 @@ class FakeAutoUpdater {
   public logger: unknown = null;
   public feedURL: unknown = null;
   public checkCount = 0;
+  public quitAndInstallCount = 0;
   public quitAndInstallCalled = false;
+  public downloadedUpdateHelper = {
+    clear: vi.fn(async () => {}),
+  };
   private readonly listeners = new Map<string, Listener[]>();
 
   setFeedURL(opts: unknown): void {
@@ -49,6 +53,7 @@ class FakeAutoUpdater {
   }
 
   quitAndInstall(): void {
+    this.quitAndInstallCount += 1;
     this.quitAndInstallCalled = true;
   }
 
@@ -60,12 +65,14 @@ class FakeAutoUpdater {
 class FakeWindowsAutoUpdater {
   public feedURL: unknown = null;
   public checkCount = 0;
+  public quitAndInstallCount = 0;
   public quitAndInstallCalled = false;
   private listeners = new Map<string, Listener[]>();
 
   reset(): void {
     this.feedURL = null;
     this.checkCount = 0;
+    this.quitAndInstallCount = 0;
     this.quitAndInstallCalled = false;
     this.listeners = new Map<string, Listener[]>();
   }
@@ -90,6 +97,7 @@ class FakeWindowsAutoUpdater {
   }
 
   quitAndInstall(): void {
+    this.quitAndInstallCount += 1;
     this.quitAndInstallCalled = true;
   }
 
@@ -138,7 +146,9 @@ async function loadUpdaterFresh(
   fakeAutoUpdater.logger = null;
   fakeAutoUpdater.feedURL = null;
   fakeAutoUpdater.checkCount = 0;
+  fakeAutoUpdater.quitAndInstallCount = 0;
   fakeAutoUpdater.quitAndInstallCalled = false;
+  fakeAutoUpdater.downloadedUpdateHelper.clear.mockClear();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (fakeAutoUpdater as any).listeners = new Map<string, Listener[]>();
   fakeWindowsAutoUpdater.reset();
@@ -471,6 +481,38 @@ describe('updater (Issue #202)', () => {
         buttons: ['Restart Now', 'Later'],
         defaultId: 0,
       });
+
+      updater.stopUpdater();
+    });
+
+    it('collapses repeated install clicks into one quitAndInstall call until an updater error resets the guard', async () => {
+      const { updater } = await loadUpdaterFresh(true);
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+
+      updater.installDownloadedUpdate();
+      updater.installDownloadedUpdate();
+      updater.installDownloadedUpdate();
+
+      expect(fakeAutoUpdater.quitAndInstallCount).toBe(1);
+
+      fakeAutoUpdater.emit('error', new Error('squirrel failed'));
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+      updater.installDownloadedUpdate();
+
+      expect(fakeAutoUpdater.quitAndInstallCount).toBe(2);
+
+      updater.stopUpdater();
+    });
+
+    it('clears the cached electron-updater download helper on generic updater errors', async () => {
+      const { updater } = await loadUpdaterFresh(true);
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('error', new Error('cached update failed'));
+
+      expect(fakeAutoUpdater.downloadedUpdateHelper.clear).toHaveBeenCalledTimes(1);
 
       updater.stopUpdater();
     });

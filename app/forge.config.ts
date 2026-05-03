@@ -123,6 +123,9 @@ const config: ForgeConfig = {
     appBundleId: 'com.browser-use.desktop',
     appCategoryType: 'public.app-category.productivity',
     icon: 'assets/icon',   // Forge appends .icns on macOS automatically
+    // electron-updater still reads process.resourcesPath/app-update.yml during
+    // the download/install phase even when setFeedURL supplies the feed URL.
+    extraResource: ['app-update.yml'],
   },
 
   rebuildConfig: {},

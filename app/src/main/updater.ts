@@ -50,6 +50,7 @@ let updateCheckTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
 let activeCheckForUpdates: UpdateCheck | null = null;
 let activeInstallUpdate: (() => void) | null = null;
+let installInProgress = false;
 
 type UpdateCheck = () => Promise<void>;
 
@@ -58,6 +59,12 @@ type WindowsAutoUpdater = {
   on(event: string, listener: (...args: unknown[]) => void): unknown;
   checkForUpdates(): void;
   quitAndInstall(): void;
+};
+
+type AppUpdaterWithDownloadedUpdateHelper = AppUpdater & {
+  downloadedUpdateHelper?: {
+    clear?: () => Promise<void>;
+  } | null;
 };
 
 export type UpdateStatus =
@@ -100,6 +107,26 @@ function emitUpdateStatus(event: UpdateStatusEvent): void {
   currentUpdateStatus = event;
   logInfo('status', event as Record<string, unknown>);
   updateStatusEmitter.emit('status', event);
+}
+
+async function clearCachedUpdate(autoUpdater: AppUpdater, reason: string): Promise<void> {
+  const helper = (autoUpdater as AppUpdaterWithDownloadedUpdateHelper).downloadedUpdateHelper;
+  if (!helper?.clear) return;
+  try {
+    await helper.clear();
+    logInfo('cacheCleared', { reason });
+  } catch (err) {
+    logWarn('cacheClearFailed', { reason, error: (err as Error)?.message ?? String(err) });
+  }
+}
+
+function runInstallUpdate(action: () => void): void {
+  if (installInProgress) {
+    logInfo('install.duplicateIgnored');
+    return;
+  }
+  installInProgress = true;
+  action();
 }
 
 function isUpdateDialogOwnerCandidate(win: BrowserWindow): boolean {
@@ -224,8 +251,9 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
 
   autoUpdater.on('update-downloaded', (info) => {
     logInfo('downloaded', { version: info.version });
+    installInProgress = false;
     activeInstallUpdate = () => {
-      autoUpdater.quitAndInstall(false, true);
+      runInstallUpdate(() => autoUpdater.quitAndInstall(false, true));
     };
     emitUpdateStatus({
       status: 'ready',
@@ -253,7 +281,9 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
   });
 
   autoUpdater.on('error', (err: Error) => {
+    installInProgress = false;
     logError('error', { error: err.message, stack: err.stack });
+    void clearCachedUpdate(autoUpdater, `error: ${err.message}`);
     emitUpdateStatus({ status: 'error', error: err.message, message: 'Failed to check for updates.' });
     // Non-fatal — log and continue. Do not crash the app on update errors.
   });
@@ -294,8 +324,9 @@ function configureWindowsAutoUpdater(autoUpdater: WindowsAutoUpdater): UpdateChe
   autoUpdater.on('update-downloaded', (...args) => {
     const version = getVersionFromArgs(args);
     logInfo('windows.downloaded', { version });
+    installInProgress = false;
     activeInstallUpdate = () => {
-      autoUpdater.quitAndInstall();
+      runInstallUpdate(() => autoUpdater.quitAndInstall());
     };
     emitUpdateStatus({
       status: 'ready',
@@ -321,6 +352,7 @@ function configureWindowsAutoUpdater(autoUpdater: WindowsAutoUpdater): UpdateChe
   });
 
   autoUpdater.on('error', (err: Error) => {
+    installInProgress = false;
     logError('windows.error', { error: err.message, stack: err.stack });
     emitUpdateStatus({ status: 'error', error: err.message, message: 'Failed to check for updates.' });
   });

@@ -267,6 +267,10 @@ jobs:
           zip_count=0
           while IFS= read -r app; do
             [[ -z "$app" ]] && continue
+            if [[ ! -f "$app/Contents/Resources/app-update.yml" ]]; then
+              echo "::error::Packaged app is missing Contents/Resources/app-update.yml; electron-updater cannot complete macOS downloads without it."
+              exit 1
+            fi
             parent="$(basename "$(dirname "$app")")"
             case "$parent" in
               *arm64*)     arch="arm64" ;;
