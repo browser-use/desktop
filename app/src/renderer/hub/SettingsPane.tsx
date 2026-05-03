@@ -56,6 +56,9 @@ function AppSection(): React.ReactElement {
   const canDownloadUpdate = info?.canDownloadUpdate === true;
   const updateReady = updateStatusEvent.status === 'ready';
   const updateBusy = updateStatusEvent.status === 'checking' || updateStatusEvent.status === 'downloading';
+  const updateActionDisabled = !api || !info || installing || (
+    !updateReady && (checking || updateBusy || onLatest || !canDownloadUpdate)
+  );
   const downloadProgress = updateStatusEvent.progress?.percent;
   const progressWidth = typeof downloadProgress === 'number'
     ? `${Math.max(2, Math.min(100, downloadProgress))}%`
@@ -144,6 +147,7 @@ function AppSection(): React.ReactElement {
         ...current,
         message: result.message,
       }));
+      if (!result.ok) setInstalling(false);
     } catch {
       setUpdateStatusEvent({ status: 'error', message: 'Could not restart to install the update.' });
       setInstalling(false);
@@ -182,7 +186,7 @@ function AppSection(): React.ReactElement {
         <button
           className="conn-card__btn conn-card__btn--secondary"
           onClick={handleUpdateClick}
-          disabled={!api || !info || checking || installing || updateBusy || onLatest || (!canDownloadUpdate && !updateReady)}
+          disabled={updateActionDisabled}
         >
           {buttonLabel}
         </button>

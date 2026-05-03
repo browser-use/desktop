@@ -43,7 +43,7 @@ class FakeAutoUpdater {
     for (const l of this.listeners.get(event) ?? []) l(...args);
   }
 
-  async checkForUpdatesAndNotify(): Promise<null> {
+  async checkForUpdates(): Promise<null> {
     this.checkCount += 1;
     return null;
   }
@@ -113,6 +113,14 @@ vi.mock('electron-updater', () => ({
 // ---------------------------------------------------------------------------
 type UpdaterModule = typeof import('../../../src/main/updater');
 type ElectronModule = typeof import('electron');
+type MockUpdateDialogWindow = {
+  id: number;
+  isDestroyed: () => boolean;
+  isVisible: () => boolean;
+  webContents: {
+    getURL: () => string;
+  };
+};
 
 async function loadUpdaterFresh(
   packaged: boolean,
@@ -287,7 +295,7 @@ describe('updater (Issue #202)', () => {
       updater.stopUpdater();
     });
 
-    it('performs an initial checkForUpdatesAndNotify', async () => {
+    it('performs an initial checkForUpdates on startup', async () => {
       const { updater } = await loadUpdaterFresh(true);
 
       await updater.initUpdater();
@@ -381,9 +389,9 @@ describe('updater (Issue #202)', () => {
       updater.stopUpdater();
     });
 
-    it('publishes live update status and installs once an update is ready', async () => {
+    it('shows the update-ready dialog for a mocked 0.0.27 update and installs once ready', async () => {
       const { updater, electron } = await loadUpdaterFresh(true);
-      vi.spyOn(electron.dialog, 'showMessageBox').mockResolvedValue({
+      const showMessageBox = vi.spyOn(electron.dialog, 'showMessageBox').mockResolvedValue({
         response: 1,
         checkboxChecked: false,
       });
@@ -393,19 +401,28 @@ describe('updater (Issue #202)', () => {
       });
 
       await updater.initUpdater();
-      fakeAutoUpdater.emit('update-available', { version: '9.9.9' });
+      fakeAutoUpdater.emit('update-available', { version: '0.0.27' });
       fakeAutoUpdater.emit('download-progress', {
         percent: 42,
         transferred: 42,
         total: 100,
         bytesPerSecond: 1000,
       });
-      fakeAutoUpdater.emit('update-downloaded', { version: '9.9.9' });
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
 
       expect(statuses).toContain('downloading');
       expect(updater.getUpdateStatus()).toMatchObject({
         status: 'ready',
-        version: '9.9.9',
+        version: '0.0.27',
+        message: 'Version 0.0.27 is ready to install.',
+      });
+      expect(showMessageBox).toHaveBeenCalledWith({
+        type: 'info',
+        title: 'Update Ready',
+        message: 'Version 0.0.27 is ready to install.',
+        detail: 'Restart now to apply the update, or it will install automatically on next quit.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
       });
       expect(fakeAutoUpdater.quitAndInstallCalled).toBe(false);
 
@@ -415,6 +432,46 @@ describe('updater (Issue #202)', () => {
       expect(fakeAutoUpdater.quitAndInstallCalled).toBe(true);
 
       unsubscribe();
+      updater.stopUpdater();
+    });
+
+    it('anchors update dialogs to the app window instead of focused utility windows', async () => {
+      const { updater, electron } = await loadUpdaterFresh(true);
+      const logsWindow: MockUpdateDialogWindow = {
+        id: 2,
+        isDestroyed: () => false,
+        isVisible: () => true,
+        webContents: {
+          getURL: () => 'http://localhost:5176/src/renderer/logs/logs.html',
+        },
+      };
+      const shellWindow: MockUpdateDialogWindow = {
+        id: 1,
+        isDestroyed: () => false,
+        isVisible: () => true,
+        webContents: {
+          getURL: () => 'http://localhost:5173/src/renderer/hub/hub.html',
+        },
+      };
+      vi.spyOn(electron.BrowserWindow, 'getFocusedWindow').mockReturnValue(logsWindow as never);
+      vi.spyOn(electron.BrowserWindow, 'getAllWindows').mockReturnValue([logsWindow, shellWindow] as never);
+      const showMessageBox = vi.spyOn(electron.dialog, 'showMessageBox').mockResolvedValue({
+        response: 1,
+        checkboxChecked: false,
+      });
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+
+      expect(showMessageBox).toHaveBeenCalledWith(shellWindow, {
+        type: 'info',
+        title: 'Update Ready',
+        message: 'Version 0.0.27 is ready to install.',
+        detail: 'Restart now to apply the update, or it will install automatically on next quit.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      });
+
       updater.stopUpdater();
     });
 

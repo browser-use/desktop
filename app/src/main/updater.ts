@@ -32,8 +32,10 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { app, autoUpdater as electronAutoUpdater, dialog } from 'electron';
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog } from 'electron';
+import type { MessageBoxOptions, MessageBoxReturnValue } from 'electron';
 import type { AppUpdater } from 'electron-updater';
+import { mainLogger } from './logger';
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -82,9 +84,48 @@ export type UpdateStatusEvent = {
 const updateStatusEmitter = new EventEmitter();
 let currentUpdateStatus: UpdateStatusEvent = { status: 'idle' };
 
+function logInfo(message: string, extra?: Record<string, unknown>): void {
+  mainLogger.info(`updater.${message}`, extra);
+}
+
+function logWarn(message: string, extra?: Record<string, unknown>): void {
+  mainLogger.warn(`updater.${message}`, extra);
+}
+
+function logError(message: string, extra?: Record<string, unknown>): void {
+  mainLogger.error(`updater.${message}`, extra);
+}
+
 function emitUpdateStatus(event: UpdateStatusEvent): void {
   currentUpdateStatus = event;
+  logInfo('status', event as Record<string, unknown>);
   updateStatusEmitter.emit('status', event);
+}
+
+function isUpdateDialogOwnerCandidate(win: BrowserWindow): boolean {
+  if (win.isDestroyed()) return false;
+  const url = win.webContents.getURL();
+  if (url.includes('/logs/') || url.endsWith('/logs.html')) return false;
+  if (url.includes('/pill/') || url.endsWith('/pill.html')) return false;
+  return true;
+}
+
+function getUpdateDialogOwner(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && isUpdateDialogOwnerCandidate(focused)) return focused;
+
+  const candidates = BrowserWindow.getAllWindows().filter(isUpdateDialogOwnerCandidate);
+  return candidates.find((win) => win.isVisible()) ?? candidates[0] ?? null;
+}
+
+function showNativeMessageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
+  const owner = getUpdateDialogOwner();
+  if (owner) {
+    logInfo('dialog.owner', { windowId: owner.id, url: owner.webContents.getURL() });
+    return dialog.showMessageBox(owner, options);
+  }
+  logInfo('dialog.owner', { windowId: null });
+  return dialog.showMessageBox(options);
 }
 
 export function getUpdateStatus(): UpdateStatusEvent {
@@ -125,22 +166,26 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
     url: UPDATE_FEED_URL,
   });
 
-  // Verbose diagnostics — electron-updater's logger interface is compatible
-  // with the global console (info/warn/error).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (autoUpdater as any).logger = console;
+  // Route electron-updater diagnostics into our persistent main.log. Console
+  // output is often invisible for packaged apps launched from Finder.
+  autoUpdater.logger = {
+    info: (message: unknown) => logInfo('electronUpdater.info', { message: String(message) }),
+    warn: (message: unknown) => logWarn('electronUpdater.warn', { message: String(message) }),
+    error: (message: unknown) => logError('electronUpdater.error', { message: String(message) }),
+    debug: (message: unknown) => logInfo('electronUpdater.debug', { message: String(message) }),
+  };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   // The release workflow publishes full update ZIPs, not .blockmap files.
   autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('[updater] Checking for update');
+    logInfo('checking', { platform: process.platform, version: app.getVersion(), feedUrl: UPDATE_FEED_URL });
     emitUpdateStatus({ status: 'checking', message: 'Checking for updates...' });
   });
 
   autoUpdater.on('update-available', (info) => {
-    console.log('[updater] Update available:', info.version, 'current:', app.getVersion());
+    logInfo('available', { version: info.version, currentVersion: app.getVersion() });
     emitUpdateStatus({
       status: 'downloading',
       version: info.version,
@@ -149,7 +194,7 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
   });
 
   autoUpdater.on('update-not-available', (info) => {
-    console.log('[updater] No update available. Current version is latest:', info.version);
+    logInfo('notAvailable', { version: info.version, currentVersion: app.getVersion() });
     emitUpdateStatus({
       status: 'idle',
       version: info.version,
@@ -159,11 +204,12 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
 
   autoUpdater.on('download-progress', (progress) => {
     const pct = typeof progress.percent === 'number' ? progress.percent.toFixed(1) : '?';
-    console.log(
-      `[updater] Download progress: ${pct}%`,
-      `(${progress.transferred}/${progress.total} bytes)`,
-      `speed: ${progress.bytesPerSecond} B/s`,
-    );
+    logInfo('downloadProgress', {
+      percent: typeof progress.percent === 'number' ? progress.percent : null,
+      transferred: typeof progress.transferred === 'number' ? progress.transferred : null,
+      total: typeof progress.total === 'number' ? progress.total : null,
+      bytesPerSecond: typeof progress.bytesPerSecond === 'number' ? progress.bytesPerSecond : null,
+    });
     emitUpdateStatus({
       status: 'downloading',
       message: `Downloading update (${pct}%)...`,
@@ -177,7 +223,7 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('[updater] Update downloaded:', info.version);
+    logInfo('downloaded', { version: info.version });
     activeInstallUpdate = () => {
       autoUpdater.quitAndInstall(false, true);
     };
@@ -188,33 +234,32 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
     });
     // Prompt the user. If they dismiss, autoInstallOnAppQuit handles it on
     // the next natural quit, so we never block an update forever.
-    dialog
-      .showMessageBox({
-        type: 'info',
-        title: 'Update Ready',
-        message: `Version ${info.version} is ready to install.`,
-        detail: 'Restart now to apply the update, or it will install automatically on next quit.',
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-      })
+    showNativeMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: `Version ${info.version} is ready to install.`,
+      detail: 'Restart now to apply the update, or it will install automatically on next quit.',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+    })
       .then(({ response }) => {
         if (response === 0) {
           activeInstallUpdate?.();
         }
       })
       .catch((err: unknown) => {
-        console.warn('[updater] Failed to show update dialog:', (err as Error)?.message ?? err);
+        logWarn('dialogFailed', { error: (err as Error)?.message ?? String(err) });
       });
   });
 
   autoUpdater.on('error', (err: Error) => {
-    console.error('[updater] Auto-update error:', err.message);
+    logError('error', { error: err.message, stack: err.stack });
     emitUpdateStatus({ status: 'error', error: err.message, message: 'Failed to check for updates.' });
     // Non-fatal — log and continue. Do not crash the app on update errors.
   });
 
   return async () => {
-    await autoUpdater.checkForUpdatesAndNotify();
+    await autoUpdater.checkForUpdates();
   };
 }
 
@@ -222,13 +267,13 @@ function configureWindowsAutoUpdater(autoUpdater: WindowsAutoUpdater): UpdateChe
   autoUpdater.setFeedURL({ url: UPDATE_FEED_URL });
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('[updater] Checking for Windows update');
+    logInfo('windows.checking', { version: app.getVersion(), feedUrl: UPDATE_FEED_URL });
     emitUpdateStatus({ status: 'checking', message: 'Checking for updates...' });
   });
 
   autoUpdater.on('update-available', (...args) => {
-    console.log('[updater] Windows update available:', ...args);
     const version = getVersionFromArgs(args);
+    logInfo('windows.available', { version, currentVersion: app.getVersion() });
     emitUpdateStatus({
       status: 'downloading',
       version,
@@ -237,8 +282,8 @@ function configureWindowsAutoUpdater(autoUpdater: WindowsAutoUpdater): UpdateChe
   });
 
   autoUpdater.on('update-not-available', (...args) => {
-    console.log('[updater] No Windows update available:', ...args);
     const version = getVersionFromArgs(args);
+    logInfo('windows.notAvailable', { version, currentVersion: app.getVersion() });
     emitUpdateStatus({
       status: 'idle',
       version,
@@ -247,8 +292,8 @@ function configureWindowsAutoUpdater(autoUpdater: WindowsAutoUpdater): UpdateChe
   });
 
   autoUpdater.on('update-downloaded', (...args) => {
-    console.log('[updater] Windows update downloaded:', ...args);
     const version = getVersionFromArgs(args);
+    logInfo('windows.downloaded', { version });
     activeInstallUpdate = () => {
       autoUpdater.quitAndInstall();
     };
@@ -257,27 +302,26 @@ function configureWindowsAutoUpdater(autoUpdater: WindowsAutoUpdater): UpdateChe
       version,
       message: version ? `Version ${version} is ready to install.` : 'An update is ready to install.',
     });
-    dialog
-      .showMessageBox({
-        type: 'info',
-        title: 'Update Ready',
-        message: 'An update is ready to install.',
-        detail: 'Restart now to apply the update, or install it the next time you quit.',
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-      })
+    showNativeMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: 'An update is ready to install.',
+      detail: 'Restart now to apply the update, or install it the next time you quit.',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+    })
       .then(({ response }) => {
         if (response === 0) {
           activeInstallUpdate?.();
         }
       })
       .catch((err: unknown) => {
-        console.warn('[updater] Failed to show Windows update dialog:', (err as Error)?.message ?? err);
+        logWarn('windows.dialogFailed', { error: (err as Error)?.message ?? String(err) });
       });
   });
 
   autoUpdater.on('error', (err: Error) => {
-    console.error('[updater] Windows auto-update error:', err.message);
+    logError('windows.error', { error: err.message, stack: err.stack });
     emitUpdateStatus({ status: 'error', error: err.message, message: 'Failed to check for updates.' });
   });
 
@@ -425,22 +469,33 @@ export function installDownloadedUpdate(): InstallUpdateResult {
  */
 export async function initUpdater(): Promise<void> {
   if (initialized) {
-    console.warn('[updater] initUpdater called twice — ignoring');
+    logWarn('init.duplicate', { platform: process.platform, version: app.getVersion() });
     return;
   }
+  logInfo('init.start', {
+    platform: process.platform,
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    nodeEnv: process.env.NODE_ENV ?? null,
+    feedUrl: UPDATE_FEED_URL,
+  });
   if (shouldSkipUpdates()) {
-    console.log('[updater] Skipping auto-update init — dev mode / not packaged');
+    logInfo('init.skipped', {
+      reason: 'dev-or-not-packaged',
+      packaged: app.isPackaged,
+      nodeEnv: process.env.NODE_ENV ?? null,
+    });
     return;
   }
   if (!supportsUpdates(process.platform, process.env)) {
-    console.log(`[updater] Skipping auto-update init — unsupported platform/channel: ${process.platform}`);
+    logInfo('init.skipped', { reason: 'unsupported-platform-or-channel', platform: process.platform });
     return;
   }
 
   let checkForUpdates: UpdateCheck;
   if (process.platform === 'win32') {
     if (!electronAutoUpdater) {
-      console.warn('[updater] Electron native autoUpdater unavailable — Windows auto-update disabled');
+      logWarn('windows.unavailable', { reason: 'native-autoUpdater-missing' });
       return;
     }
     checkForUpdates = configureWindowsAutoUpdater(electronAutoUpdater as WindowsAutoUpdater);
@@ -458,11 +513,11 @@ export async function initUpdater(): Promise<void> {
       const mod = (await import('electron-updater')) as { autoUpdater?: AppUpdater; default?: { autoUpdater?: AppUpdater } };
       autoUpdater = (mod.autoUpdater ?? mod.default?.autoUpdater) as AppUpdater;
       if (!autoUpdater) {
-        console.warn('[updater] electron-updater loaded but exposed no autoUpdater — auto-update disabled');
+        logWarn('generic.unavailable', { reason: 'electron-updater-export-missing' });
         return;
       }
     } catch (err) {
-      console.warn('[updater] electron-updater failed to load — auto-update disabled:', (err as Error)?.message ?? err);
+      logWarn('generic.unavailable', { reason: 'electron-updater-load-failed', error: (err as Error)?.message ?? String(err) });
       return;
     }
     checkForUpdates = configureGenericAutoUpdater(autoUpdater);
@@ -473,19 +528,24 @@ export async function initUpdater(): Promise<void> {
 
   // Initial check on startup.
   try {
+    logInfo('startupCheck.start', { platform: process.platform, version: app.getVersion() });
     await checkForUpdates();
+    logInfo('startupCheck.started', { platform: process.platform });
   } catch (err) {
-    console.warn('[updater] Initial update check failed:', (err as Error)?.message ?? err);
+    logWarn('startupCheck.failed', { error: (err as Error)?.message ?? String(err) });
   }
 
   // Periodic check every hour.
   updateCheckTimer = setInterval(async () => {
     try {
+      logInfo('periodicCheck.start', { platform: process.platform, version: app.getVersion() });
       await checkForUpdates();
+      logInfo('periodicCheck.started', { platform: process.platform });
     } catch (err) {
-      console.warn('[updater] Periodic update check failed:', (err as Error)?.message ?? err);
+      logWarn('periodicCheck.failed', { error: (err as Error)?.message ?? String(err) });
     }
   }, UPDATE_CHECK_INTERVAL_MS);
+  logInfo('periodicCheck.scheduled', { intervalMs: UPDATE_CHECK_INTERVAL_MS });
 }
 
 /**
@@ -497,7 +557,7 @@ export function stopUpdater(): void {
   if (updateCheckTimer !== null) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = null;
-    console.log('[updater] Stopped periodic update check timer');
+    logInfo('stopped');
   }
   initialized = false;
   activeCheckForUpdates = null;
