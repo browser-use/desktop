@@ -8,6 +8,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { engineLogger } from '../../logger';
@@ -23,6 +24,23 @@ import type {
 } from './types';
 import type { HlEvent } from '../../../shared/session-schemas';
 import type { WebContents } from 'electron';
+
+function envPathValue(env: NodeJS.ProcessEnv): string {
+  return process.platform === 'win32' ? env.Path ?? env.PATH ?? '' : env.PATH ?? '';
+}
+
+function interestingPathEntries(env: NodeJS.ProcessEnv): string[] {
+  const delimiter = process.platform === 'win32' ? ';' : ':';
+  return envPathValue(env)
+    .split(delimiter)
+    .filter((entry) => /bcode|opencode|npm|node|bun|homebrew|\/usr\/local|\.local|\.cargo|volta|nvm/i.test(entry))
+    .slice(0, 25);
+}
+
+function envFlag(name: string, env: NodeJS.ProcessEnv): string {
+  const value = env[name];
+  return value ? `set(${value.length}ch)` : 'unset';
+}
 
 async function resolveTargetIdForWebContents(wc: WebContents): Promise<string> {
   const dbg = wc.debugger;
@@ -53,6 +71,29 @@ function mimeFromExt(filename: string): string {
     zip: 'application/zip', tar: 'application/x-tar', gz: 'application/gzip',
   };
   return map[ext] ?? 'application/octet-stream';
+}
+
+type HarnessTarget = 'helpers' | 'tools';
+
+type HarnessFileWatch = {
+  path: string;
+  basename: string;
+  target: HarnessTarget;
+  hash: string | null;
+};
+
+function hashFile(filePath: string): string | null | undefined {
+  try {
+    return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  } catch (err) {
+    const nodeErr = err as NodeJS.ErrnoException;
+    if (nodeErr.code === 'ENOENT') return null;
+    engineLogger.warn('engines.run.harnessWatch.hashFailed', {
+      path: filePath,
+      error: nodeErr.message,
+    });
+    return undefined;
+  }
 }
 
 export async function runEngine(opts: RunEngineOptions): Promise<void> {
@@ -208,9 +249,16 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     attachmentCount: attachmentRefs.length,
     authSource: savedApiKey ? 'savedApiKey' : 'cliManaged',
     args: args.map((a) => (a.length > 120 ? `${a.slice(0, 100)}…<${a.length}ch>` : a)),
+    cwd: opts.harnessDir,
+    envPathLength: envPathValue(env).length,
+    envPathHits: interestingPathEntries(env),
     envAuthFlags: {
-      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? `set(${env.ANTHROPIC_API_KEY.length}ch)` : 'unset',
-      ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN ? 'set' : 'unset',
+      ANTHROPIC_API_KEY: envFlag('ANTHROPIC_API_KEY', env),
+      ANTHROPIC_AUTH_TOKEN: envFlag('ANTHROPIC_AUTH_TOKEN', env),
+      CODEX_API_KEY: envFlag('CODEX_API_KEY', env),
+      OPENAI_API_KEY: envFlag('OPENAI_API_KEY', env),
+      OPENCODE_AUTH_CONTENT: envFlag('OPENCODE_AUTH_CONTENT', env),
+      OPENCODE_CONFIG_CONTENT: envFlag('OPENCODE_CONFIG_CONTENT', env),
       CLAUDE_CODE_USE_BEDROCK: env.CLAUDE_CODE_USE_BEDROCK ?? 'unset',
       CLAUDE_CODE_USE_VERTEX: env.CLAUDE_CODE_USE_VERTEX ?? 'unset',
     },
@@ -223,13 +271,43 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   const stdinMode: 'pipe' | 'ignore' = stdinPayload != null ? 'pipe' : 'ignore';
 
   let child: ChildProcessWithoutNullStreams;
+  let resolvedCommand = adapter.binaryName;
+  let resolvedArgs = args;
   try {
     const resolved = resolveCliSpawn(adapter.binaryName, args, { env });
+    resolvedCommand = resolved.command;
+    resolvedArgs = resolved.args;
+    engineLogger.info('engines.run.spawn.resolved', {
+      engineId: adapter.id,
+      binary: adapter.binaryName,
+      command: resolved.command,
+      viaCmdShell: resolved.viaCmdShell,
+      argCount: resolved.args.length,
+      firstArgs: resolved.args.slice(0, 8).map((a) => (a.length > 120 ? `${a.slice(0, 100)}…<${a.length}ch>` : a)),
+      cwd: opts.harnessDir,
+    });
     child = spawn(resolved.command, resolved.args, { cwd: opts.harnessDir, env, stdio: [stdinMode, 'pipe', 'pipe'], ...resolved.spawnOptions });
   } catch (err) {
+    engineLogger.error('engines.run.spawn.syncFailed', {
+      engineId: adapter.id,
+      binary: adapter.binaryName,
+      cwd: opts.harnessDir,
+      error: (err as Error).message,
+      envPathLength: envPathValue(env).length,
+      envPathHits: interestingPathEntries(env),
+    });
     opts.onEvent({ type: 'error', message: `spawn_failed: ${(err as Error).message}` });
     return;
   }
+
+  child.on('spawn', () => {
+    engineLogger.info('engines.run.spawn.started', {
+      engineId: adapter.id,
+      pid: child.pid,
+      command: resolvedCommand,
+      argCount: resolvedArgs.length,
+    });
+  });
 
   if (stdinPayload != null) {
     // Attach error listener BEFORE writing — if the child exits early (bad
@@ -252,10 +330,62 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   };
   opts.signal?.addEventListener('abort', onAbort);
 
+  const harnessHelpersAbs = path.resolve(helpersPath());
+  const harnessToolsAbs = path.resolve(toolsPath());
+  const harnessSkillAbs = path.resolve(skillPath());
+
+  const watchedHarnessFiles: HarnessFileWatch[] = [
+    { path: harnessHelpersAbs, basename: path.basename(harnessHelpersAbs), target: 'helpers', hash: hashFile(harnessHelpersAbs) ?? null },
+    { path: harnessToolsAbs, basename: path.basename(harnessToolsAbs), target: 'tools', hash: hashFile(harnessToolsAbs) ?? null },
+    { path: harnessSkillAbs, basename: path.basename(harnessSkillAbs), target: 'tools', hash: hashFile(harnessSkillAbs) ?? null },
+  ];
+
   // 5. Outputs watcher — emits file_output events for any file written to the
   //    session's outputs dir. Deduped by (name, size).
   const seenOutputs = new Map<string, number>();
   let outputsWatcher: ReturnType<typeof fs.watch> | null = null;
+  let harnessWatcher: ReturnType<typeof fs.watch> | null = null;
+  const harnessCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const emitHarnessChanges = (files: HarnessFileWatch[]): void => {
+    for (const file of files) {
+      const nextHash = hashFile(file.path);
+      if (nextHash === undefined || nextHash === file.hash) continue;
+      const prevHash = file.hash;
+      file.hash = nextHash;
+      opts.onEvent({
+        type: 'harness_edited',
+        target: file.target,
+        action: prevHash === null && nextHash !== null ? 'write' : 'patch',
+        path: file.path,
+      });
+    }
+  };
+
+  const scheduleHarnessCheck = (files: HarnessFileWatch[]): void => {
+    for (const file of files) {
+      const existing = harnessCheckTimers.get(file.path);
+      if (existing) clearTimeout(existing);
+      harnessCheckTimers.set(file.path, setTimeout(() => {
+        harnessCheckTimers.delete(file.path);
+        emitHarnessChanges([file]);
+      }, 75));
+    }
+  };
+
+  const flushHarnessChanges = (): void => {
+    for (const timer of harnessCheckTimers.values()) clearTimeout(timer);
+    harnessCheckTimers.clear();
+    emitHarnessChanges(watchedHarnessFiles);
+  };
+
+  const closeWatchers = (): void => {
+    try { outputsWatcher?.close(); } catch { /* already closed */ }
+    try { harnessWatcher?.close(); } catch { /* already closed */ }
+    for (const timer of harnessCheckTimers.values()) clearTimeout(timer);
+    harnessCheckTimers.clear();
+  };
+
   try {
     outputsWatcher = fs.watch(outputsDir, { persistent: false }, (_ev, filename) => {
       if (!filename || typeof filename !== 'string') return;
@@ -277,12 +407,25 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     engineLogger.warn('engines.run.outputs.watchFailed', { outputsDir, error: (err as Error).message });
   }
 
-  // 6. Generic post-processor over tool_call events: detect harness/skill
-  //    edits and reads. Keeps adapters' parsers focused on NDJSON→HlEvent.
+  try {
+    harnessWatcher = fs.watch(opts.harnessDir, { persistent: false }, (_ev, filename) => {
+      if (!filename) {
+        scheduleHarnessCheck(watchedHarnessFiles);
+        return;
+      }
+      const changedName = String(filename);
+      const changed = watchedHarnessFiles.filter((file) => file.basename === changedName);
+      if (changed.length > 0) scheduleHarnessCheck(changed);
+    });
+  } catch (err) {
+    engineLogger.warn('engines.run.harnessWatch.watchFailed', { harnessDir: opts.harnessDir, error: (err as Error).message });
+  }
+
+  // 6. Generic post-processor over tool_call events: detect skill edits and
+  //    reads. Harness edits are emitted by the file watcher above, using actual
+  //    file content as the source of truth instead of provider-specific tool
+  //    metadata.
   const skillPathRe = /(?:domain-skills|interaction-skills)\/([^/]+)\/([^/]+)\.md$/;
-  const harnessHelpersAbs = path.resolve(helpersPath());
-  const harnessToolsAbs = path.resolve(toolsPath());
-  const harnessSkillAbs = path.resolve(skillPath());
 
   function postProcess(e: HlEvent): HlEvent[] {
     if (e.type !== 'tool_call') return [e];
@@ -299,11 +442,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     const extra: HlEvent[] = [];
     if (isWrite) {
       const action = /edit|patch/i.test(e.name) ? 'patch' : 'write';
-      if (resolved === harnessHelpersAbs) {
-        extra.push({ type: 'harness_edited', target: 'helpers', action, path: resolved });
-      } else if (resolved === harnessToolsAbs || resolved === harnessSkillAbs) {
-        extra.push({ type: 'harness_edited', target: 'tools', action, path: resolved });
-      } else {
+      if (resolved !== harnessHelpersAbs && resolved !== harnessToolsAbs && resolved !== harnessSkillAbs) {
         const m = resolved.match(skillPathRe);
         if (m) extra.push({ type: 'skill_written', path: resolved, domain: m[1], topic: m[2], bytes: 0, action });
       }
@@ -330,7 +469,14 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   // close handler doesn't overwrite the completed session with an error.
   let doneEmitted = false;
   const emit = (ev: Parameters<typeof opts.onEvent>[0]): void => {
-    if (ev.type === 'done') doneEmitted = true;
+    if (ev.type === 'done' || ev.type === 'error') flushHarnessChanges();
+    if (ev.type === 'done') {
+      if (doneEmitted) {
+        engineLogger.warn('engines.run.done.duplicateSuppressed', { engineId: adapter.id, sessionId: opts.sessionId });
+        return;
+      }
+      doneEmitted = true;
+    }
     opts.onEvent(ev);
   };
   child.stderr.setEncoding('utf-8');
@@ -368,9 +514,12 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   await new Promise<void>((resolve) => {
     child.on('close', (code, sig) => {
       opts.signal?.removeEventListener('abort', onAbort);
-      try { outputsWatcher?.close(); } catch { /* already closed */ }
+      flushHarnessChanges();
+      closeWatchers();
       engineLogger.info('engines.run.exit', {
         engineId: adapter.id,
+        command: resolvedCommand,
+        cwd: opts.harnessDir,
         code,
         signal: sig,
         stderrTail: stderrBuf.slice(-800),
@@ -397,7 +546,23 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     });
     child.on('error', (err) => {
       opts.signal?.removeEventListener('abort', onAbort);
-      try { outputsWatcher?.close(); } catch { /* already closed */ }
+      flushHarnessChanges();
+      closeWatchers();
+      const nodeErr = err as NodeJS.ErrnoException & { path?: string; spawnargs?: string[] };
+      engineLogger.error('engines.run.spawn.error', {
+        engineId: adapter.id,
+        binary: adapter.binaryName,
+        command: resolvedCommand,
+        cwd: opts.harnessDir,
+        message: nodeErr.message,
+        code: nodeErr.code,
+        errno: nodeErr.errno,
+        syscall: nodeErr.syscall,
+        path: nodeErr.path,
+        spawnargs: nodeErr.spawnargs?.slice(0, 8),
+        envPathLength: envPathValue(env).length,
+        envPathHits: interestingPathEntries(env),
+      });
       opts.onEvent({ type: 'error', message: `${adapter.id}_spawn_error: ${err.message}` });
       resolve();
     });
