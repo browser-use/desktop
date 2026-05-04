@@ -220,6 +220,14 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   }
 
   if (stdinPayload != null) {
+    // Attach error listener BEFORE writing — if the child exits early (bad
+    // args, missing auth, killed by SIGTERM), Node emits 'error' (EPIPE) on
+    // stdin asynchronously. Without a listener it propagates as an unhandled
+    // error and crashes the main process. The exit handler below already
+    // surfaces the real failure to the user, so we just log here.
+    child.stdin.on('error', (err) => {
+      engineLogger.warn('engines.run.stdinPipe.error', { engineId: adapter.id, error: (err as NodeJS.ErrnoException).message, code: (err as NodeJS.ErrnoException).code });
+    });
     try {
       child.stdin.end(stdinPayload, 'utf-8');
     } catch (err) {
