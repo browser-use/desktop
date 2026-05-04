@@ -17,6 +17,14 @@ import path from 'node:path';
 loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
+import { mergeChromiumFeature } from './startup/chromiumFeatures';
+
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch(
+    'enable-features',
+    mergeChromiumFeature(app.commandLine.getSwitchValue('enable-features'), 'GlobalShortcutsPortal'),
+  );
+}
 
 app.setName('Browser Use');
 
@@ -57,7 +65,7 @@ app.setAboutPanelOptions({
   applicationName: 'Browser Use',
   applicationVersion: app.getVersion(),
   copyright: '© 2026 Browser Use',
-  website: 'https://github.com/browser-use/desktop-app',
+  website: 'https://github.com/browser-use/desktop',
 });
 
 import started from 'electron-squirrel-startup';
@@ -1490,7 +1498,7 @@ function buildApplicationMenu(): void {
           label: 'Report an Issue…',
           click: () => {
             mainLogger.debug('menu.reportIssue');
-            shell.openExternal('https://github.com/browser-use/desktop-app/issues');
+            shell.openExternal('https://github.com/browser-use/desktop/issues');
           },
         },
       ],
