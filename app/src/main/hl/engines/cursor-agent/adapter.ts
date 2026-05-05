@@ -331,9 +331,9 @@ const cursorAgentAdapter: EngineAdapter = {
       for (const block of content) {
         if (block?.type !== 'text') continue;
         const txt = typeof block.text === 'string' ? (block.text as string) : '';
-        if (txt.trim()) {
+        if (txt.length > 0) {
           events.push({ type: 'thinking', text: txt });
-          ctx.lastNarrative = txt;
+          if (txt.trim()) ctx.lastNarrative = txt;
         }
       }
       return { events };
