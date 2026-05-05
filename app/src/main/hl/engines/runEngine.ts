@@ -204,13 +204,35 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     },
   });
 
+  // If the adapter wants to feed the prompt via stdin (Windows-safe path —
+  // see EngineAdapter.getStdinPayload), open stdin as a pipe instead of
+  // ignoring it, then write+end after spawn.
+  const stdinPayload = adapter.getStdinPayload?.(spawnCtx, wrappedPrompt);
+  const stdinMode: 'pipe' | 'ignore' = stdinPayload != null ? 'pipe' : 'ignore';
+
   let child: ChildProcessWithoutNullStreams;
   try {
     const resolved = resolveCliSpawn(adapter.binaryName, args, { env });
-    child = spawn(resolved.command, resolved.args, { cwd: opts.harnessDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(resolved.command, resolved.args, { cwd: opts.harnessDir, env, stdio: [stdinMode, 'pipe', 'pipe'], ...resolved.spawnOptions });
   } catch (err) {
     opts.onEvent({ type: 'error', message: `spawn_failed: ${(err as Error).message}` });
     return;
+  }
+
+  if (stdinPayload != null) {
+    // Attach error listener BEFORE writing — if the child exits early (bad
+    // args, missing auth, killed by SIGTERM), Node emits 'error' (EPIPE) on
+    // stdin asynchronously. Without a listener it propagates as an unhandled
+    // error and crashes the main process. The exit handler below already
+    // surfaces the real failure to the user, so we just log here.
+    child.stdin.on('error', (err) => {
+      engineLogger.warn('engines.run.stdinPipe.error', { engineId: adapter.id, error: (err as NodeJS.ErrnoException).message, code: (err as NodeJS.ErrnoException).code });
+    });
+    try {
+      child.stdin.end(stdinPayload, 'utf-8');
+    } catch (err) {
+      engineLogger.warn('engines.run.stdinWrite.failed', { engineId: adapter.id, error: (err as Error).message });
+    }
   }
 
   const onAbort = () => {
