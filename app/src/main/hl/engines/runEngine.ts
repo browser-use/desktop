@@ -62,14 +62,21 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     return;
   }
 
-  // 1. Resolve CDP target for the session's browser view.
+  // 1. Resolve CDP target for the session's browser view (or external CDP).
   let targetId: string;
-  try {
-    targetId = await resolveTargetIdForWebContents(opts.webContents);
-  } catch (err) {
-    const msg = `Failed to resolve CDP target id: ${(err as Error).message}`;
-    engineLogger.error('engines.run.resolveTarget.failed', { engineId: opts.engineId, error: msg });
-    opts.onEvent({ type: 'error', message: msg });
+  if (opts.cdpUrl) {
+    targetId = 'external';
+  } else if (opts.webContents) {
+    try {
+      targetId = await resolveTargetIdForWebContents(opts.webContents);
+    } catch (err) {
+      const msg = `Failed to resolve CDP target id: ${(err as Error).message}`;
+      engineLogger.error('engines.run.resolveTarget.failed', { engineId: opts.engineId, error: msg });
+      opts.onEvent({ type: 'error', message: msg });
+      return;
+    }
+  } else {
+    opts.onEvent({ type: 'error', message: 'runEngine: must provide webContents or cdpUrl' });
     return;
   }
 
@@ -178,6 +185,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     sessionId: opts.sessionId,
     targetId,
     cdpPort: opts.cdpPort,
+    cdpUrl: opts.cdpUrl,
     resumeSessionId: opts.resumeSessionId,
     savedApiKey,
     attachmentRefs,
@@ -185,6 +193,10 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   const wrappedPrompt = adapter.wrapPrompt(spawnCtx);
   const args = adapter.buildSpawnArgs(spawnCtx, wrappedPrompt);
   const env = adapter.buildEnv(spawnCtx, { ...process.env });
+  if (opts.daemonSocket) {
+    env.BU_DAEMON_SOCKET = opts.daemonSocket;
+    try { fs.writeFileSync(path.join(opts.harnessDir, 'DAEMON_SOCKET'), opts.daemonSocket, 'utf-8'); } catch { /* noop */ }
+  }
 
   engineLogger.info('engines.run.spawn', {
     engineId: adapter.id,
@@ -196,11 +208,13 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     attachmentCount: attachmentRefs.length,
     authSource: savedApiKey ? 'savedApiKey' : 'cliManaged',
     args: args.map((a) => (a.length > 120 ? `${a.slice(0, 100)}…<${a.length}ch>` : a)),
-    envAuthFlags: {
+    envFlags: {
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? `set(${env.ANTHROPIC_API_KEY.length}ch)` : 'unset',
       ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN ? 'set' : 'unset',
       CLAUDE_CODE_USE_BEDROCK: env.CLAUDE_CODE_USE_BEDROCK ?? 'unset',
       CLAUDE_CODE_USE_VERTEX: env.CLAUDE_CODE_USE_VERTEX ?? 'unset',
+      BU_DAEMON_SOCKET: env.BU_DAEMON_SOCKET ? `set(${env.BU_DAEMON_SOCKET.length}ch)` : 'unset',
+      BU_CDP_WS: env.BU_CDP_WS ? `set(${env.BU_CDP_WS.length}ch)` : 'unset',
     },
   });
 

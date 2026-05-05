@@ -1140,7 +1140,9 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
         >
           <div className="pane__browser-starting">
             <span className="pane__browser-starting-row">
-              {browserDead ? (
+              {session.externalBrowser ? (
+                <span>External browser connected</span>
+              ) : browserDead ? (
                 <span>Browser ended</span>
               ) : browserMissing ? (
                 <span>

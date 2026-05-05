@@ -20,6 +20,8 @@ export interface SpawnContext {
   targetId: string;
   /** Port Electron exposes CDP on. */
   cdpPort: number;
+  /** If set, connect to an existing browser via CDP WebSocket instead of the embedded view. */
+  cdpUrl?: string;
   /** If set, ask the CLI to continue a prior conversation with this id. */
   resumeSessionId?: string;
   /** Optional user-supplied API key; adapter decides how to inject. */
@@ -119,8 +121,11 @@ export interface RunEngineOptions {
   engineId: string;
   prompt: string;
   sessionId: string;
-  webContents: WebContents;
+  webContents?: WebContents;
   cdpPort: number;
+  cdpUrl?: string;
+  /** If set, reuse an existing daemon socket instead of starting a new one. */
+  daemonSocket?: string;
   harnessDir: string;
   attachments?: Array<{ name: string; mime: string; bytes: Buffer | Uint8Array }>;
   resumeSessionId?: string;

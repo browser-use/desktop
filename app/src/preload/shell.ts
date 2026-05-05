@@ -99,6 +99,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       openSystemNotifications: (): Promise<{ ok: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:open-system-notifications'),
     },
+    cdpUrl: {
+      get: (): Promise<{ url: string | null; alwaysAllow: boolean }> => ipcRenderer.invoke('settings:cdp-url:get'),
+      set: (url: string | null): Promise<{ url: string | null; alwaysAllow: boolean }> => ipcRenderer.invoke('settings:cdp-url:set', url),
+      test: (url: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('settings:cdp-url:test', url),
+      getAlwaysAllow: (): Promise<{ alwaysAllow: boolean }> => ipcRenderer.invoke('settings:cdp-url:always-allow:get'),
+      setAlwaysAllow: (value: boolean): Promise<{ alwaysAllow: boolean }> => ipcRenderer.invoke('settings:cdp-url:always-allow:set', value),
+    },
     app: {
       getInfo: (): Promise<{
         version: string;

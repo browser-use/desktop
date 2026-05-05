@@ -23,6 +23,7 @@ export interface AgentSession {
   error?: string;
   group?: string;
   hasBrowser?: boolean;
+  externalBrowser?: boolean;
   primarySite?: string | null;
   lastActivityAt?: number;
   engine?: string;

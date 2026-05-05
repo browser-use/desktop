@@ -18,6 +18,7 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const http = require('node:http');
+const net = require('node:net');
 const { exec: execCb } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -50,6 +51,20 @@ async function resolveTargetWsUrl(port, targetId) {
   return match.webSocketDebuggerUrl;
 }
 
+// If the user passes a browser-level ws URL (e.g. /devtools/browser/...),
+// resolve the first real page's ws URL via the HTTP list endpoint.
+async function resolvePageWsUrl(browserWsUrl) {
+  try {
+    const url = new URL(browserWsUrl);
+    if (!url.pathname.includes('/devtools/browser/')) return browserWsUrl;
+    const targets = await jsonFetch(url.port || 9222, '/json/list');
+    const pages = (targets || []).filter((t) => t.type === 'page' && t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('devtools://') && !t.url.startsWith('about:') && !t.url.startsWith('chrome-extension://'));
+    const match = pages[0] || targets.find((t) => t.type === 'page');
+    if (match?.webSocketDebuggerUrl) return match.webSocketDebuggerUrl;
+  } catch { /* fall through */ }
+  return browserWsUrl;
+}
+
 // Cross-API WebSocket subscribe: Node 22+ native WebSocket uses
 // addEventListener (with Event-wrapped payloads); the `ws` npm package
 // uses EventEmitter .on() (with raw payloads). Normalize both to a
@@ -63,8 +78,9 @@ function wsOn(ws, event, handler) {
 }
 
 class CdpSession {
-  constructor(ws) {
+  constructor(ws, sessionId = null) {
     this.ws = ws;
+    this.sessionId = sessionId;
     this.nextId = 1;
     this.pending = new Map();
     this.events = [];
@@ -91,9 +107,11 @@ class CdpSession {
 
   send(method, params = {}) {
     const id = this.nextId++;
+    const payload = { id, method, params };
+    if (this.sessionId) payload.sessionId = this.sessionId;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws.send(JSON.stringify(payload));
     });
   }
 
@@ -102,19 +120,118 @@ class CdpSession {
   }
 }
 
+// ─── Daemon IPC client ─────────────────────────────────────────────────────
+// When BU_DAEMON_SOCKET is set, talk to the long-running daemon over a local
+// net socket instead of opening a fresh WebSocket per script. This avoids the
+// Chrome 144+ "Allow remote debugging?" dialog that fires on every WS handshake.
+
+function daemonRequest(socketPath, payload) {
+  return new Promise((resolve, reject) => {
+    const client = net.createConnection(socketPath);
+    let buf = '';
+    let resolved = false;
+    client.on('data', (chunk) => {
+      buf += chunk.toString();
+      const idx = buf.indexOf('\n');
+      if (idx >= 0 && !resolved) {
+        resolved = true;
+        try {
+          const resp = JSON.parse(buf.slice(0, idx));
+          resolve(resp);
+        } catch (e) { reject(e); }
+        client.end();
+      }
+    });
+    client.on('error', (err) => { if (!resolved) { resolved = true; reject(err); } });
+    client.on('close', () => { if (!resolved) { resolved = true; reject(new Error('daemon socket closed')); } });
+    client.setTimeout(30000, () => { if (!resolved) { resolved = true; client.destroy(); reject(new Error('daemon request timeout')); } });
+    client.write(JSON.stringify(payload) + '\n');
+  });
+}
+
+class CdpDaemonClient {
+  constructor(socketPath) {
+    this.socketPath = socketPath;
+    this._events = [];
+  }
+
+  async send(method, params = {}) {
+    const resp = await daemonRequest(this.socketPath, { method, params });
+    if (resp.error) throw new Error(`CDP ${resp.error}`);
+    return resp.result ?? {};
+  }
+
+  async drainEvents() {
+    const resp = await daemonRequest(this.socketPath, { meta: 'drain_events' });
+    return (resp.events || []).map((e) => ({ method: e.method, params: e.params }));
+  }
+
+  close() { /* nothing to close — connection is per-request */ }
+}
+
 /**
  * Open a CDP session to the agent's assigned browser target.
  * Reads BU_TARGET_ID (required) and BU_CDP_PORT (default 9222) from env.
+ * When BU_CDP_WS is set, connects directly to that WebSocket URL instead.
  * Returns an opaque ctx. Call ctx.close() when done (usually at script end).
  */
+function readDaemonSocketFile() {
+  try {
+    const p = path.join(__dirname, 'DAEMON_SOCKET');
+    return require('fs').readFileSync(p, 'utf-8').trim();
+  } catch {
+    return null;
+  }
+}
+
 async function createContext(opts = {}) {
   const targetId = opts.targetId ?? process.env.BU_TARGET_ID;
   const port = Number(opts.port ?? process.env.BU_CDP_PORT ?? 9222);
-  if (!targetId) throw new Error('createContext: BU_TARGET_ID env var or opts.targetId is required');
+  const cdpUrl = opts.cdpUrl ?? process.env.BU_CDP_WS ?? null;
+  const daemonSocket = opts.daemonSocket ?? process.env.BU_DAEMON_SOCKET ?? readDaemonSocketFile() ?? null;
+  console.error('[helpers.createContext] daemonSocket=', daemonSocket, 'file=', readDaemonSocketFile());
 
-  const wsUrl = await resolveTargetWsUrl(port, targetId);
+  // ── Daemon IPC path (preferred when available) ────────────────────────────
+  if (daemonSocket) {
+    const client = new CdpDaemonClient(daemonSocket);
+    // The daemon may still be hand-shaking with Chrome (waiting for the user
+    // to accept the "Allow remote debugging?" dialog). Poll until it's ready.
+    let info = {};
+    for (let i = 0; i < 30; i++) {
+      info = await client.send('Browser.getVersion').catch(() => ({}));
+      if (info.product != null) break;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    const isBrowserLevel = info.product != null; // any CDP response means we're alive
+    if (isBrowserLevel) {
+      // Ask daemon for its current session so helpers know whether we're attached.
+      const sess = await daemonRequest(daemonSocket, { meta: 'session' });
+      if (!sess.session_id) {
+        // Force re-attach via the daemon's stale-session recovery.
+        await client.send('Runtime.evaluate', { expression: '1' }).catch(() => {});
+      }
+    }
+    return {
+      targetId: targetId || 'external',
+      port,
+      get events() { return client.drainEvents(); },
+      cdp: {
+        send: (method, params) => client.send(method, params),
+        transport: 'daemon',
+      },
+      close: () => client.close(),
+    };
+  }
 
-  // Node 22+ has WebSocket as a global. Use that; fall back to `ws` package.
+  // ── Direct WebSocket path ────────────────────────────────────────────────
+  let wsUrl;
+  if (cdpUrl) {
+    wsUrl = await resolvePageWsUrl(cdpUrl);
+  } else {
+    if (!targetId) throw new Error('createContext: BU_TARGET_ID env var or opts.targetId is required');
+    wsUrl = await resolveTargetWsUrl(port, targetId);
+  }
+
   let WebSocketCtor = globalThis.WebSocket;
   if (!WebSocketCtor) {
     try { WebSocketCtor = require('ws'); } catch { /* no ws package */ }
@@ -134,7 +251,16 @@ async function createContext(opts = {}) {
   });
 
   const session = new CdpSession(ws);
-  // Enable the common domains so events flow.
+
+  const isBrowserLevel = wsUrl.includes('/devtools/browser/');
+  if (isBrowserLevel) {
+    const targets = (await session.send('Target.getTargets')).targetInfos || [];
+    const page = targets.find((t) => t.type === 'page' && t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('devtools://') && !t.url.startsWith('about:') && !t.url.startsWith('chrome-extension://'))
+              || targets.find((t) => t.type === 'page');
+    if (!page) throw new Error('No page target found on browser-level CDP endpoint');
+    const attach = await session.send('Target.attachToTarget', { targetId: page.targetId, flatten: true });
+    session.sessionId = attach.sessionId;
+  }
   await session.send('Page.enable').catch(() => {});
   await session.send('DOM.enable').catch(() => {});
   await session.send('Runtime.enable').catch(() => {});
@@ -152,13 +278,121 @@ async function createContext(opts = {}) {
   };
 }
 
+// Convenience wrappers so agent code that explicitly calls these still works
+// if the runtime helpers.js is ever rewritten by bootstrapHarness.
+async function createContextFromDaemonSocket(socketPath) {
+  const client = new CdpDaemonClient(socketPath);
+  let info = {};
+  for (let i = 0; i < 30; i++) {
+    info = await client.send('Browser.getVersion').catch(() => ({}));
+    if (info.product != null) break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return {
+    targetId: 'external',
+    port: null,
+    get events() { return client.drainEvents(); },
+    cdp: {
+      send: (method, params) => client.send(method, params),
+      transport: 'daemon',
+    },
+    close: () => client.close(),
+  };
+}
+
+async function createContextFromBrowserUrl(browserWsUrl) {
+  let WebSocketCtor = globalThis.WebSocket;
+  if (!WebSocketCtor) {
+    try { WebSocketCtor = require('ws'); } catch { /* no ws package */ }
+  }
+  if (!WebSocketCtor) throw new Error('No WebSocket available (Node >=22 or `ws` package needed)');
+
+  const ws = new WebSocketCtor(browserWsUrl);
+  await new Promise((resolve, reject) => {
+    const onOpen = () => { cleanup(); resolve(); };
+    const onError = (err) => { cleanup(); reject(err instanceof Error ? err : new Error(String(err))); };
+    function cleanup() {
+      ws.removeEventListener?.('open', onOpen); ws.removeEventListener?.('error', onError);
+      ws.off?.('open', onOpen); ws.off?.('error', onError);
+    }
+    ws.addEventListener?.('open', onOpen); ws.addEventListener?.('error', onError);
+    ws.on?.('open', onOpen); ws.on?.('error', onError);
+  });
+
+  class BrowserSession {
+    constructor(ws) {
+      this.ws = ws;
+      this.nextId = 1;
+      this.pending = new Map();
+      this.events = [];
+      this.maxEvents = 500;
+      wsOn(ws, 'message', (raw) => {
+        let msg;
+        try { msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString()); } catch { return; }
+        if (msg.id !== undefined) {
+          const p = this.pending.get(msg.id);
+          if (!p) return;
+          this.pending.delete(msg.id);
+          if (msg.error) p.reject(new Error(`CDP ${msg.error.message ?? JSON.stringify(msg.error)}`));
+          else p.resolve(msg.result ?? {});
+        } else if (msg.method) {
+          this.events.push({ method: msg.method, params: msg.params, sessionId: msg.sessionId });
+          if (this.events.length > this.maxEvents) this.events.shift();
+        }
+      });
+      wsOn(ws, 'close', () => {
+        for (const p of this.pending.values()) p.reject(new Error('CDP websocket closed'));
+        this.pending.clear();
+      });
+    }
+    send(method, params = {}, sessionId = null) {
+      const id = this.nextId++;
+      const payload = { id, method, params };
+      if (sessionId) payload.sessionId = sessionId;
+      return new Promise((resolve, reject) => {
+        this.pending.set(id, { resolve, reject });
+        this.ws.send(JSON.stringify(payload));
+      });
+    }
+    close() { try { this.ws.close(); } catch {} }
+  }
+
+  const browser = new BrowserSession(ws);
+  const r = await browser.send('Target.getTargets');
+  const targets = r.targetInfos || [];
+  const isRealPage = (t) => t.type === 'page' && !INTERNAL_URL_PREFIXES.some(p => (t.url || '').startsWith(p));
+  let pages = targets.filter(isRealPage);
+  if (!pages.length) pages = targets.filter(t => t.type === 'page');
+  if (!pages.length) { browser.close(); throw new Error('No page target found'); }
+
+  const attach = await browser.send('Target.attachToTarget', { targetId: pages[0].targetId, flatten: true });
+  const sessionId = attach.sessionId;
+  for (const d of ['Page', 'DOM', 'Runtime', 'Network']) {
+    try { await browser.send(`${d}.enable`, {}, sessionId); } catch {}
+  }
+
+  return {
+    targetId: pages[0].targetId,
+    port: null,
+    events: browser.events,
+    cdp: {
+      send: (method, params) => browser.send(method, params, sessionId),
+      transport: 'ws',
+    },
+    close: () => browser.close(),
+    _browser: browser,
+    _sessionId: sessionId,
+  };
+}
+
 // ─── navigation ─────────────────────────────────────────────────────────────
 async function goto(ctx, url) {
   return ctx.cdp.send('Page.navigate', { url });
 }
 
 async function pageInfo(ctx) {
-  const pendingDialog = ctx.events.find((e) => e.method === 'Page.javascriptDialogOpening');
+  const events = await Promise.resolve(ctx.events);
+  const pendingDialog = events.find((e) => e.method === 'Page.javascriptDialogOpening');
   if (pendingDialog) return { dialog: pendingDialog.params };
   const expr = 'JSON.stringify({url:location.href,title:document.title,w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})';
   const r = await ctx.cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true });
@@ -315,6 +549,8 @@ async function httpGet(_ctx, url, headers, timeoutMs = 20_000) {
 
 module.exports = {
   createContext,
+  createContextFromDaemonSocket,
+  createContextFromBrowserUrl,
   goto, pageInfo, click, typeText, pressKey, scroll, screenshot,
   wait, waitForLoad, js, reactSetValue, dispatchKey, uploadFile,
   captureDialogs, dialogs, httpGet,

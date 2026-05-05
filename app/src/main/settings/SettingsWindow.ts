@@ -18,6 +18,7 @@
 import path from 'node:path';
 import { BrowserWindow } from 'electron';
 import { mainLogger, rendererLogger } from '../logger';
+import { getLogsWindow } from '../logsPill';
 
 // ---------------------------------------------------------------------------
 // Forge VitePlugin globals (injected at build time)
@@ -40,7 +41,7 @@ let settingsWindow: BrowserWindow | null = null;
  * Open (or focus) the Settings window.
  * Returns the BrowserWindow instance.
  */
-export function openSettingsWindow(): BrowserWindow {
+export function openSettingsWindow(parent?: BrowserWindow): BrowserWindow {
   // If already open, focus and return
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     mainLogger.info('SettingsWindow.focus', { windowId: settingsWindow.id });
@@ -52,12 +53,25 @@ export function openSettingsWindow(): BrowserWindow {
 
   const preloadPath = path.join(__dirname, 'settings.js');
 
+  // Temporarily lower the logs overlay so it doesn't cover the settings window.
+  // On Windows the logs window has alwaysOnTop, which keeps it above child
+  // windows regardless of focus. We disable that flag while settings is open.
+  const logsWin = getLogsWindow();
+  const logsWasAlwaysOnTop = logsWin && !logsWin.isDestroyed() && logsWin.isVisible();
+  if (logsWin && !logsWin.isDestroyed()) {
+    try { logsWin.setAlwaysOnTop(false); } catch { /* noop */ }
+    if (logsWasAlwaysOnTop) {
+      try { logsWin.hide(); } catch { /* noop */ }
+    }
+  }
+
   settingsWindow = new BrowserWindow({
     width: 720,
     height: 560,
     resizable: false,
     titleBarStyle: 'hiddenInset',
     show: false,
+    parent,
     backgroundColor: '#1a1a1f', // Match --color-bg-base (onboarding theme)
     webPreferences: {
       preload: preloadPath,
@@ -84,6 +98,14 @@ export function openSettingsWindow(): BrowserWindow {
   settingsWindow.on('closed', () => {
     mainLogger.info('SettingsWindow.closed');
     settingsWindow = null;
+    // Restore the logs overlay if it was visible before settings opened.
+    const lw = getLogsWindow();
+    if (lw && !lw.isDestroyed()) {
+      try { lw.setAlwaysOnTop(true, 'floating'); } catch { /* noop */ }
+      if (logsWasAlwaysOnTop && !lw.isVisible()) {
+        try { lw.showInactive(); } catch { /* noop */ }
+      }
+    }
   });
 
   settingsWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {

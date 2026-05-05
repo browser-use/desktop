@@ -196,6 +196,138 @@ function AppSection(): React.ReactElement {
   );
 }
 
+function CdpUrlSection(): React.ReactElement {
+  const [url, setUrl] = useState('');
+  const [savedUrl, setSavedUrl] = useState<string | null>(null);
+  const [alwaysAllow, setAlwaysAllow] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const api = (window as unknown as { electronAPI: { settings: { cdpUrl: {
+    get: () => Promise<{ url: string | null; alwaysAllow: boolean }>;
+    set: (url: string | null) => Promise<{ url: string | null; alwaysAllow: boolean }>;
+    test: (url: string) => Promise<{ ok: boolean; error?: string }>;
+    getAlwaysAllow: () => Promise<{ alwaysAllow: boolean }>;
+    setAlwaysAllow: (value: boolean) => Promise<{ alwaysAllow: boolean }>;
+  } } } }).electronAPI.settings.cdpUrl;
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get().then((state) => {
+      if (cancelled) return;
+      setSavedUrl(state.url);
+      setUrl(state.url ?? '');
+      setAlwaysAllow(state.alwaysAllow);
+    }).catch(() => { if (!cancelled) setSavedUrl(null); });
+    return () => { cancelled = true; };
+  }, [api]);
+
+  return (
+    <div className="settings-pane__section">
+      <span className="settings-pane__section-title">Browser</span>
+      <p className="settings-pane__hint">
+        Connect to an existing Chrome / Chromium via CDP WebSocket instead of launching a built-in browser.
+        Leave empty to use the default embedded browser.
+      </p>
+      <div className="settings-pane__row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+        <input
+          className="settings-pane__input"
+          type="text"
+          placeholder="ws://127.0.0.1:9222"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-bg-elevated)', color: 'inherit' }}
+        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className="conn-card__btn"
+            style={savedUrl ? { backgroundColor: 'var(--color-error)', color: '#fff', borderColor: 'var(--color-error)' } : {}}
+            onClick={async () => {
+              if (testing || saving) return;
+              if (savedUrl) {
+                // Disconnect
+                setSaving(true);
+                setTestResult(null);
+                try {
+                  const res = await api.set(null);
+                  setSavedUrl(res.url);
+                  setAlwaysAllow(res.alwaysAllow);
+                  setTestResult({ ok: true, message: 'Disconnected — will use built-in browser.' });
+                } catch (err) {
+                  setTestResult({ ok: false, message: (err as Error).message ?? 'Failed to disconnect' });
+                } finally {
+                  setSaving(false);
+                }
+              } else {
+                // Connect: test first, then save
+                const trimmed = url.trim();
+                if (!trimmed) return;
+                setTesting(true);
+                setTestResult(null);
+                try {
+                  const testRes = await api.test(trimmed);
+                  if (!testRes.ok) {
+                    setTestResult({ ok: false, message: testRes.error ?? 'Connection failed' });
+                    return;
+                  }
+                  setTesting(false);
+                  setSaving(true);
+                  const saveRes = await api.set(trimmed);
+                  setSavedUrl(saveRes.url);
+                  setUrl(saveRes.url ?? '');
+                  setAlwaysAllow(saveRes.alwaysAllow);
+                  setTestResult({ ok: true, message: 'Connected — using external browser.' });
+                } catch (err) {
+                  setTestResult({ ok: false, message: (err as Error).message ?? 'Connection failed' });
+                } finally {
+                  setTesting(false);
+                  setSaving(false);
+                }
+              }
+            }}
+            disabled={testing || saving || (!savedUrl && !url.trim())}
+          >
+            {testing ? 'Connecting…' : saving ? (savedUrl ? 'Disconnecting…' : 'Connecting…') : (savedUrl ? 'Disconnect' : 'Connect')}
+          </button>
+          {savedUrl && (
+            <span className="settings-pane__sublabel" style={{ marginLeft: 8 }}>
+              Active: {savedUrl}
+            </span>
+          )}
+        </div>
+        {testResult && (
+          <div className="settings-pane__sublabel" style={{ color: testResult.ok ? 'var(--color-success)' : 'var(--color-error)' }}>
+            {testResult.message}
+          </div>
+        )}
+        {savedUrl && (
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 6, padding: '4px 0' }}
+            title="Keep the browser connection alive across sessions so you only see the Allow dialog once."
+          >
+            <input
+              type="checkbox"
+              checked={alwaysAllow}
+              disabled={saving}
+              onChange={async (e) => {
+                const next = e.target.checked;
+                setAlwaysAllow(next);
+                try {
+                  await api.setAlwaysAllow(next);
+                } catch (err) {
+                  setAlwaysAllow(!next);
+                }
+              }}
+            />
+            <span className="settings-pane__sublabel">Keep browser connection alive across sessions</span>
+          </label>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PrivacySection(): React.ReactElement {
   const [telemetry, setTelemetry] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -416,6 +548,7 @@ export function SettingsPane({ open, onClose, keybindings, overrides, onUpdateBi
             <span className="settings-pane__section-title">Connections</span>
             <ConnectionsPane embedded />
           </div>
+          <CdpUrlSection />
           <PrivacySection />
           <div className="settings-pane__section">
             <div className="settings-pane__section-header">
