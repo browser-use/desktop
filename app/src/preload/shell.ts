@@ -91,6 +91,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       logout: (): Promise<{ opened: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:codex:logout'),
     },
+    cursor: {
+      status: (): Promise<{
+        id: string;
+        displayName: string;
+        installed: { installed: boolean; version?: string; error?: string };
+        authed: { authed: boolean; error?: string };
+      }> => ipcRenderer.invoke('sessions:engine-status', 'cursor-agent'),
+      login: (): Promise<{ opened: boolean; error?: string }> =>
+        ipcRenderer.invoke('sessions:engine-login', 'cursor-agent'),
+      logout: (): Promise<{ opened: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:cursor-agent:logout'),
+    },
     privacy: {
       get: (): Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }> =>
         ipcRenderer.invoke('consent:get'),

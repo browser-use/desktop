@@ -226,6 +226,17 @@ interface ElectronSettingsCodexAPI {
   logout: () => Promise<{ opened: boolean; error?: string }>;
 }
 
+interface ElectronSettingsCursorAPI {
+  status: () => Promise<{
+    id: string;
+    displayName: string;
+    installed: { installed: boolean; version?: string; error?: string };
+    authed: { authed: boolean; error?: string };
+  }>;
+  login: () => Promise<{ opened: boolean; error?: string }>;
+  logout: () => Promise<{ opened: boolean; error?: string }>;
+}
+
 interface ElectronSettingsAppAPI {
   getUpdateStatus: () => Promise<{
     status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
@@ -278,6 +289,7 @@ interface ElectronSettingsAPI {
   claudeCode?: ElectronSettingsClaudeCodeAPI;
   openaiKey?: ElectronSettingsOpenAiKeyAPI;
   codex?: ElectronSettingsCodexAPI;
+  cursor?: ElectronSettingsCursorAPI;
   app?: ElectronSettingsAppAPI;
 }
 
