@@ -46,6 +46,10 @@ let wasVisibleBeforeBlur = false;
 // until the user clicks a preset again.
 let mode: LogsMode = 'normal';
 let userCustomized = false;
+// When the Settings window is open we suppress showLogs so the logs overlay
+// doesn't float above it.  The checker is injected from index.ts to avoid a
+// circular dependency with SettingsWindow.ts.
+let settingsVisibleChecker: (() => boolean) | null = null;
 // Timestamp until which programmatic bound changes should be ignored by the
 // resize/move listeners. A single-shot flag wasn't enough because Electron
 // fires both 'move' and 'resize' (plus intermediate frames) from one
@@ -399,6 +403,10 @@ export function showLogs(sessionId: string, anchor: PaneAnchor | null = null): v
     log.warn('logs.show.no-window', {});
     return;
   }
+  if (settingsVisibleChecker?.()) {
+    log.info('logs.show.suppressed', { reason: 'settings-visible', sessionId });
+    return;
+  }
   activeSessionId = sessionId;
   if (anchor) lastAnchor = anchor;
   log.info('logs.show', { sessionId, anchor: anchor ?? lastAnchor, ready: logsReady, mode, userCustomized });
@@ -526,6 +534,10 @@ export function setLogsMode(next: LogsMode): void {
     logsWindow.setBounds(computeLogsBounds(anchorWindow, lastAnchor));
   }
   safeSend('logs:mode-changed', mode);
+}
+
+export function setSettingsVisibleChecker(checker: (() => boolean) | null): void {
+  settingsVisibleChecker = checker;
 }
 
 export function getLogsWindow(): BrowserWindow | null {

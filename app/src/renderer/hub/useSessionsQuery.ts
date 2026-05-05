@@ -43,7 +43,12 @@ export function useSessionsQuery() {
         const idx = prev.findIndex((s) => s.id === session.id);
         if (idx >= 0) {
           const next = [...prev];
-          next[idx] = { ...prev[idx], ...session, hasBrowser: session.hasBrowser ?? prev[idx].hasBrowser };
+          next[idx] = {
+            ...prev[idx],
+            ...session,
+            hasBrowser: session.hasBrowser ?? prev[idx].hasBrowser,
+            externalBrowser: session.externalBrowser ?? prev[idx].externalBrowser,
+          };
           return next;
         }
         return [...prev, session];

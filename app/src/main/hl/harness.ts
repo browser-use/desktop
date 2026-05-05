@@ -20,6 +20,7 @@ import { mainLogger } from '../logger';
 import STOCK_HELPERS_JS from './stock/helpers.js?raw';
 import STOCK_TOOLS_JSON from './stock/TOOLS.json?raw';
 import STOCK_SKILL_MD from './stock/AGENTS.md?raw';
+import STOCK_DAEMON_JS from './stock/daemon.js?raw';
 
 // Bundled domain-skills tree. Vite eagerly inlines every file under
 // stock/domain-skills/ as a raw string at build time. Keys are the full
@@ -38,6 +39,7 @@ export function harnessDir(): string {
 export function helpersPath(): string { return path.join(harnessDir(), 'helpers.js'); }
 export function toolsPath(): string { return path.join(harnessDir(), 'TOOLS.json'); }
 export function skillPath(): string { return path.join(harnessDir(), 'AGENTS.md'); }
+export function daemonPath(): string { return path.join(harnessDir(), 'daemon.js'); }
 export function domainSkillsDir(): string { return path.join(harnessDir(), 'domain-skills'); }
 
 /**
@@ -61,7 +63,10 @@ export function bootstrapHarness(): void {
 
   const hp = helpersPath();
   const needsHelpers = !fs.existsSync(hp) || (() => {
-    try { return !fs.readFileSync(hp, 'utf-8').includes('createContext'); }
+    try {
+      const content = fs.readFileSync(hp, 'utf-8');
+      return !content.includes('createContext') || !content.includes('BU_CDP_WS');
+    }
     catch { return true; }
   })();
   if (needsHelpers) {
@@ -88,6 +93,18 @@ export function bootstrapHarness(): void {
   if (!fs.existsSync(tp)) {
     fs.writeFileSync(tp, STOCK_TOOLS_JSON as string, 'utf-8');
     mainLogger.info('harness.bootstrap.wroteTools', { path: tp, bytes: (STOCK_TOOLS_JSON as string).length });
+  }
+
+  const dp = daemonPath();
+  const needsDaemon = !fs.existsSync(dp) || (() => {
+    try {
+      const content = fs.readFileSync(dp, 'utf-8');
+      return !content.includes('CdpWs');
+    } catch { return true; }
+  })();
+  if (needsDaemon) {
+    fs.writeFileSync(dp, STOCK_DAEMON_JS as string, 'utf-8');
+    mainLogger.info('harness.bootstrap.wroteDaemon', { path: dp, bytes: (STOCK_DAEMON_JS as string).length });
   }
 
   materializeDomainSkills();

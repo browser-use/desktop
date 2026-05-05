@@ -125,10 +125,16 @@ const codexAdapter: EngineAdapter = {
   wrapPrompt(ctx: SpawnContext): string {
     const lines: string[] = [
       'You are driving a specific Chromium browser view on this machine.',
-      `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
+    ];
+    if (ctx.cdpUrl) {
+      lines.push(`You are connected to an external browser via CDP (env BU_DAEMON_SOCKET).`);
+    } else {
+      lines.push(`Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`);
+    }
+    lines.push(
       'Read `./AGENTS.md` for how to drive the browser in this harness.',
       'Always read `./helpers.js` before writing scripts — that is where the functions live. Edit it if a helper is missing.',
-    ];
+    );
     if (ctx.attachmentRefs.length > 0) {
       lines.push('', 'The user attached these files for this task. Read each one before acting:');
       for (const a of ctx.attachmentRefs) lines.push(`  - ${a.relPath} (${a.mime}, ${a.size} bytes)`);
@@ -176,8 +182,12 @@ const codexAdapter: EngineAdapter = {
       // Prefer CODEX_API_KEY — the docs recommend it for `codex exec` mode.
       env.CODEX_API_KEY = ctx.savedApiKey;
     }
-    env.BU_TARGET_ID = ctx.targetId;
-    env.BU_CDP_PORT = String(ctx.cdpPort);
+    if (ctx.cdpUrl) {
+      env.BU_CDP_WS = ctx.cdpUrl;
+    } else {
+      env.BU_TARGET_ID = ctx.targetId;
+      env.BU_CDP_PORT = String(ctx.cdpPort);
+    }
     return env;
   },
 

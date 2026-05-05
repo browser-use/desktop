@@ -73,7 +73,7 @@ import { createShellWindow } from './window';
 import { createTray, refreshTrayMenu } from './tray';
 // Track B — Pill + hotkeys
 import { createPillWindow, togglePill, showPill, hidePill, sendToPill, setPillHeight, PILL_HEIGHT_COLLAPSED, PILL_HEIGHT_EXPANDED } from './pill';
-import { createLogsWindow, attachToHub as attachLogsToHub, toggleLogs, hideLogs, getLogsWindow, showLogs, setLogsMode, updateLogsAnchor, focusLogsFollowUp } from './logsPill';
+import { createLogsWindow, attachToHub as attachLogsToHub, toggleLogs, hideLogs, getLogsWindow, showLogs, setLogsMode, updateLogsAnchor, focusLogsFollowUp, setSettingsVisibleChecker } from './logsPill';
 import * as takeoverOverlay from './takeoverOverlay';
 import { sendSessionNotification } from './notifications';
 import { registerHotkeys, unregisterHotkeys, getGlobalCmdbarAccelerator, setGlobalCmdbarAccelerator } from './hotkeys';
@@ -84,7 +84,9 @@ import { AccountStore } from './identity/AccountStore';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers } from './identity/onboardingHandlers';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
+import { registerCdpUrlHandlers } from './settings/cdpUrlIpc';
 import { registerConsentHandlers } from './consentIpc';
+import { getCdpUrl, getAlwaysAllow, setCdpUrlChangeCallback } from './settings/cdpUrlStore';
 import { registerTelemetryHandlers } from './telemetryIpc';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
@@ -98,8 +100,11 @@ import {
 import { assertString, assertAttachments } from './ipc-validators';
 // Agent loop: CLI subprocess driving the browser harness. Engine is
 // pluggable (claude-code, codex, …) — see src/main/hl/engines/.
-import { bootstrapHarness, harnessDir } from './hl/harness';
+import { bootstrapHarness, harnessDir, daemonPath } from './hl/harness';
 import { runEngine, DEFAULT_ENGINE_ID } from './hl/engines';
+import { spawn } from 'node:child_process';
+import net from 'node:net';
+import os from 'node:os';
 import { getEngine, setEngine, type EngineId } from './hl/engine';
 import { forwardAgentEvent } from './pill';
 // Session management
@@ -235,6 +240,7 @@ function openShellAndWire(): BrowserWindow {
   }
 
   registerApiKeyHandlers();
+  registerCdpUrlHandlers();
   captureEvent('app_launched');
 
   ipcMain.handle('hotkeys:get-global', () => getGlobalCmdbarAccelerator());
@@ -345,6 +351,14 @@ app.whenReady().then(async () => {
   }
 
   // ---------------------------------------------------------------------------
+  // Logs overlay behaviour
+  // ---------------------------------------------------------------------------
+  setSettingsVisibleChecker(() => {
+    const sw = getSettingsWindow();
+    return sw !== null && !sw.isDestroyed() && sw.isVisible();
+  });
+
+  // ---------------------------------------------------------------------------
   // Channel IPC handlers (registered early so onboarding can use them too)
   // ---------------------------------------------------------------------------
   registerConsentHandlers();
@@ -371,6 +385,200 @@ app.whenReady().then(async () => {
   const activeAgents = new Map<string, AbortController>();
   const steerQueues = new Map<string, string[]>();
   const startingSessionIds = new Set<string>();
+
+  // Per-session CDP daemons for external-browser mode. A session may be
+  // resumed multiple times; we keep the daemon alive across runs so Chrome
+  // doesn't re-prompt "Allow remote debugging?" on every follow-up.
+  const sessionDaemons = new Map<string, { proc: ReturnType<typeof spawn>; socket: string }>();
+  let globalDaemon: { proc: ReturnType<typeof spawn>; socket: string } | null = null;
+
+  function safeDaemonName(name: string): string {
+    return name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  }
+
+  function daemonSocketPath(name: string): string {
+    const sanitized = safeDaemonName(name);
+    return process.platform === 'win32'
+      ? `\\\\.\\pipe\\browser-use-bh-${sanitized}`
+      : path.join(os.tmpdir(), `bh-${sanitized}.sock`);
+  }
+
+  function waitForDaemonSocket(socketPath: string, timeoutMs = 8000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    return new Promise((resolve, reject) => {
+      function tryConnect() {
+        const client = net.createConnection(socketPath);
+        let done = false;
+        const cleanup = () => { done = true; client.destroy(); };
+        client.on('connect', () => { cleanup(); resolve(); });
+        client.on('error', () => {
+          if (done) return;
+          cleanup();
+          if (Date.now() >= deadline) {
+            reject(new Error(`Daemon socket never became ready: ${socketPath}`));
+          } else {
+            setTimeout(tryConnect, 300);
+          }
+        });
+        client.setTimeout(5000, () => {
+          if (done) return;
+          cleanup();
+          if (Date.now() >= deadline) {
+            reject(new Error(`Daemon socket never became ready: ${socketPath}`));
+          } else {
+            setTimeout(tryConnect, 300);
+          }
+        });
+      }
+      tryConnect();
+    });
+  }
+
+  async function startDaemon(socket: string, cdpUrl: string, name: string): Promise<ReturnType<typeof spawn>> {
+    const daemonEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1', BU_NAME: name, BU_CDP_WS: cdpUrl };
+    if (process.platform !== 'win32') {
+      try { fs.unlinkSync(socket); } catch { /* noop */ }
+    }
+    const proc = spawn(process.execPath, [daemonPath()], {
+      env: daemonEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    });
+    proc.stdout.on('data', (chunk: Buffer) => {
+      mainLogger.info('main.daemon.stdout', { name, text: chunk.toString('utf-8').trim() });
+    });
+    proc.stderr.on('data', (chunk: Buffer) => {
+      mainLogger.warn('main.daemon.stderr', { name, text: chunk.toString('utf-8').trim() });
+    });
+    proc.on('exit', (code, signal) => {
+      mainLogger.info('main.daemon.exit', { name, socket, code, signal });
+    });
+    mainLogger.info('main.daemon.started', { name, socket, pid: proc.pid });
+    // Timeout must exceed the daemon's WebSocket retry window (12 × 5s = 60s)
+    // so the user has time to click Chrome's "Allow remote debugging?" dialog.
+    await waitForDaemonSocket(socket, 65000);
+    mainLogger.info('main.daemon.ready', { name, socket });
+    return proc;
+  }
+
+  function stopDaemon(d: { proc: ReturnType<typeof spawn>; socket: string }, name: string): void {
+    try { d.proc.kill('SIGTERM'); } catch { /* noop */ }
+    if (process.platform !== 'win32') {
+      try { fs.unlinkSync(d.socket); } catch { /* noop */ }
+    }
+    const sanitized = safeDaemonName(name);
+    const logPath = path.join(os.tmpdir(), `bh-${sanitized}.log`);
+    const pidPath = path.join(os.tmpdir(), `bh-${sanitized}.pid`);
+    try { fs.unlinkSync(logPath); } catch { /* noop */ }
+    try { fs.unlinkSync(pidPath); } catch { /* noop */ }
+    mainLogger.info('main.daemon.stopped', { name, socket: d.socket });
+  }
+
+  async function getOrStartGlobalDaemon(cdpUrl: string): Promise<string | null> {
+    if (globalDaemon) {
+      // 1) IPC socket alive check
+      const ipcAlive = await new Promise<boolean>((resolve) => {
+        const client = net.createConnection(globalDaemon!.socket);
+        client.on('connect', () => { client.end(); resolve(true); });
+        client.on('error', () => resolve(false));
+        client.setTimeout(2000, () => { client.destroy(); resolve(false); });
+      });
+
+      if (ipcAlive) {
+        // 2) CDP WebSocket alive check — the daemon IPC may be up but the
+        // Chrome WS underneath could have died (user closed browser, etc.)
+        const cdpAlive = await new Promise<boolean>((resolve) => {
+          const client = net.createConnection(globalDaemon!.socket);
+          let buf = '';
+          client.on('data', (chunk) => {
+            buf += chunk.toString();
+            const idx = buf.indexOf('\n');
+            if (idx >= 0) {
+              try {
+                const resp = JSON.parse(buf.slice(0, idx));
+                resolve(!resp.error && resp.result?.product != null);
+              } catch { resolve(false); }
+              client.end();
+            }
+          });
+          client.on('error', () => resolve(false));
+          client.setTimeout(3000, () => { client.destroy(); resolve(false); });
+          client.write(JSON.stringify({ method: 'Browser.getVersion' }) + '\n');
+        });
+
+        if (cdpAlive) {
+          return globalDaemon.socket;
+        }
+        mainLogger.warn('main.globalDaemon.cdpDead', { socket: globalDaemon.socket });
+      } else {
+        mainLogger.warn('main.globalDaemon.ipcDead', { socket: globalDaemon.socket });
+      }
+
+      stopGlobalDaemon();
+      globalDaemon = null;
+    }
+    const socket = daemonSocketPath('global');
+    try {
+      const proc = await startDaemon(socket, cdpUrl, 'global');
+      globalDaemon = { proc, socket };
+      return socket;
+    } catch (err) {
+      mainLogger.warn('main.globalDaemon.failed', { error: (err as Error).message });
+      return null;
+    }
+  }
+
+  function stopGlobalDaemon(): void {
+    if (!globalDaemon) return;
+    stopDaemon(globalDaemon, 'global');
+    globalDaemon = null;
+    try { fs.unlinkSync(path.join(harnessDir(), 'DAEMON_SOCKET')); } catch { /* noop */ }
+  }
+
+  // Stop the global daemon whenever the CDP URL changes or alwaysAllow is
+  // turned off, so the next session starts a fresh daemon with the new URL.
+  let lastCdpUrl: string | null = getCdpUrl();
+  setCdpUrlChangeCallback((state) => {
+    if (!state.url || !state.alwaysAllow || state.url !== lastCdpUrl) {
+      stopGlobalDaemon();
+    }
+    lastCdpUrl = state.url;
+  });
+
+  async function getOrStartSessionDaemon(sessionId: string, cdpUrl: string): Promise<string | null> {
+    if (getAlwaysAllow()) {
+      return getOrStartGlobalDaemon(cdpUrl);
+    }
+    const existing = sessionDaemons.get(sessionId);
+    if (existing) {
+      const alive = await new Promise<boolean>((resolve) => {
+        const client = net.createConnection(existing.socket);
+        client.on('connect', () => { client.end(); resolve(true); });
+        client.on('error', () => resolve(false));
+        client.setTimeout(2000, () => { client.destroy(); resolve(false); });
+      });
+      if (alive) return existing.socket;
+      mainLogger.warn('main.sessionDaemon.dead', { sessionId, socket: existing.socket });
+      stopSessionDaemon(sessionId);
+    }
+
+    const socket = daemonSocketPath(sessionId);
+    try {
+      const proc = await startDaemon(socket, cdpUrl, sessionId);
+      sessionDaemons.set(sessionId, { proc, socket });
+      return socket;
+    } catch (err) {
+      mainLogger.warn('main.daemon.failed', { sessionId, error: (err as Error).message });
+      return null;
+    }
+  }
+
+  function stopSessionDaemon(sessionId: string): void {
+    const d = sessionDaemons.get(sessionId);
+    if (!d) return;
+    stopDaemon(d, sessionId);
+    sessionDaemons.delete(sessionId);
+  }
 
   // pill:submit — creates a session via the standard pipeline, hides pill
   ipcMain.handle('pill:submit', async (_event, payload: unknown) => {
@@ -490,6 +698,17 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('logs:show', (_evt, sessionId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     mainLogger.info('main.logs:show', { sessionId, anchor });
+    // If the settings window is open, don't surface the logs overlay on top of it.
+    const settingsWin = getSettingsWindow();
+    if (settingsWin && !settingsWin.isDestroyed() && settingsWin.isVisible()) {
+      mainLogger.debug('main.logs:show.skipped', { reason: 'settings-visible', sessionId });
+      return true;
+    }
+    // Auto-expand logs to full mode when using an external browser (no embedded
+    // view), so the terminal fills the pane area instead of floating small.
+    if (getCdpUrl()) {
+      setLogsMode('full');
+    }
     showLogs(sessionId, anchor ?? null);
     // Only take OS-level focus when the SHELL window itself is already
     // focused (user actively interacting with the hub). The previous gate
@@ -660,6 +879,7 @@ app.whenReady().then(async () => {
     mainLogger.info('main.startSessionWithAgent', { id });
     let launched = false;
     let view: ReturnType<typeof browserPool.create> | null = null;
+    const cdpUrl = getCdpUrl();
 
     try {
       const engineId = await assertSessionEngineReady(id);
@@ -668,26 +888,32 @@ app.whenReady().then(async () => {
       const abortController = sessionManager.startSession(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'startSession', ms: Date.now() - t0 });
 
-      view = browserPool.create(id, t0);
-      mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'poolCreate', ms: Date.now() - t0 });
-      if (!view) {
-        sessionManager.failSession(id, `Browser pool full (max ${browserPool.activeCount}), session queued`);
-        mainLogger.warn('main.startSessionWithAgent.poolFull', { id, stats: browserPool.getStats() });
-        return;
-      }
+      let daemonSocket: string | null = null;
+      if (!cdpUrl) {
+        view = browserPool.create(id, t0);
+        mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'poolCreate', ms: Date.now() - t0 });
+        if (!view) {
+          sessionManager.failSession(id, `Browser pool full (max ${browserPool.activeCount}), session queued`);
+          mainLogger.warn('main.startSessionWithAgent.poolFull', { id, stats: browserPool.getStats() });
+          return;
+        }
 
-      if (shellWindow && !shellWindow.isDestroyed()) {
-        // Detach existing views — only one session is visible at a time.
-        // We DON'T attach here: main doesn't know the exact pane rect.
-        // The renderer (AgentPane) is authoritative for bounds and will call
-        // sessions:view-attach with the exact .pane__output getBoundingClientRect.
-        browserPool.detachAll(shellWindow);
-        mainLogger.info('main.startSessionWithAgent.detachedAwaitingRenderer', { id });
-      }
-      mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'attach', ms: Date.now() - t0 });
+        if (shellWindow && !shellWindow.isDestroyed()) {
+          // Detach existing views — only one session is visible at a time.
+          // We DON'T attach here: main doesn't know the exact pane rect.
+          // The renderer (AgentPane) is authoritative for bounds and will call
+          // sessions:view-attach with the exact .pane__output getBoundingClientRect.
+          browserPool.detachAll(shellWindow);
+          mainLogger.info('main.startSessionWithAgent.detachedAwaitingRenderer', { id });
+        }
+        mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'attach', ms: Date.now() - t0 });
 
-      await view.webContents.loadURL('about:blank');
-      mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'loadBlank', ms: Date.now() - t0 });
+        await view.webContents.loadURL('about:blank');
+        mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'loadBlank', ms: Date.now() - t0 });
+      } else {
+        daemonSocket = await getOrStartSessionDaemon(id, cdpUrl);
+        mainLogger.info('main.startSessionWithAgent.externalCdp', { id, cdpUrl, daemonSocket });
+      }
 
       const attachmentsForRun = sessionManager.loadAttachmentsForRun(id);
       if (attachmentsForRun.length > 0) {
@@ -701,8 +927,10 @@ app.whenReady().then(async () => {
         sessionId: id,
         prompt: sessionManager.getSession(id)!.prompt,
         attachments: attachmentsForRun.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
-        webContents: view.webContents,
+        webContents: view?.webContents,
         cdpPort: resolvedCdp.port,
+        cdpUrl: cdpUrl ?? undefined,
+        daemonSocket: daemonSocket ?? undefined,
         signal: abortController.signal,
         onSessionId: (sid) => sessionManager.setClaudeSessionId(id, sid),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
@@ -712,7 +940,7 @@ app.whenReady().then(async () => {
             sessionManager.completeSession(id);
           } else if (event.type === 'error') {
             sessionManager.failSession(id, event.message);
-            browserPool.destroy(id, shellWindow ?? undefined);
+            if (!cdpUrl) browserPool.destroy(id, shellWindow ?? undefined);
           } else {
             sessionManager.appendOutput(id, event);
           }
@@ -720,7 +948,7 @@ app.whenReady().then(async () => {
       }).catch((err: Error) => {
         mainLogger.error('main.startSessionWithAgent.agentError', { id, error: err.message });
         sessionManager.failSession(id, err.message);
-        browserPool.destroy(id, shellWindow ?? undefined);
+        if (!cdpUrl) browserPool.destroy(id, shellWindow ?? undefined);
       }).finally(() => {
         steerQueues.delete(id);
         startingSessionIds.delete(id);
@@ -805,11 +1033,14 @@ app.whenReady().then(async () => {
       mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length });
     }
 
-    const webContents = browserPool.getWebContents(validatedId);
-    if (!webContents) {
+    const cdpUrl = getCdpUrl();
+    const webContents = !cdpUrl ? browserPool.getWebContents(validatedId) : undefined;
+    if (!cdpUrl && !webContents) {
       mainLogger.warn('main.sessions:resume.noBrowser', { id: validatedId });
       return { error: 'Browser session expired — start a new session' };
     }
+
+    const daemonSocket = cdpUrl ? await getOrStartSessionDaemon(validatedId, cdpUrl) : null;
 
     const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
     if (resumeAttachments.length > 0) {
@@ -830,6 +1061,8 @@ app.whenReady().then(async () => {
       attachments: resumeAttachments.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
       webContents,
       cdpPort: resolvedCdp.port,
+      cdpUrl: cdpUrl ?? undefined,
+      daemonSocket: daemonSocket ?? undefined,
       signal: abortController.signal,
       resumeSessionId: sessionManager.getClaudeSessionId(validatedId),
       onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
@@ -840,7 +1073,7 @@ app.whenReady().then(async () => {
           sessionManager.completeSession(validatedId);
         } else if (event.type === 'error') {
           sessionManager.failSession(validatedId, event.message);
-          browserPool.destroy(validatedId, shellWindow ?? undefined);
+          if (!cdpUrl) browserPool.destroy(validatedId, shellWindow ?? undefined);
         } else {
           sessionManager.appendOutput(validatedId, event);
         }
@@ -848,7 +1081,7 @@ app.whenReady().then(async () => {
     }).catch((err: Error) => {
       mainLogger.error('main.sessions:resume.agentError', { id: validatedId, error: err.message });
       sessionManager.failSession(validatedId, err.message);
-      browserPool.destroy(validatedId, shellWindow ?? undefined);
+      if (!cdpUrl) browserPool.destroy(validatedId, shellWindow ?? undefined);
     }).finally(() => {
       steerQueues.delete(validatedId);
       mainLogger.info('main.sessions:resume.agentFinished', { id: validatedId, poolStats: browserPool.getStats() });
@@ -865,29 +1098,39 @@ app.whenReady().then(async () => {
     const session = sessionManager.getSession(validatedId);
     if (!session) return { error: 'Session not found' };
 
-    browserPool.destroy(validatedId, shellWindow ?? undefined);
+    const cdpUrl = getCdpUrl();
+    if (!cdpUrl) {
+      browserPool.destroy(validatedId, shellWindow ?? undefined);
+    }
 
     const abortController = sessionManager.rerunSession(validatedId);
     captureEvent('session_rerun', {
       engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
     });
 
-    const view = browserPool.create(validatedId, t0);
-    if (!view) {
-      sessionManager.failSession(validatedId, 'Browser pool full');
-      return { error: 'Browser pool full' };
-    }
+    let view: ReturnType<typeof browserPool.create> | null = null;
+    let daemonSocket: string | null = null;
+    if (!cdpUrl) {
+      view = browserPool.create(validatedId, t0);
+      if (!view) {
+        sessionManager.failSession(validatedId, 'Browser pool full');
+        return { error: 'Browser pool full' };
+      }
 
-    if (shellWindow && !shellWindow.isDestroyed()) {
-      // See startSessionWithAgent comment — renderer is authoritative for bounds.
-      browserPool.detachAll(shellWindow);
-      mainLogger.info('main.sessions:rerun.detachedAwaitingRenderer', { id: validatedId });
-    }
+      if (shellWindow && !shellWindow.isDestroyed()) {
+        // See startSessionWithAgent comment — renderer is authoritative for bounds.
+        browserPool.detachAll(shellWindow);
+        mainLogger.info('main.sessions:rerun.detachedAwaitingRenderer', { id: validatedId });
+      }
 
-    try {
-      await view.webContents.loadURL('about:blank');
-    } catch (err) {
-      mainLogger.warn('main.sessions:rerun.loadBlank.failed', { id: validatedId, error: (err as Error).message });
+      try {
+        await view.webContents.loadURL('about:blank');
+      } catch (err) {
+        mainLogger.warn('main.sessions:rerun.loadBlank.failed', { id: validatedId, error: (err as Error).message });
+      }
+    } else {
+      daemonSocket = await getOrStartSessionDaemon(validatedId, cdpUrl);
+      mainLogger.info('main.sessions:rerun.externalCdp', { id: validatedId, cdpUrl, daemonSocket });
     }
 
     const rerunAttachments = sessionManager.loadAttachmentsForRun(validatedId);
@@ -901,8 +1144,10 @@ app.whenReady().then(async () => {
       sessionId: validatedId,
       prompt: session.prompt,
       attachments: rerunAttachments.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
-      webContents: view.webContents,
+      webContents: view?.webContents,
       cdpPort: resolvedCdp.port,
+      cdpUrl: cdpUrl ?? undefined,
+      daemonSocket: daemonSocket ?? undefined,
       signal: abortController.signal,
       // Rerun intentionally starts a fresh conversation; SessionManager.rerunSession
       // already cleared any stored resume id.
@@ -914,7 +1159,7 @@ app.whenReady().then(async () => {
           sessionManager.completeSession(validatedId);
         } else if (event.type === 'error') {
           sessionManager.failSession(validatedId, event.message);
-          browserPool.destroy(validatedId, shellWindow ?? undefined);
+          if (!cdpUrl) browserPool.destroy(validatedId, shellWindow ?? undefined);
         } else {
           sessionManager.appendOutput(validatedId, event);
         }
@@ -922,7 +1167,7 @@ app.whenReady().then(async () => {
     }).catch((err: Error) => {
       mainLogger.error('main.sessions:rerun.agentError', { id: validatedId, error: err.message });
       sessionManager.failSession(validatedId, err.message);
-      browserPool.destroy(validatedId, shellWindow ?? undefined);
+      if (!cdpUrl) browserPool.destroy(validatedId, shellWindow ?? undefined);
     }).finally(() => {
       steerQueues.delete(validatedId);
     });
@@ -969,6 +1214,7 @@ app.whenReady().then(async () => {
     const validatedId = assertString(id, 'id', 100);
     mainLogger.info('main.sessions:delete', { id: validatedId });
     browserPool.destroy(validatedId, shellWindow ?? undefined);
+    stopSessionDaemon(validatedId);
     sessionManager.deleteSession(validatedId);
   });
 
@@ -1070,18 +1316,22 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('sessions:list', () => {
+    const cdpUrl = getCdpUrl();
     const list = sessionManager.listSessions().map((s) => ({
       ...s,
       hasBrowser: !!browserPool.getWebContents(s.id),
+      externalBrowser: !!cdpUrl,
     }));
     mainLogger.info('main.sessions:list', { returning: list.length, ids: list.map((s) => s.id) });
     return list;
   });
 
   ipcMain.handle('sessions:list-all', () => {
+    const cdpUrl = getCdpUrl();
     return sessionManager.listSessions().map((s) => ({
       ...s,
       hasBrowser: !!browserPool.getWebContents(s.id),
+      externalBrowser: !!cdpUrl,
     }));
   });
 
@@ -1089,7 +1339,8 @@ app.whenReady().then(async () => {
     const validatedId = assertString(id, 'id', 100);
     const session = sessionManager.getSession(validatedId);
     if (!session) return null;
-    return { ...session, hasBrowser: !!browserPool.getWebContents(validatedId) };
+    const cdpUrl = getCdpUrl();
+    return { ...session, hasBrowser: !!browserPool.getWebContents(validatedId), externalBrowser: !!cdpUrl };
   });
 
   // Live view: attach/detach agent browser to shell window
@@ -1256,7 +1507,7 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   ipcMain.handle('settings:open', () => {
     mainLogger.info('main.settings:open');
-    openSettingsWindow();
+    openSettingsWindow(shellWindow ?? undefined);
   });
 
   ipcMain.handle('settings:app:get-info', () => {
@@ -1372,6 +1623,16 @@ app.whenReady().then(async () => {
       ctrl.abort();
     }
     activeAgents.clear();
+    for (const [sid, d] of sessionDaemons) {
+      try { d.proc.kill('SIGTERM'); } catch { /* noop */ }
+      if (process.platform !== 'win32') {
+        try { fs.unlinkSync(d.socket); } catch { /* noop */ }
+      }
+      mainLogger.info('main.beforeQuit.stopDaemon', { sessionId: sid, socket: d.socket });
+    }
+    sessionDaemons.clear();
+    stopGlobalDaemon();
+    try { fs.unlinkSync(path.join(harnessDir(), 'DAEMON_SOCKET')); } catch { /* noop */ }
     browserPool.destroyAll(shellWindow ?? undefined);
     sessionManager.destroy();
     whatsAppAdapter.disconnect().catch(() => {});
