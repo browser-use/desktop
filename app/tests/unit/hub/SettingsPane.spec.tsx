@@ -37,6 +37,13 @@ function installElectronApi(): void {
           setTelemetry: vi.fn(async (telemetry: boolean) => ({ telemetry, telemetryUpdatedAt: null, version: 1 })),
           openSystemNotifications: vi.fn(async () => ({ ok: true })),
         },
+        cdpUrl: {
+          get: vi.fn(async () => ({ url: null, alwaysAllow: false })),
+          set: vi.fn(async () => ({ url: null, alwaysAllow: false })),
+          test: vi.fn(async () => ({ ok: true })),
+          getAlwaysAllow: vi.fn(async () => ({ alwaysAllow: false })),
+          setAlwaysAllow: vi.fn(async () => ({ alwaysAllow: false })),
+        },
       },
       on: {},
     },
