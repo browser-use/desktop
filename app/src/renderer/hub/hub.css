@@ -1696,12 +1696,14 @@ button:focus:not(:focus-visible) {
 
 .engine-picker__menu {
   position: absolute;
-  bottom: calc(100% + 4px);
   right: 0;
   min-width: 240px;
   max-width: min(360px, calc(100vw - 24px));
-  max-height: min(420px, calc(100vh - 120px));
-  overflow-y: auto;
+  /* Fixed height so the menu is deterministic across hosts (hub + pill) and
+     doesn't depend on viewport size or content measurement. The inner list
+     scrolls when there are more entries than fit. */
+  height: 200px;
+  overflow: hidden;
   background-color: var(--color-bg-elevated);
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0));
   border: 1px solid var(--color-border-default);
@@ -1717,9 +1719,20 @@ button:focus:not(:focus-visible) {
   gap: 1px;
 }
 
+.engine-picker__menu--up {
+  bottom: calc(100% + 4px);
+}
+
+.engine-picker__menu--down {
+  top: calc(100% + 4px);
+}
+
+.engine-picker__menu--providers {
+  overflow-y: auto;
+}
+
 .engine-picker__menu--models {
   min-width: 320px;
-  overflow: hidden;
 }
 
 .engine-picker__item {
@@ -1859,7 +1872,7 @@ button:focus:not(:focus-visible) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: min(412px, calc(100vh - 128px));
+  height: 100%;
   min-height: 0;
 }
 

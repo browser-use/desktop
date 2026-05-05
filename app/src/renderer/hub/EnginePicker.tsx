@@ -105,9 +105,16 @@ interface EnginePickerProps {
   onModelChange?: (modelId: string | undefined) => void;
   labelMode?: 'engine-model' | 'model';
   /** Fires when the dropdown opens/closes. Used by hosts (e.g. the pill
-   *  renderer) that need to grow their window so the menu isn't clipped. */
+   *  renderer) that need to grow their window so the menu isn't clipped.
+   *  The menu's pixel height is the exported MENU_HEIGHT constant — hosts
+   *  that auto-size can rely on it being fixed. */
   onOpenChange?: (open: boolean) => void;
 }
+
+/** Fixed height of the dropdown menu (in CSS px). Exported so hosts that
+ *  auto-size their window (the pill) can compute the height they need to
+ *  reserve for the menu. Keep in sync with `.engine-picker__menu` in hub.css. */
+export const ENGINE_PICKER_MENU_HEIGHT = 200;
 
 export function EnginePicker({
   value,
@@ -128,8 +135,22 @@ export function EnginePicker({
   const [modelSearch, setModelSearch] = useState('');
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const [direction, setDirection] = useState<'up' | 'down'>('up');
 
   useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
+
+  // Pick open direction based on available space above the toggle. The menu
+  // has a fixed height (ENGINE_PICKER_MENU_HEIGHT) — if there isn't enough
+  // upward room, open downward. Hosts that auto-size (the pill) will grow
+  // their window to make the downward room.
+  useEffect(() => {
+    if (!open) return;
+    const btn = toggleRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    setDirection(r.top >= ENGINE_PICKER_MENU_HEIGHT ? 'up' : 'down');
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -328,6 +349,7 @@ export function EnginePicker({
   return (
     <div className="engine-picker" ref={menuRef}>
       <button
+        ref={toggleRef}
         type="button"
         className={`engine-picker__toggle${modelOnlyLabel ? ' engine-picker__toggle--model-only' : ''}`}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
@@ -345,7 +367,7 @@ export function EnginePicker({
         <ChevronIcon />
       </button>
       {open && (
-        <div className={`engine-picker__menu engine-picker__menu--${menuView}`} role="menu">
+        <div className={`engine-picker__menu engine-picker__menu--${menuView} engine-picker__menu--${direction}`} role="menu">
           {menuView === 'providers' && engines.map((e) => {
             const st = statuses[e.id];
             const installed = st?.installed?.installed ?? true;
@@ -429,8 +451,8 @@ export function EnginePicker({
                     className="engine-picker__model-search-input"
                     value={modelSearch}
                     onChange={(e) => setModelSearch(e.target.value)}
-                    placeholder="Search models"
-                    aria-label={`Search ${modelEngine.displayName} models`}
+                    placeholder={`Search models (${models.length} available)`}
+                    aria-label={`Search ${modelEngine.displayName} models (${models.length} available)`}
                     autoFocus
                   />
                 </div>

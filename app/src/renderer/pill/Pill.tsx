@@ -6,7 +6,7 @@ import {
   formatBytes,
 } from '../../shared/attachments';
 import { fallbackShortcutPlatform, formatShortcutForPlatform } from '../../shared/hotkeys';
-import { EnginePicker } from '../hub/EnginePicker';
+import { EnginePicker, ENGINE_PICKER_MENU_HEIGHT } from '../hub/EnginePicker';
 import {
   RESULT_ROW_HEIGHT,
   MAX_RESULTS,
@@ -217,6 +217,7 @@ export function Pill(): React.ReactElement {
   const [attachments, setAttachments] = useState<Array<{ name: string; mime: string; bytes: Uint8Array }>>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [validFavicons, setValidFavicons] = useState<Set<string>>(new Set());
+  const [pickerOpen, setPickerOpen] = useState(false);
   const checkedDomainsRef = useRef<Set<string>>(new Set());
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -325,10 +326,15 @@ export function Pill(): React.ReactElement {
     const chipsRows = attachments.length > 0 ? Math.ceil(attachments.length / 3) : 0;
     const chipsHeight = chipsRows * CHIP_ROW_HEIGHT;
     const errorHeight = attachError ? ERROR_ROW_HEIGHT : 0;
-    const total = searchHeight + resultHeight + dashboardHeight + chipsHeight + errorHeight + FOOTER_HEIGHT;
-    console.log('[Pill.resize]', { taHeight, searchHeight, resultHeight, dashboardHeight, chipsHeight, errorHeight, total });
+    const contentTotal = searchHeight + resultHeight + dashboardHeight + chipsHeight + errorHeight + FOOTER_HEIGHT;
+    // When the picker is open, the dropdown opens immediately below the input
+    // row (4px gap) and has a fixed height. Ensure the window is tall enough
+    // to fully contain it, with a small margin for the shadow.
+    const pickerNeeded = pickerOpen ? searchHeight + 4 + ENGINE_PICKER_MENU_HEIGHT + 8 : 0;
+    const total = Math.max(contentTotal, pickerNeeded);
+    console.log('[Pill.resize]', { taHeight, searchHeight, resultHeight, dashboardHeight, chipsHeight, errorHeight, total, pickerOpen });
     window.pillAPI.setExpanded(total);
-  }, [hasResults, results.length, value, attachments.length, attachError, showDashboard, hasRecents, recents.length]);
+  }, [hasResults, results.length, value, attachments.length, attachError, showDashboard, hasRecents, recents.length, pickerOpen]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     setAttachError(null);
@@ -490,7 +496,7 @@ export function Pill(): React.ReactElement {
                 labelMode="model"
                 onChange={(id) => { setEngine(id); setModel(undefined); }}
                 onModelChange={setModel}
-                onOpenChange={() => {}}
+                onOpenChange={setPickerOpen}
               />
             </div>
             <button
