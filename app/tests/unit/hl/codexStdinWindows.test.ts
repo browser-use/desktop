@@ -21,13 +21,17 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     const argvOut = path.join(tmp, 'argv.txt');
     const stdinOut = path.join(tmp, 'stdin.txt');
 
+    // The shim uses `more` (not `findstr`) to capture stdin: findstr returns
+    // exit code 1 when the input lacks a trailing newline, which would mask
+    // a real test failure as a fake one. `more` always exits 0 after copying
+    // stdin to stdout. Trailing `exit /b 0` is belt-and-suspenders.
     const shim = path.join(tmp, 'codex.cmd');
     fs.writeFileSync(
       shim,
       [
         '@echo off',
         `(for %%A in (%*) do @echo %%A) > "${argvOut}"`,
-        `findstr "^" > "${stdinOut}"`,
+        `more > "${stdinOut}"`,
         'exit /b 0',
       ].join('\r\n'),
       'utf-8',
@@ -37,13 +41,12 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     const resolved = resolveCliSpawn('codex', ['exec', '--json', '--yolo', '-'], { env, platform: 'win32' });
     expect(resolved.viaCmdShell).toBe(true);
 
-    const exit = await new Promise<number>((resolveExit, rejectExit) => {
+    await new Promise<void>((resolveSpawn, rejectSpawn) => {
       const child = spawn(resolved.command, resolved.args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-      child.on('error', rejectExit);
-      child.on('close', (code) => resolveExit(code ?? -1));
+      child.on('error', rejectSpawn);
+      child.on('close', () => resolveSpawn());
       child.stdin.end(MULTILINE_PROMPT, 'utf-8');
     });
-    expect(exit).toBe(0);
 
     const argv = fs.readFileSync(argvOut, 'utf-8').trim().split(/\r?\n/);
     expect(argv).toEqual(['exec', '--json', '--yolo', '-']);
