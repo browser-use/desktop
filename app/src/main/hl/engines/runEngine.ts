@@ -8,6 +8,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { engineLogger } from '../../logger';
@@ -53,6 +54,29 @@ function mimeFromExt(filename: string): string {
     zip: 'application/zip', tar: 'application/x-tar', gz: 'application/gzip',
   };
   return map[ext] ?? 'application/octet-stream';
+}
+
+type HarnessTarget = 'helpers' | 'tools';
+
+type HarnessFileWatch = {
+  path: string;
+  basename: string;
+  target: HarnessTarget;
+  hash: string | null;
+};
+
+function hashFile(filePath: string): string | null | undefined {
+  try {
+    return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  } catch (err) {
+    const nodeErr = err as NodeJS.ErrnoException;
+    if (nodeErr.code === 'ENOENT') return null;
+    engineLogger.warn('engines.run.harnessWatch.hashFailed', {
+      path: filePath,
+      error: nodeErr.message,
+    });
+    return undefined;
+  }
 }
 
 export async function runEngine(opts: RunEngineOptions): Promise<void> {
@@ -210,6 +234,16 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   const stdinPayload = adapter.getStdinPayload?.(spawnCtx, wrappedPrompt);
   const stdinMode: 'pipe' | 'ignore' = stdinPayload != null ? 'pipe' : 'ignore';
 
+  const harnessHelpersAbs = path.resolve(helpersPath());
+  const harnessToolsAbs = path.resolve(toolsPath());
+  const harnessSkillAbs = path.resolve(skillPath());
+
+  const watchedHarnessFiles: HarnessFileWatch[] = [
+    { path: harnessHelpersAbs, basename: path.basename(harnessHelpersAbs), target: 'helpers', hash: hashFile(harnessHelpersAbs) ?? null },
+    { path: harnessToolsAbs, basename: path.basename(harnessToolsAbs), target: 'tools', hash: hashFile(harnessToolsAbs) ?? null },
+    { path: harnessSkillAbs, basename: path.basename(harnessSkillAbs), target: 'tools', hash: hashFile(harnessSkillAbs) ?? null },
+  ];
+
   let child: ChildProcessWithoutNullStreams;
   try {
     const resolved = resolveCliSpawn(adapter.binaryName, args, { env });
@@ -244,6 +278,48 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   //    session's outputs dir. Deduped by (name, size).
   const seenOutputs = new Map<string, number>();
   let outputsWatcher: ReturnType<typeof fs.watch> | null = null;
+  let harnessWatcher: ReturnType<typeof fs.watch> | null = null;
+  const harnessCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const emitHarnessChanges = (files: HarnessFileWatch[]): void => {
+    for (const file of files) {
+      const nextHash = hashFile(file.path);
+      if (nextHash === undefined || nextHash === file.hash) continue;
+      const prevHash = file.hash;
+      file.hash = nextHash;
+      opts.onEvent({
+        type: 'harness_edited',
+        target: file.target,
+        action: prevHash === null && nextHash !== null ? 'write' : 'patch',
+        path: file.path,
+      });
+    }
+  };
+
+  const scheduleHarnessCheck = (files: HarnessFileWatch[]): void => {
+    for (const file of files) {
+      const existing = harnessCheckTimers.get(file.path);
+      if (existing) clearTimeout(existing);
+      harnessCheckTimers.set(file.path, setTimeout(() => {
+        harnessCheckTimers.delete(file.path);
+        emitHarnessChanges([file]);
+      }, 75));
+    }
+  };
+
+  const flushHarnessChanges = (): void => {
+    for (const timer of harnessCheckTimers.values()) clearTimeout(timer);
+    harnessCheckTimers.clear();
+    emitHarnessChanges(watchedHarnessFiles);
+  };
+
+  const closeWatchers = (): void => {
+    try { outputsWatcher?.close(); } catch { /* already closed */ }
+    try { harnessWatcher?.close(); } catch { /* already closed */ }
+    for (const timer of harnessCheckTimers.values()) clearTimeout(timer);
+    harnessCheckTimers.clear();
+  };
+
   try {
     outputsWatcher = fs.watch(outputsDir, { persistent: false }, (_ev, filename) => {
       if (!filename || typeof filename !== 'string') return;
@@ -265,12 +341,25 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     engineLogger.warn('engines.run.outputs.watchFailed', { outputsDir, error: (err as Error).message });
   }
 
-  // 6. Generic post-processor over tool_call events: detect harness/skill
-  //    edits and reads. Keeps adapters' parsers focused on NDJSON→HlEvent.
+  try {
+    harnessWatcher = fs.watch(opts.harnessDir, { persistent: false }, (_ev, filename) => {
+      if (!filename) {
+        scheduleHarnessCheck(watchedHarnessFiles);
+        return;
+      }
+      const changedName = String(filename);
+      const changed = watchedHarnessFiles.filter((file) => file.basename === changedName);
+      if (changed.length > 0) scheduleHarnessCheck(changed);
+    });
+  } catch (err) {
+    engineLogger.warn('engines.run.harnessWatch.watchFailed', { harnessDir: opts.harnessDir, error: (err as Error).message });
+  }
+
+  // 6. Generic post-processor over tool_call events: detect skill edits and
+  //    reads. Harness edits are emitted by the file watcher above, using actual
+  //    file content as the source of truth instead of provider-specific tool
+  //    metadata.
   const skillPathRe = /(?:domain-skills|interaction-skills)\/([^/]+)\/([^/]+)\.md$/;
-  const harnessHelpersAbs = path.resolve(helpersPath());
-  const harnessToolsAbs = path.resolve(toolsPath());
-  const harnessSkillAbs = path.resolve(skillPath());
 
   function postProcess(e: HlEvent): HlEvent[] {
     if (e.type !== 'tool_call') return [e];
@@ -287,11 +376,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     const extra: HlEvent[] = [];
     if (isWrite) {
       const action = /edit|patch/i.test(e.name) ? 'patch' : 'write';
-      if (resolved === harnessHelpersAbs) {
-        extra.push({ type: 'harness_edited', target: 'helpers', action, path: resolved });
-      } else if (resolved === harnessToolsAbs || resolved === harnessSkillAbs) {
-        extra.push({ type: 'harness_edited', target: 'tools', action, path: resolved });
-      } else {
+      if (resolved !== harnessHelpersAbs && resolved !== harnessToolsAbs && resolved !== harnessSkillAbs) {
         const m = resolved.match(skillPathRe);
         if (m) extra.push({ type: 'skill_written', path: resolved, domain: m[1], topic: m[2], bytes: 0, action });
       }
@@ -318,6 +403,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   // close handler doesn't overwrite the completed session with an error.
   let doneEmitted = false;
   const emit = (ev: Parameters<typeof opts.onEvent>[0]): void => {
+    if (ev.type === 'done' || ev.type === 'error') flushHarnessChanges();
     if (ev.type === 'done') doneEmitted = true;
     opts.onEvent(ev);
   };
@@ -356,7 +442,8 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   await new Promise<void>((resolve) => {
     child.on('close', (code, sig) => {
       opts.signal?.removeEventListener('abort', onAbort);
-      try { outputsWatcher?.close(); } catch { /* already closed */ }
+      flushHarnessChanges();
+      closeWatchers();
       engineLogger.info('engines.run.exit', {
         engineId: adapter.id,
         code,
@@ -385,7 +472,8 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     });
     child.on('error', (err) => {
       opts.signal?.removeEventListener('abort', onAbort);
-      try { outputsWatcher?.close(); } catch { /* already closed */ }
+      flushHarnessChanges();
+      closeWatchers();
       opts.onEvent({ type: 'error', message: `${adapter.id}_spawn_error: ${err.message}` });
       resolve();
     });
