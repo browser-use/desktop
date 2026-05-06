@@ -29,7 +29,7 @@ tasks:
       - npm run start:clean
 
   reset:onboarding:
-    desc: Delete account.json so the next launch retriggers onboarding
+    desc: Delete onboarding state, sessions, imported cookies, and WhatsApp auth
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run start:reset-onboarding
