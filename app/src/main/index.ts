@@ -1246,21 +1246,6 @@ app.whenReady().then(async () => {
     const view = browserPool.getView(id);
     if (!view) return;
     const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
-    try {
-      const winContentBounds = shellWindow.getContentBounds();
-      const winBounds = shellWindow.getBounds();
-      mainLogger.info('main.sessions:view-resize.sizes', {
-        id,
-        physicalRect: bounds,
-        fittedBounds: fitted,
-        shellWindowBounds: winBounds,
-        shellContentBounds: winContentBounds,
-        zoomFactor: view.webContents.getZoomFactor(),
-        rectAspect: bounds.width / bounds.height,
-      });
-    } catch (err) {
-      mainLogger.warn('main.sessions:view-resize.sizes.error', { id, error: (err as Error).message });
-    }
     // (Intentionally no setZoomFactor here — previously we recomputed zoom
     // on every resize to fit the emulated viewport, but that clobbered any
     // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser

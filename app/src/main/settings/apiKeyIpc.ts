@@ -5,7 +5,7 @@
  * Security invariant: raw key/token values are NEVER logged.
  */
 
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import { mainLogger } from '../logger';
 import { assertString } from '../ipc-validators';
 import {
@@ -425,7 +425,14 @@ async function testAnthropicCompatibleKey(provider: BrowserCodeProviderOption, k
   }
 }
 
-function mockTestResult(key: string): { success: boolean; error?: string } | null {
+export function allowMockBrowserCodeTests(): boolean {
+  if (!app.isPackaged) return true;
+  if (process.env.NODE_ENV && process.env.NODE_ENV !== 'production') return true;
+  return false;
+}
+
+export function mockTestResult(key: string): { success: boolean; error?: string } | null {
+  if (!allowMockBrowserCodeTests()) return null;
   if (key === 'mock:ok') return { success: true };
   if (key === 'mock:invalid') return { success: false, error: 'Invalid API key' };
   if (key === 'mock:credits') return { success: false, error: 'You have run out of credits. Please top up your account.' };

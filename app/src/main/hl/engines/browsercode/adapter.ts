@@ -85,13 +85,16 @@ const browserCodeAdapter: EngineAdapter = {
     return { opened: false, error: 'BrowserCode is configured with API keys in Settings.' };
   },
 
-  buildSpawnArgs(ctx: SpawnContext, wrappedPrompt: string): string[] {
+  buildSpawnArgs(ctx: SpawnContext): string[] {
     const model = ctx.model || DEFAULT_MODEL;
     const args = ['run', '--format', 'json', '--dangerously-skip-permissions', '--model', model];
     if (ctx.resumeSessionId) args.push('--session', ctx.resumeSessionId);
     for (const a of ctx.attachmentRefs) args.push('--file', a.relPath);
-    args.push(wrappedPrompt);
     return args;
+  },
+
+  getStdinPayload(_ctx: SpawnContext, wrappedPrompt: string): string {
+    return wrappedPrompt;
   },
 
   buildEnv(ctx: SpawnContext, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

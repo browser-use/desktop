@@ -1,4 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { mainLogger } from '../../logger';
 
 export interface EngineInstallResult {
@@ -38,19 +41,27 @@ const INSTALLERS: Record<string, InstallSpec> = {
 
 function shellScript(displayName: string, command: string): string {
   return [
-    `echo "Installing ${displayName}..."`,
-    `echo "$ ${command.replace(/"/g, '\\"')}"`,
+    posixPrintLine(`Installing ${displayName}...`),
+    posixPrintLine(`$ ${command}`),
     command,
     'status=$?',
-    'echo ""',
+    posixPrintLine(''),
     'if [ "$status" -eq 0 ]; then',
-    `  echo "${displayName} install finished. Return to Browser Use and refresh the connection."`,
+    `  ${posixPrintLine(`${displayName} install finished. Return to Browser Use and refresh the connection.`)}`,
     'else',
-    `  echo "${displayName} install failed with exit code $status."`,
+    `  printf '%s%s.\\n' ${posixSingleQuote(`${displayName} install failed with exit code `)} "$status"`,
     'fi',
-    'echo ""',
+    posixPrintLine(''),
     'read -r -p "Press Enter to close this terminal..."',
   ].join('\n');
+}
+
+function posixSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function posixPrintLine(value: string): string {
+  return `printf '%s\\n' ${posixSingleQuote(value)}`;
 }
 
 function appleScriptString(value: string): string {
@@ -70,7 +81,7 @@ function openMacTerminal(displayName: string, command: string): EngineInstallRes
 }
 
 function commandExists(bin: string): boolean {
-  const r = spawnSync('sh', ['-lc', `command -v ${bin}`], { stdio: 'ignore' });
+  const r = spawnSync('sh', ['-lc', `command -v -- ${posixSingleQuote(bin)}`], { stdio: 'ignore' });
   return r.status === 0;
 }
 
@@ -89,23 +100,54 @@ function openLinuxTerminal(displayName: string, command: string): EngineInstallR
   return { opened: true, command, displayName };
 }
 
-function quoteCmdArg(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
+function escapeCmdEcho(value: string): string {
+  if (/[\r\n\0]/.test(value)) throw new Error('installer text contains unsupported control characters');
+  return value
+    .replace(/\^/g, '^^')
+    .replace(/%/g, '%%')
+    .replace(/&/g, '^&')
+    .replace(/\|/g, '^|')
+    .replace(/</g, '^<')
+    .replace(/>/g, '^>')
+    .replace(/\(/g, '^(')
+    .replace(/\)/g, '^)');
+}
+
+function quoteCmdToken(value: string): string {
+  if (/[\r\n\0"]/.test(value)) throw new Error('installer command token contains unsupported characters');
+  return `"${value}"`;
+}
+
+function writeWindowsInstallScript(displayName: string, command: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-use-install-'));
+  const scriptPath = path.join(dir, 'install.cmd');
+  const body = [
+    '@echo off',
+    `echo ${escapeCmdEcho(`Installing ${displayName}...`)}`,
+    `echo ${escapeCmdEcho(`$ ${command}`)}`,
+    command,
+    'set "status=%ERRORLEVEL%"',
+    'echo.',
+    'if "%status%"=="0" (',
+    `  echo ${escapeCmdEcho(`${displayName} install finished. Return to Browser Use and refresh the connection.`)}`,
+    ') else (',
+    `  echo ${escapeCmdEcho(`${displayName} install failed with exit code`)} %status%.`,
+    ')',
+    'echo.',
+    'pause',
+  ].join('\r\n');
+  fs.writeFileSync(scriptPath, body, 'utf-8');
+  return scriptPath;
 }
 
 function openWindowsTerminal(displayName: string, command: string): EngineInstallResult {
-  const script = [
-    `echo Installing ${displayName}...`,
-    `echo $ ${command}`,
-    command,
-    'echo.',
-    `echo ${displayName} install finished. Return to Browser Use and refresh the connection.`,
-  ].join(' & ');
-  const child = spawn(process.env.ComSpec || 'cmd.exe', [
+  const scriptPath = writeWindowsInstallScript(displayName, command);
+  const comspec = process.env.ComSpec || 'cmd.exe';
+  const child = spawn(comspec, [
     '/d',
     '/s',
     '/c',
-    `start ${quoteCmdArg(`${displayName} Installer`)} cmd /k ${quoteCmdArg(script)}`,
+    `start ${quoteCmdToken(`${displayName} Installer`)} ${quoteCmdToken(comspec)} /k ${quoteCmdToken(scriptPath)}`,
   ], { detached: true, stdio: 'ignore', windowsHide: false });
   child.unref();
   return { opened: true, command, displayName };

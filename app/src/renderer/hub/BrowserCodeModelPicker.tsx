@@ -23,6 +23,14 @@ interface BrowserCodeModelPickerProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+function effectiveProviderModel(
+  status: BrowserCodeStatus,
+  provider: BrowserCodeProvider | undefined,
+): string | undefined {
+  if (!provider) return undefined;
+  return status.keys[provider.id]?.lastModel ?? provider.defaultModel;
+}
+
 function ChevronIcon(): React.ReactElement {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -111,8 +119,7 @@ export function BrowserCodeModelPicker({
     return status.providers.find((provider) => provider.id === providerId) ?? status.providers[0];
   }, [status.active, status.providers]);
 
-  const activeEntry = status.active ? status.keys[status.active] : undefined;
-  const currentModel = activeEntry?.lastModel ?? currentProvider?.defaultModel;
+  const currentModel = effectiveProviderModel(status, currentProvider);
   const currentModelLabel = modelLabel(status.providers, currentModel);
   const hasAnyKey = Object.keys(status.keys).length > 0;
   const canSwitchModels = hasAnyKey && status.installed?.installed !== false;
@@ -227,7 +234,7 @@ export function BrowserCodeModelPicker({
                       <span className="browsercode-model-picker__item-name">{provider.name}</span>
                     </button>
                     {provider.models.map((model) => {
-                      const isActive = status.active === provider.id && currentModel === model.id;
+                      const isActive = status.active === provider.id && effectiveProviderModel(status, provider) === model.id;
                       return (
                         <button
                           key={model.id}
@@ -277,9 +284,6 @@ export function BrowserCodeProviderSubmenu({ onSelected }: BrowserCodeProviderSu
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
-
-  const activeEntry = status.active ? status.keys[status.active] : undefined;
-  const currentModel = activeEntry?.lastModel;
 
   const selectModel = useCallback(async (providerId: string, model: string) => {
     const api = window.electronAPI?.settings?.browserCode;
@@ -360,7 +364,7 @@ export function BrowserCodeProviderSubmenu({ onSelected }: BrowserCodeProviderSu
         <span className="browsercode-model-picker__item-name">{provider.name}</span>
       </button>
       {provider.models.map((model) => {
-        const isActive = status.active === provider.id && currentModel === model.id;
+        const isActive = status.active === provider.id && effectiveProviderModel(status, provider) === model.id;
         return (
           <button
             key={model.id}
