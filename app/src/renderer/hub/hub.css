@@ -2458,7 +2458,10 @@ button:focus:not(:focus-visible) {
 }
 
 .task-input__textarea {
-  flex: 1;
+  flex: 0 0 auto;
+  width: 100%;
+  height: auto;
+  min-height: 20px;
   resize: none;
   background: none;
   border: none;
@@ -2467,8 +2470,8 @@ button:focus:not(:focus-visible) {
   font-size: var(--font-size-base);
   color: var(--color-fg-primary);
   line-height: var(--line-height-normal);
-  max-height: 120px;
-  overflow-y: auto;
+  max-height: 160px;
+  overflow-y: hidden;
 }
 
 .task-input__textarea::placeholder {
@@ -2808,9 +2811,14 @@ button:focus:not(:focus-visible) {
   z-index: 2;
   width: 100%;
   max-width: 720px;
+  min-height: 72px;
 }
 
 .dashboard__hero .task-input {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
   padding: 0;
 }
 
