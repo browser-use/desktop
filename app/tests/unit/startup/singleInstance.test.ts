@@ -42,6 +42,11 @@ describe('single instance startup helpers', () => {
     expect(compareAppVersions('0.0.29', '0.0.30')).toBe(-1);
     expect(compareAppVersions('0.0.30-beta.1', '0.0.30')).toBe(-1);
     expect(compareAppVersions('0.0.31-beta.1', '0.0.30')).toBe(1);
+    expect(compareAppVersions('0.0.30-beta.10', '0.0.30-beta.2')).toBe(1);
+    expect(compareAppVersions('0.0.30-beta.2', '0.0.30-beta.10')).toBe(-1);
+    expect(compareAppVersions('0.0.30-alpha.1', '0.0.30-alpha.beta')).toBe(-1);
+    expect(compareAppVersions('0.0.30-beta.2', '0.0.30-beta')).toBe(1);
+    expect(compareAppVersions('0.0.30+build.2', '0.0.30+build.1')).toBe(0);
   });
 
   it('only hands off when the second launch is newer', () => {
