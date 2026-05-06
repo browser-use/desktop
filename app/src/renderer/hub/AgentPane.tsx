@@ -878,8 +878,9 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
     if (!api) return;
     if (browserDead) {
       // Dead browser — ensure any lingering view is detached.
+      // Keep frameRect so the "Browser ended" overlay can paint over the
+      // pane__output slot; nulling it leaves the pane black with no label.
       api.sessions.viewDetach(session.id).catch(() => {});
-      setFrameRect(null);
       return;
     }
 
@@ -1027,9 +1028,10 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
 
   const elapsed = formatElapsed(session.createdAt);
   const statusText = STATUS_LABEL[session.status] ?? session.status;
+  const isCancellation = !!session.error && session.error.toLowerCase().includes('cancel');
+  const showErrorUi = !!session.error && !isCancellation;
   const canResume = Boolean(
     onResume &&
-    !session.error &&
     session.canResume === true &&
     (session.status === 'idle' || session.status === 'stopped') &&
     (browserDead || browserMissing || session.status === 'stopped'),
@@ -1166,102 +1168,84 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
         {session.status === 'running' && <div className="pane__progress-bar" />}
       </div>
 
-      {frameRect && (browserDead || browserMissing || session.status === 'draft' || session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck') && !(session.error && entries.length <= 2) && (
-        <div
-          className="pane__browser-frame"
-          style={{
-            left: frameRect.left,
-            top: frameRect.top,
-            width: frameRect.width,
-            height: frameRect.height,
-          }}
-        >
-          <div className="pane__browser-starting">
-            <span className="pane__browser-starting-row">
-              {browserDead ? (
-                <span>Browser ended</span>
-              ) : browserMissing ? (
-                <span>
-                  {session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck'
-                    ? 'Browser stopped'
-                    : 'No browser started yet'}
-                </span>
-              ) : session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? (
-                <span>Browser ended</span>
-              ) : (
-                <>
-                  <span className="pane__spinner" />
-                  <span>Browser starting…</span>
-                </>
+      {frameRect && (showErrorUi || browserDead || browserMissing || session.status === 'draft' || session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck') && (() => {
+        const isStarting = !showErrorUi && !browserDead && !browserMissing && session.status === 'draft';
+        const browserLine = browserDead
+          ? 'Browser ended'
+          : browserMissing
+            ? (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser stopped' : 'No browser started yet')
+            : (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser ended' : null);
+        const primaryLine = showErrorUi
+          ? friendlyError(session.error!)
+          : isCancellation
+            ? 'Task was cancelled.'
+            : browserLine;
+        const subLine = (showErrorUi || isCancellation) ? browserLine : null;
+        const showActions = !isStarting && (onRerun || canResume || (showErrorUi && isApiKeyError(session.error) && onOpenSettings));
+        return (
+          <div
+            className="pane__browser-frame"
+            style={{
+              left: frameRect.left,
+              top: frameRect.top,
+              width: frameRect.width,
+              height: frameRect.height,
+            }}
+          >
+            <div className="pane__browser-starting">
+              {showErrorUi && (
+                <div className="pane__error-icon">
+                  <ErrorIcon />
+                </div>
               )}
-            </span>
-            {!session.error && session.status === 'stopped' && (onRerun || canResume) && (
-              <div className="pane__browser-actions">
-                {canResume && (
-                  <button
-                    className="pane__rerun-btn pane__rerun-btn--primary"
-                    onClick={() => onResume?.(session.id)}
-                  >
-                    <ResumeIcon />
-                    <span>Resume</span>
-                  </button>
+              <span className="pane__browser-starting-row">
+                {isStarting ? (
+                  <>
+                    <span className="pane__spinner" />
+                    <span>Browser starting…</span>
+                  </>
+                ) : (
+                  <span>{primaryLine}</span>
                 )}
-                {onRerun && (
-                  <button
-                    className="pane__rerun-btn"
-                    onClick={() => onRerun(session.id)}
-                  >
-                    <RerunIcon />
-                    <span>Rerun task</span>
-                  </button>
-                )}
-              </div>
-            )}
+              </span>
+              {subLine && primaryLine !== subLine && (
+                <span className="pane__browser-subline">{subLine}</span>
+              )}
+              {showActions && (
+                <div className="pane__browser-actions">
+                  {canResume && (
+                    <button
+                      className="pane__rerun-btn pane__rerun-btn--primary"
+                      onClick={() => onResume?.(session.id)}
+                    >
+                      <ResumeIcon />
+                      <span>Resume</span>
+                    </button>
+                  )}
+                  {showErrorUi && isApiKeyError(session.error) && onOpenSettings && (
+                    <button className="pane__rerun-btn" onClick={onOpenSettings}>
+                      <span>Open Settings</span>
+                    </button>
+                  )}
+                  {onRerun && (
+                    <button
+                      className="pane__rerun-btn"
+                      onClick={() => onRerun(session.id)}
+                    >
+                      <RerunIcon />
+                      <span>Rerun task</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       <div
         className="pane__output"
         ref={scrollRef}
-      >
-        {session.error && entries.length <= 2 && (
-          <div className="pane__error-center">
-            <div className="pane__error-icon">
-              <ErrorIcon />
-            </div>
-            <p className="pane__error-msg">{friendlyError(session.error)}</p>
-            <div className="pane__error-actions">
-              {isApiKeyError(session.error) && onOpenSettings && (
-                <button className="pane__rerun-btn" onClick={onOpenSettings}>
-                  <span>Open Settings</span>
-                </button>
-              )}
-              {onRerun && (
-                <button className="pane__rerun-btn" onClick={() => onRerun(session.id)}>
-                  <RerunIcon />
-                  <span>Rerun task</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        {session.error && entries.length > 2 && (
-          <div className="pane__rerun">
-            <span className="pane__rerun-error">{friendlyError(session.error)}</span>
-            {isApiKeyError(session.error) && onOpenSettings && (
-              <button className="pane__rerun-btn" onClick={onOpenSettings}>
-                <span>Open Settings</span>
-              </button>
-            )}
-            {onRerun && (
-              <button className="pane__rerun-btn" onClick={() => onRerun(session.id)}>
-                <RerunIcon />
-                <span>Rerun task</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      />
 
     </div>
   );
