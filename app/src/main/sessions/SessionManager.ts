@@ -76,6 +76,7 @@ export class SessionManager extends EventEmitter {
         originConversationId: row.origin_conversation_id ?? undefined,
         primarySite: row.primary_site ?? null,
         lastUrl: row.last_url ?? null,
+        canResume: Boolean(row.engine_session_id),
         lastActivityAt: row.updated_at,
       };
       if (row.engine) {
@@ -452,6 +453,7 @@ export class SessionManager extends EventEmitter {
     // Rerun starts a fresh conversation — clear any provider resume id so the
     // next spawn doesn't attempt resume against a now-invalid thread.
     this.engineSessionIds.delete(id);
+    session.canResume = false;
     this.db.updateEngineSessionId(id, null);
 
     const abortController = new AbortController();
@@ -536,6 +538,8 @@ export class SessionManager extends EventEmitter {
   /** Store the provider conversation id reported by the engine stream. */
   setEngineSessionId(id: string, engineSessionId: string): void {
     this.engineSessionIds.set(id, engineSessionId);
+    const session = this.sessions.get(id);
+    if (session) session.canResume = true;
     this.db.updateEngineSessionId(id, engineSessionId);
     mainLogger.info('SessionManager.setEngineSessionId', { id, engineSessionId });
   }

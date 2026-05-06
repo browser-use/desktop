@@ -460,7 +460,23 @@ export function HubApp(): React.ReactElement {
         console.error('[HubApp] followUp failed', err);
       }
     }
-  }, [isMock]);
+  }, [isMock, updateSession]);
+
+  const handleResume = useCallback(async (sessionId: string) => {
+    if (isMock) return;
+    const api = window.electronAPI;
+    if (!api) return;
+    try {
+      console.log('[HubApp] resume', { sessionId });
+      const result = await api.sessions.resume(sessionId, 'Continue from where you left off.');
+      if (result?.error) {
+        console.warn('[HubApp] resume error', { sessionId, error: result.error });
+        updateSession(sessionId, { status: 'stopped' as const, error: result.error });
+      }
+    } catch (err) {
+      console.error('[HubApp] resume failed', err);
+    }
+  }, [isMock, updateSession]);
 
   const handleSelectSession = useCallback((id: string) => {
     const idx = sessions.findIndex((s) => s.id === id);
@@ -612,6 +628,7 @@ export function HubApp(): React.ReactElement {
                       onRerun={(id) => {
                         window.electronAPI?.sessions.rerun(id).catch((err) => console.error('[HubApp] rerun failed', err));
                       }}
+                      onResume={handleResume}
                       onFollowUp={handleFollowUp}
                       onDismiss={(id) => {
                         // Real dismiss: flips session status to 'stopped' AND tears down the

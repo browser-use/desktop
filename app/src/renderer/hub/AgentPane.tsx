@@ -564,6 +564,14 @@ function RerunIcon(): React.ReactElement {
   );
 }
 
+function ResumeIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+      <path d="M5 3.5v7L10.5 7 5 3.5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 interface FollowUpAttachment { idx: number; name: string; mime: string; bytes: Uint8Array }
 
 async function fileToAttachment(file: File, idx: number): Promise<FollowUpAttachment> {
@@ -737,6 +745,7 @@ interface AgentPaneProps {
   session: AgentSession;
   focused?: boolean;
   onRerun?: (sessionId: string) => void;
+  onResume?: (sessionId: string) => void;
   onFollowUp?: (sessionId: string, prompt: string, attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>) => void;
   onDismiss?: (sessionId: string) => void;
   onCancel?: (sessionId: string) => void;
@@ -747,7 +756,7 @@ interface AgentPaneProps {
   cycleShortcut?: string;
 }
 
-export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
   useHydrateSession(session.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -1018,6 +1027,13 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
 
   const elapsed = formatElapsed(session.createdAt);
   const statusText = STATUS_LABEL[session.status] ?? session.status;
+  const canResume = Boolean(
+    onResume &&
+    !session.error &&
+    session.canResume === true &&
+    (session.status === 'idle' || session.status === 'stopped') &&
+    (browserDead || browserMissing || session.status === 'stopped'),
+  );
 
   return (
     <div
@@ -1102,6 +1118,16 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
               <RerunIcon />
             </button>
           )}
+          {canResume && (
+            <button
+              className="pane__action-btn pane__action-btn--icon pane__action-btn--primary"
+              onClick={(e) => { e.stopPropagation(); onResume?.(session.id); }}
+              aria-label="Resume"
+              data-tip="Resume"
+            >
+              <ResumeIcon />
+            </button>
+          )}
           {(session.status === 'running' || session.status === 'stuck') && onCancel && (
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
@@ -1169,14 +1195,27 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
                 </>
               )}
             </span>
-            {!session.error && session.status === 'stopped' && onRerun && (
-              <button
-                className="pane__rerun-btn"
-                onClick={() => onRerun(session.id)}
-              >
-                <RerunIcon />
-                <span>Rerun task</span>
-              </button>
+            {!session.error && session.status === 'stopped' && (onRerun || canResume) && (
+              <div className="pane__browser-actions">
+                {canResume && (
+                  <button
+                    className="pane__rerun-btn pane__rerun-btn--primary"
+                    onClick={() => onResume?.(session.id)}
+                  >
+                    <ResumeIcon />
+                    <span>Resume</span>
+                  </button>
+                )}
+                {onRerun && (
+                  <button
+                    className="pane__rerun-btn"
+                    onClick={() => onRerun(session.id)}
+                  >
+                    <RerunIcon />
+                    <span>Rerun task</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

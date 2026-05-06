@@ -1025,6 +1025,12 @@
   gap: var(--space-3);
 }
 
+.pane__browser-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .pane__output-starting {
   display: flex;
   align-items: center;
@@ -2256,6 +2262,16 @@ button:focus:not(:focus-visible) {
 .pane__rerun-btn:hover {
   background-color: var(--color-surface-interactive-hover);
   border-color: var(--color-border-strong);
+}
+
+.pane__rerun-btn--primary {
+  border-color: var(--color-accent-default);
+  background-color: var(--color-accent-muted);
+}
+
+.pane__rerun-btn--primary:hover {
+  border-color: var(--color-accent-default);
+  background-color: var(--color-accent-muted);
 }
 
 .pane__error-actions {

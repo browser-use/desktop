@@ -129,9 +129,11 @@ describe('AgentSessionSchema', () => {
       ...validSession,
       primarySite: 'example.com',
       lastUrl: 'https://example.com/docs?tab=api',
+      canResume: true,
     });
     expect(session.primarySite).toBe('example.com');
     expect(session.lastUrl).toBe('https://example.com/docs?tab=api');
+    expect(session.canResume).toBe(true);
   });
 
   it('rejects session with invalid status', () => {

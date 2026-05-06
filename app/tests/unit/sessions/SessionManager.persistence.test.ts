@@ -192,6 +192,7 @@ describe('SessionManager persistence', () => {
 
     expect(session?.primarySite).toBe('example.com');
     expect(session?.lastUrl).toBe('https://example.com/docs?tab=api');
+    expect(session?.canResume).toBe(true);
     expect(second.getSessionEngine(id)).toBe('codex');
     expect(second.getEngineSessionId(id)).toBe('thread-123');
 
