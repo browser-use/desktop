@@ -62,6 +62,7 @@ const POSIX_EXTRA_DIRS_FNS: Array<(home: string, platform: Platform, pathMod: ty
   (home, _platform, pathMod) => pathMod.join(home, '.volta', 'bin'),
   (home, _platform, pathMod) => pathMod.join(home, '.nvm', 'versions', 'node'),
   (home, _platform, pathMod) => pathMod.join(home, '.bun', 'bin'),
+  (home, _platform, pathMod) => pathMod.join(home, '.bcode', 'bin'),
   (home, _platform, pathMod) => pathMod.join(home, '.deno', 'bin'),
   (home, _platform, pathMod) => pathMod.join(home, '.cargo', 'bin'),
   (home, _platform, pathMod) => pathMod.join(home, '.local', 'bin'),
@@ -75,6 +76,7 @@ const WINDOWS_EXTRA_DIRS_FNS: Array<(home: string, env: NodeJS.ProcessEnv, pathM
   (_home, env, pathMod) => env.LOCALAPPDATA ? pathMod.join(env.LOCALAPPDATA, 'Programs', 'Windsurf', 'resources', 'app', 'bin') : null,
   (home, _env, pathMod) => pathMod.join(home, 'AppData', 'Roaming', 'npm'),
   (home, _env, pathMod) => pathMod.join(home, '.bun', 'bin'),
+  (home, _env, pathMod) => pathMod.join(home, '.bcode', 'bin'),
   (home, _env, pathMod) => pathMod.join(home, '.deno', 'bin'),
   (home, _env, pathMod) => pathMod.join(home, '.cargo', 'bin'),
 ];

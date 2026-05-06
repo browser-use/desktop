@@ -14,6 +14,7 @@ describe('pathEnrich', () => {
     const parts = result.split(';');
     expect(parts.slice(0, 2)).toEqual(['C:\\Windows\\System32', 'C:\\Tools']);
     expect(parts).toContain('C:\\Users\\Ada\\AppData\\Roaming\\npm');
+    expect(parts).toContain('C:\\Users\\Ada\\.bcode\\bin');
     expect(parts).toContain('C:\\Users\\Ada\\.cargo\\bin');
   });
 

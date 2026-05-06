@@ -92,6 +92,7 @@ import type { AgentEvent } from '../shared/types';
 import { AccountStore } from './identity/AccountStore';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers } from './identity/onboardingHandlers';
+import { loadBrowserCodeConfig } from './identity/authStore';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
 import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
@@ -465,6 +466,39 @@ app.whenReady().then(async () => {
     }
   });
 
+  async function stampConfiguredSessionModel(id: string, engineId: string, source: string): Promise<void> {
+    if (engineId !== 'browsercode') return;
+    try {
+      const cfg = await loadBrowserCodeConfig();
+      const model = cfg?.model?.trim();
+      if (!model) {
+        mainLogger.warn('main.sessionModel.missing', {
+          id,
+          engineId,
+          source,
+          providerId: cfg?.providerId ?? null,
+          hasBrowserCodeConfig: Boolean(cfg),
+        });
+        return;
+      }
+      sessionManager.setSessionModel(id, model);
+      mainLogger.info('main.sessionModel.stamped', {
+        id,
+        engineId,
+        source,
+        providerId: cfg?.providerId ?? null,
+        model,
+      });
+    } catch (err) {
+      mainLogger.warn('main.sessionModel.stampFailed', {
+        id,
+        engineId,
+        source,
+        error: (err as Error).message,
+      });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Pill IPC handlers
   // ---------------------------------------------------------------------------
@@ -742,6 +776,16 @@ app.whenReady().then(async () => {
     if (!adapter) throw new Error(`unknown engine: ${engineId}`);
 
     const [installed, authed] = await Promise.all([adapter.probeInstalled(), adapter.probeAuthed()]);
+    mainLogger.info('main.session.engine.preflight', {
+      id,
+      engineId,
+      displayName: adapter.displayName,
+      installed: installed.installed,
+      installedVersion: installed.version ?? null,
+      installedError: installed.error ?? null,
+      authed: authed.authed,
+      authError: authed.error ?? null,
+    });
     if (!installed.installed) {
       throw new Error(`${adapter.displayName} is not installed. Install ${adapter.displayName} and try again.`);
     }
@@ -766,6 +810,7 @@ app.whenReady().then(async () => {
     try {
       const engineId = await assertSessionEngineReady(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'enginePreflight', ms: Date.now() - t0, engineId });
+      await stampConfiguredSessionModel(id, engineId, 'start');
 
       const abortController = sessionManager.startSession(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'startSession', ms: Date.now() - t0 });
@@ -807,6 +852,7 @@ app.whenReady().then(async () => {
         cdpPort: resolvedCdp.port,
         signal: abortController.signal,
         onSessionId: (sid) => sessionManager.setClaudeSessionId(id, sid),
+        onModelResolved: ({ model }) => sessionManager.setSessionModel(id, model),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
         onEvent: (event) => {
           if (event.type === 'done') {
@@ -913,19 +959,21 @@ app.whenReady().then(async () => {
       return { error: 'Browser session expired — start a new session' };
     }
 
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, 'resume');
     const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
     if (resumeAttachments.length > 0) {
       mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length });
     }
     captureEvent('session_resumed', {
-      engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
+      engine: engineId,
       prompt_length: validatedPrompt.length,
       attachments_count: resumeAttachments.length,
     });
 
     steerQueues.set(validatedId, []);
     runEngine({
-      engineId: sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID,
+      engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: validatedPrompt,
@@ -935,6 +983,7 @@ app.whenReady().then(async () => {
       signal: abortController.signal,
       resumeSessionId: sessionManager.getClaudeSessionId(validatedId),
       onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
         if (event.type === 'done') {
@@ -969,9 +1018,11 @@ app.whenReady().then(async () => {
 
     browserPool.destroy(validatedId, shellWindow ?? undefined);
 
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, 'rerun');
     const abortController = sessionManager.rerunSession(validatedId);
     captureEvent('session_rerun', {
-      engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
+      engine: engineId,
     });
 
     const view = browserPool.create(validatedId, t0);
@@ -998,7 +1049,7 @@ app.whenReady().then(async () => {
     }
     steerQueues.set(validatedId, []);
     runEngine({
-      engineId: sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID,
+      engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: session.prompt,
@@ -1009,6 +1060,7 @@ app.whenReady().then(async () => {
       // Rerun intentionally starts a fresh conversation; SessionManager.rerunSession
       // already cleared any stored resume id.
       onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
         if (event.type === 'done') {
@@ -1112,19 +1164,53 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('sessions:engine-status', async (_event, engineId: string) => {
     const validated = assertString(engineId, 'engineId', 50);
+    mainLogger.info('sessions.engine-status.request', { engineId: validated });
     const { getAdapter } = await import('./hl/engines');
     const adapter = getAdapter(validated);
     if (!adapter) throw new Error(`unknown engine: ${validated}`);
     const [installed, authed] = await Promise.all([adapter.probeInstalled(), adapter.probeAuthed()]);
+    mainLogger.info('sessions.engine-status.result', {
+      engineId: adapter.id,
+      installed: installed.installed,
+      installedError: installed.error,
+      authed: authed.authed,
+      authError: authed.error,
+    });
     return { id: adapter.id, displayName: adapter.displayName, installed, authed };
   });
 
   ipcMain.handle('sessions:engine-login', async (_event, engineId: string, opts?: { deviceAuth?: boolean }) => {
     const validated = assertString(engineId, 'engineId', 50);
+    mainLogger.info('sessions.engine-login.request', { engineId: validated, deviceAuth: !!opts?.deviceAuth });
     const { getAdapter } = await import('./hl/engines');
     const adapter = getAdapter(validated);
     if (!adapter) throw new Error(`unknown engine: ${validated}`);
-    return adapter.openLoginInTerminal(opts);
+    const result = await adapter.openLoginInTerminal(opts);
+    mainLogger.info('sessions.engine-login.result', {
+      engineId: adapter.id,
+      opened: result.opened,
+      hasError: !!result.error,
+      hasVerificationUrl: !!result.verificationUrl,
+      hasDeviceCode: !!result.deviceCode,
+    });
+    return result;
+  });
+
+  ipcMain.handle('sessions:engine-install', async (_event, engineId: string) => {
+    const validated = assertString(engineId, 'engineId', 50);
+    mainLogger.info('sessions.engine-install.request', { engineId: validated });
+    const { getAdapter } = await import('./hl/engines');
+    const adapter = getAdapter(validated);
+    if (!adapter) throw new Error(`unknown engine: ${validated}`);
+    const { openEngineInstallTerminal } = await import('./hl/engines/installer');
+    const result = openEngineInstallTerminal(adapter.id);
+    mainLogger.info('sessions.engine-install.result', {
+      engineId: adapter.id,
+      opened: result.opened,
+      hasError: !!result.error,
+      command: result.command,
+    });
+    return result;
   });
 
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {
@@ -1261,7 +1347,7 @@ app.whenReady().then(async () => {
     if (!shellWindow) return;
     const view = browserPool.getView(id);
     if (!view) return;
-    view.setBounds(bounds);
+    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
     // (Intentionally no setZoomFactor here — previously we recomputed zoom
     // on every resize to fit the emulated viewport, but that clobbered any
     // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser
@@ -1271,8 +1357,10 @@ app.whenReady().then(async () => {
       shellWindow.contentView.addChildView(view);
     }
     // Keep takeover overlay tracking the browser rect and sitting above it.
+    // Use the fitted (centered) rect so the overlay aligns with the visible
+    // view, not the wider hub box.
     if (takeoverOverlay.hasOverlay(id)) {
-      takeoverOverlay.updateBounds(id, bounds);
+      takeoverOverlay.updateBounds(id, fitted);
       takeoverOverlay.reraise(id, shellWindow);
     }
   });
@@ -1356,9 +1444,21 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   // Settings window IPC
   // ---------------------------------------------------------------------------
-  ipcMain.handle('settings:open', () => {
-    mainLogger.info('main.settings:open');
-    openSettingsWindow();
+  ipcMain.handle('settings:open', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+    mainLogger.info('main.settings:open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
+    if (shellWindow && !shellWindow.isDestroyed()) {
+      shellWindow.show();
+      shellWindow.focus();
+      shellWindow.webContents.send('open-settings');
+      if (payload?.focusBrowserCodeProvider) {
+        const providerId = payload.focusBrowserCodeProvider;
+        setTimeout(() => {
+          if (shellWindow && !shellWindow.isDestroyed()) {
+            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
+          }
+        }, 150);
+      }
+    }
   });
 
   ipcMain.handle('settings:app:get-info', () => {
@@ -1403,12 +1503,20 @@ app.whenReady().then(async () => {
     hidePill();
   });
 
-  ipcMain.handle('pill:open-settings', () => {
-    mainLogger.info('main.pill:open-settings');
+  ipcMain.handle('pill:open-settings', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+    mainLogger.info('main.pill:open-settings', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
     if (shellWindow && !shellWindow.isDestroyed()) {
       shellWindow.show();
       shellWindow.focus();
       shellWindow.webContents.send('open-settings');
+      if (payload?.focusBrowserCodeProvider) {
+        const providerId = payload.focusBrowserCodeProvider;
+        setTimeout(() => {
+          if (shellWindow && !shellWindow.isDestroyed()) {
+            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
+          }
+        }, 150);
+      }
     }
     hidePill();
   });

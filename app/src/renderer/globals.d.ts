@@ -54,6 +54,7 @@ interface ElectronSessionAPI {
     authed: { authed: boolean; error?: string };
   }>;
   engineLogin: (engineId: string) => Promise<{ opened: boolean; error?: string }>;
+  engineInstall: (engineId: string) => Promise<{ opened: boolean; error?: string; command?: string; displayName?: string }>;
   resume: (
     id: string,
     prompt: string,
@@ -226,6 +227,24 @@ interface ElectronSettingsCodexAPI {
   logout: () => Promise<{ opened: boolean; error?: string }>;
 }
 
+interface ElectronSettingsBrowserCodeAPI {
+  getStatus: () => Promise<{
+    keys: Record<string, { masked: string; lastModel?: string }>;
+    active: string | null;
+    installed?: { installed: boolean; version?: string; error?: string };
+    providers: Array<{
+      id: string;
+      name: string;
+      defaultModel: string;
+      models: Array<{ id: string; label: string }>;
+    }>;
+  }>;
+  save: (payload: { providerId: string; apiKey: string; lastModel?: string }) => Promise<void>;
+  test: (payload: { providerId: string; apiKey: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
+  delete: (payload?: { providerId?: string }) => Promise<void>;
+  setActive: (payload: { providerId: string }) => Promise<void>;
+}
+
 interface ElectronSettingsAppAPI {
   getUpdateStatus: () => Promise<{
     status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
@@ -274,10 +293,13 @@ interface ElectronSettingsAppAPI {
 }
 
 interface ElectronSettingsAPI {
+  open?: (payload?: { focusBrowserCodeProvider?: string }) => Promise<void>;
+  onFocusBrowserCodeProvider?: (handler: (providerId: string) => void) => () => void;
   apiKey: ElectronSettingsApiKeyAPI;
   claudeCode?: ElectronSettingsClaudeCodeAPI;
   openaiKey?: ElectronSettingsOpenAiKeyAPI;
   codex?: ElectronSettingsCodexAPI;
+  browserCode?: ElectronSettingsBrowserCodeAPI;
   app?: ElectronSettingsAppAPI;
 }
 

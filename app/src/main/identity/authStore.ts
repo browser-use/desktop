@@ -62,10 +62,37 @@ interface Credentials {
   authMode: AuthMode | null;
   anthropicApiKey: string | null;
   openaiApiKey: string | null;
+  browserCode: BrowserCodeStore | null;
 }
 
 function emptyCredentials(): Credentials {
-  return { authMode: null, anthropicApiKey: null, openaiApiKey: null };
+  return { authMode: null, anthropicApiKey: null, openaiApiKey: null, browserCode: null };
+}
+
+export interface BrowserCodeKeyEntry {
+  apiKey: string;
+  lastModel?: string;
+}
+
+export interface BrowserCodeStore {
+  keys: Record<string, BrowserCodeKeyEntry>;
+  active: string | null;
+}
+
+export interface BrowserCodeConfig {
+  providerId: string;
+  model: string;
+  apiKey: string;
+}
+
+const BROWSER_CODE_DEFAULT_MODELS: Record<string, string> = {
+  moonshotai: 'moonshotai/kimi-k2.6',
+  alibaba: 'alibaba/qwen3-coder-plus',
+  minimax: 'minimax/MiniMax-M2.7',
+};
+
+function defaultBrowserCodeModel(providerId: string): string {
+  return BROWSER_CODE_DEFAULT_MODELS[providerId] ?? 'moonshotai/kimi-k2.6';
 }
 
 // In-memory cache. Populated on first read; mutated by save/clear functions
@@ -95,6 +122,7 @@ async function getAll(): Promise<Credentials> {
             authMode: parsed.authMode === 'apiKey' || parsed.authMode === 'claudeCode' ? parsed.authMode : null,
             anthropicApiKey: parsed.anthropicApiKey ?? null,
             openaiApiKey: parsed.openaiApiKey ?? null,
+            browserCode: normalizeBrowserCodeStore((parsed as Partial<Credentials>).browserCode),
           };
           return cached;
         } catch (err) {
@@ -114,6 +142,7 @@ async function getAll(): Promise<Credentials> {
         authMode: authModeRaw === 'apiKey' || authModeRaw === 'claudeCode' ? authModeRaw : null,
         anthropicApiKey: apiKeyRaw ?? null,
         openaiApiKey: openaiRaw ?? null,
+        browserCode: null,
       };
       const hasLegacyData =
         cached.authMode !== null ||
@@ -195,6 +224,106 @@ export async function loadOpenAIKey(): Promise<string | null> {
   return (await getAll()).openaiApiKey;
 }
 
+function normalizeBrowserCodeStore(value: unknown): BrowserCodeStore | null {
+  if (!value || typeof value !== 'object') return null;
+  // Legacy single-config blob: {providerId, model, apiKey} — promote to map.
+  const legacy = value as Partial<BrowserCodeConfig>;
+  if (
+    typeof legacy.providerId === 'string' &&
+    typeof legacy.model === 'string' &&
+    typeof legacy.apiKey === 'string'
+  ) {
+    const providerId = legacy.providerId.trim();
+    const model = legacy.model.trim();
+    const apiKey = legacy.apiKey.trim();
+    if (providerId && apiKey) {
+      return { keys: { [providerId]: { apiKey, lastModel: model || undefined } }, active: providerId };
+    }
+  }
+  const candidate = value as Partial<BrowserCodeStore>;
+  if (!candidate.keys || typeof candidate.keys !== 'object') return null;
+  const keys: Record<string, BrowserCodeKeyEntry> = {};
+  for (const [providerId, entry] of Object.entries(candidate.keys)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Partial<BrowserCodeKeyEntry>;
+    if (typeof e.apiKey !== 'string') continue;
+    const normalizedProviderId = providerId.trim();
+    const apiKey = e.apiKey.trim();
+    if (!normalizedProviderId || !apiKey) continue;
+    keys[normalizedProviderId] = {
+      apiKey,
+      lastModel: typeof e.lastModel === 'string' && e.lastModel.trim() ? e.lastModel.trim() : undefined,
+    };
+  }
+  if (Object.keys(keys).length === 0) return null;
+  const normalizedActive = typeof candidate.active === 'string' ? candidate.active.trim() : null;
+  let active: string | null = normalizedActive && keys[normalizedActive] ? normalizedActive : null;
+  if (!active) active = Object.keys(keys)[0] ?? null;
+  return { keys, active };
+}
+
+export async function saveBrowserCodeKey(providerId: string, apiKey: string, lastModel?: string): Promise<void> {
+  const trimmedProvider = providerId.trim();
+  const trimmedKey = apiKey.trim();
+  if (!trimmedProvider || !trimmedKey) throw new Error('providerId and apiKey are required');
+  const c = await getAll();
+  const store: BrowserCodeStore = c.browserCode ?? { keys: {}, active: null };
+  store.keys[trimmedProvider] = {
+    apiKey: trimmedKey,
+    lastModel: lastModel?.trim() || store.keys[trimmedProvider]?.lastModel,
+  };
+  store.active = trimmedProvider;
+  c.browserCode = store;
+  await persistCache();
+  mainLogger.info('authStore.browserCode.saveKey', {
+    providerId: trimmedProvider,
+    hasModel: !!store.keys[trimmedProvider].lastModel,
+  });
+}
+
+export async function deleteBrowserCodeKey(providerId: string): Promise<void> {
+  const c = await getAll();
+  if (!c.browserCode) return;
+  delete c.browserCode.keys[providerId];
+  if (c.browserCode.active === providerId) {
+    c.browserCode.active = Object.keys(c.browserCode.keys)[0] ?? null;
+  }
+  if (Object.keys(c.browserCode.keys).length === 0) c.browserCode = null;
+  await persistCache();
+  mainLogger.info('authStore.browserCode.deleteKey', { providerId });
+}
+
+export async function setActiveBrowserCodeProvider(providerId: string): Promise<void> {
+  const c = await getAll();
+  if (!c.browserCode || !c.browserCode.keys[providerId]) return;
+  c.browserCode.active = providerId;
+  await persistCache();
+  mainLogger.info('authStore.browserCode.setActive', { providerId });
+}
+
+export async function loadBrowserCodeStore(): Promise<BrowserCodeStore | null> {
+  return (await getAll()).browserCode;
+}
+
+export async function loadBrowserCodeConfig(): Promise<BrowserCodeConfig | null> {
+  const store = (await getAll()).browserCode;
+  if (!store || !store.active) return null;
+  const entry = store.keys[store.active];
+  if (!entry) return null;
+  return {
+    providerId: store.active,
+    model: entry.lastModel ?? defaultBrowserCodeModel(store.active),
+    apiKey: entry.apiKey,
+  };
+}
+
+export async function deleteBrowserCodeConfig(): Promise<void> {
+  const c = await getAll();
+  c.browserCode = null;
+  await persistCache();
+  mainLogger.info('authStore.browserCode.deleteAll');
+}
+
 export async function deleteOpenAIKey(): Promise<void> {
   const c = await getAll();
   c.openaiApiKey = null;
@@ -256,6 +385,10 @@ export interface CredentialStatus {
     | { type: 'apiKey'; masked: string }
     | { type: 'none' };
   openai: { present: boolean; masked?: string };
+  browserCode: {
+    keys: Record<string, { masked: string; lastModel?: string }>;
+    active: string | null;
+  };
 }
 
 function maskKey(key: string): string {
@@ -292,7 +425,15 @@ export async function getCredentialStatus(): Promise<CredentialStatus> {
   const openai: CredentialStatus['openai'] = c.openaiApiKey
     ? { present: true, masked: maskKey(c.openaiApiKey) }
     : { present: false };
-  return { anthropic, openai };
+  const browserCode: CredentialStatus['browserCode'] = (() => {
+    if (!c.browserCode) return { keys: {}, active: null };
+    const keys: Record<string, { masked: string; lastModel?: string }> = {};
+    for (const [providerId, entry] of Object.entries(c.browserCode.keys)) {
+      keys[providerId] = { masked: maskKey(entry.apiKey), lastModel: entry.lastModel };
+    }
+    return { keys, active: c.browserCode.active };
+  })();
+  return { anthropic, openai, browserCode };
 }
 
 /**
