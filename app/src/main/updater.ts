@@ -217,7 +217,7 @@ function configureGenericAutoUpdater(autoUpdater: AppUpdater): UpdateCheck {
     url: UPDATE_FEED_URL,
   });
 
-  // Route electron-updater diagnostics into our persistent main.log. Console
+  // Route electron-updater diagnostics into our persistent app.log. Console
   // output is often invisible for packaged apps launched from Finder.
   autoUpdater.logger = {
     info: (message: unknown) => logInfo('electronUpdater.info', { message: String(message) }),

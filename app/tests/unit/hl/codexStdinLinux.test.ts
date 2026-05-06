@@ -17,11 +17,11 @@ const MULTILINE_PROMPT = [
 
 describe.skipIf(!onLinux)('codex stdin path on Linux', () => {
   it('leaves POSIX CLI execution shell-free', () => {
-    const resolved = resolveCliSpawn('codex', ['exec', '--json', '--yolo', '-'], { platform: 'linux' });
+    const resolved = resolveCliSpawn('codex', ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'], { platform: 'linux' });
 
     expect(resolved).toEqual({
       command: 'codex',
-      args: ['exec', '--json', '--yolo', '-'],
+      args: ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'],
       viaCmdShell: false,
       spawnOptions: {},
     });
@@ -48,7 +48,7 @@ describe.skipIf(!onLinux)('codex stdin path on Linux', () => {
     let stdoutBuf = '';
     let stderrBuf = '';
     const exitCode = await new Promise<number | null>((resolveSpawn, rejectSpawn) => {
-      const child = spawnCli('codex', ['exec', '--json', '--yolo', '-'], {
+      const child = spawnCli('codex', ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'], {
         env,
         cwd: tmp,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -66,7 +66,7 @@ describe.skipIf(!onLinux)('codex stdin path on Linux', () => {
     expect(fs.existsSync(stdinOut), `stdin file not created${diag}`).toBe(true);
 
     const argv = fs.readFileSync(argvOut, 'utf-8').trim().split(/\r?\n/);
-    expect(argv).toEqual(['exec', '--json', '--yolo', '-']);
+    expect(argv).toEqual(['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-']);
 
     const stdinSeen = fs.readFileSync(stdinOut, 'utf-8').replace(/\r\n/g, '\n');
     expect(stdinSeen).toBe(MULTILINE_PROMPT);

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { OnboardingCookieList } from './OnboardingCookieList';
 import introImage from './intro.png';
-import chromeLogo from './chrome-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import codexLogo from './codex-logo.svg';
+import { BrowserLogoAvatar } from '../shared/BrowserLogoAvatar';
 import {
   acceleratorToDisplayParts,
   defaultGlobalCmdbarAccelerator,
@@ -13,13 +13,19 @@ import {
 } from '../../shared/hotkeys';
 
 interface ChromeProfile {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -33,7 +39,7 @@ declare global {
   interface Window {
     onboardingAPI: {
       detectChromeProfiles: () => Promise<ChromeProfile[]>;
-      importChromeProfileCookies: (profileDir: string) => Promise<CookieImportResult>;
+      importChromeProfileCookies: (profileId: string) => Promise<CookieImportResult>;
       listSessionCookies: () => Promise<Array<{
         name: string;
         domain: string;
@@ -512,15 +518,15 @@ export function OnboardingApp() {
     });
   }, []);
 
-  const handleImportProfile = useCallback(async (profileDir: string) => {
-    setImporting(profileDir);
+  const handleImportProfile = useCallback(async (profileId: string) => {
+    setImporting(profileId);
     setImportError(null);
     setImportResult(null);
     setImportedProfile(null);
     try {
-      const result = await window.onboardingAPI.importChromeProfileCookies(profileDir);
+      const result = await window.onboardingAPI.importChromeProfileCookies(profileId);
       setImportResult(result);
-      setImportedProfile(profiles.find((p) => p.directory === profileDir) ?? null);
+      setImportedProfile(profiles.find((p) => p.id === profileId || p.directory === profileId) ?? null);
     } catch (err) {
       setImportError((err as Error).message);
     } finally {
@@ -783,20 +789,19 @@ export function OnboardingApp() {
         {step === 'profile' && (
           <div className="step-panel">
             <div className="step-title-row">
-              <img className="step-title-icon" src={chromeLogo} alt="" />
-              <h1 className="step-title">Import Chrome Profile</h1>
+              <h1 className="step-title">Import Browser Profile</h1>
             </div>
             <p className="step-subtitle">
               Import your cookies so agents can browse as you, or start fresh.
             </p>
 
             {loadingProfiles && (
-              <div className="profile-loading">Detecting Chrome profiles...</div>
+              <div className="profile-loading">Detecting browser profiles...</div>
             )}
 
             {!loadingProfiles && profiles.length === 0 && (
               <div className="profile-empty">
-                <p>No Chrome profiles found.</p>
+                <p>No Chromium browser profiles found.</p>
                 <button className="btn btn-primary" onClick={handleSkipProfile}>
                   Continue without import
                 </button>
@@ -805,26 +810,34 @@ export function OnboardingApp() {
 
             {!loadingProfiles && profiles.length > 0 && (
               <div className="profile-list">
-                {(importResult ? [] : profiles).map((p) => (
+                {(importResult ? [] : profiles).map((p) => {
+                  const profileId = p.id ?? p.directory;
+                  const label = p.name || p.browserName || p.directory;
+                  return (
                     <button
-                      key={p.directory}
+                      key={profileId}
                       className="profile-card"
-                      onClick={() => handleImportProfile(p.directory)}
+                      onClick={() => handleImportProfile(profileId)}
                       disabled={importing !== null}
                     >
-                      <div className="profile-avatar">
-                        {p.name.charAt(0).toUpperCase()}
-                      </div>
+                      <BrowserLogoAvatar
+                        browserKey={p.browserKey}
+                        fallbackLabel={p.browserName || label}
+                        className="profile-browser-logo"
+                      />
                       <div className="profile-info">
-                        <div className="profile-name">{p.name}</div>
-                        {p.email && <div className="profile-email">{p.email}</div>}
+                        <div className="profile-name">{label}</div>
+                        <div className="profile-email">
+                          {p.email ? `${p.browserName} · ${p.email}` : p.browserName}
+                        </div>
                         <div className="profile-dir">{p.directory}</div>
                       </div>
-                      {importing === p.directory && (
+                      {importing === profileId && (
                         <div className="profile-spinner" />
                       )}
                     </button>
-                  ))}
+                  );
+                })}
 
                 {!importResult && (
                   <button
@@ -855,14 +868,18 @@ export function OnboardingApp() {
 
                 {importedProfile && (
                   <div className="import-summary-card">
-                    <div className="profile-avatar">
-                      {importedProfile.name.charAt(0).toUpperCase()}
-                    </div>
+                    <BrowserLogoAvatar
+                      browserKey={importedProfile.browserKey}
+                      fallbackLabel={importedProfile.browserName || importedProfile.name || importedProfile.directory}
+                      className="profile-browser-logo profile-browser-logo-summary"
+                    />
                     <div className="profile-info">
                       <div className="profile-name">{importedProfile.name}</div>
-                      {importedProfile.email && (
-                        <div className="profile-email">{importedProfile.email}</div>
-                      )}
+                      <div className="profile-email">
+                        {importedProfile.email
+                          ? `${importedProfile.browserName} · ${importedProfile.email}`
+                          : importedProfile.browserName}
+                      </div>
                       <div className="import-summary-meta">
                         {importResult.imported.toLocaleString()} cookies · {importResult.domains.length} domains
                       </div>

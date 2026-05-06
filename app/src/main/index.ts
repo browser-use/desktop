@@ -4,7 +4,7 @@
  * Browser modules (tabs, bookmarks, history, downloads, extensions,
  * permissions, profiles, etc.) have been removed in the nuclear pivot.
  * Only the core infrastructure remains: shell window, pill, HL engine,
- * OAuth/identity, settings window, updater, hotkeys.
+ * OAuth/identity, settings page routing, updater, hotkeys.
  */
 
 import { config as loadDotEnv } from 'dotenv';
@@ -79,6 +79,7 @@ import { registerTelemetryHandlers } from './telemetryIpc';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
+import { createLocalTaskServer } from './localTaskServer';
 import {
   resolveUserDataDir,
   resolveCdpPort,
@@ -95,8 +96,6 @@ import { forwardAgentEvent } from './pill';
 // Session management
 import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
-// Settings window (no browser-feature IPC handlers)
-import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
 // Channels (WhatsApp)
 import { WhatsAppAdapter } from './channels/WhatsAppAdapter';
 import { ChannelRouter } from './channels/ChannelRouter';
@@ -183,15 +182,48 @@ browserPool.setOnGone((sessionId) => {
   // to 'stopped' so the UI stops showing "Idle" and renders the end state.
   sessionManager.markBrowserEnded(sessionId);
 });
-// Keep each session's primarySite in sync with the actual page — the
-// browser is the source of truth. Covers agent-driven navigation and
+// Keep each session's primarySite + lastUrl in sync with the actual page —
+// the browser is the source of truth. Covers agent-driven navigation and
 // any clicks the user makes inside the attached view.
 browserPool.setOnNavigate((sessionId, url) => {
-  sessionManager.updatePrimarySiteFromUrl(sessionId, url);
+  sessionManager.updateNavigationFromUrl(sessionId, url);
 });
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
 const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
+
+type SettingsOpenPayload = {
+  focusBrowserCodeProvider?: string;
+};
+
+function normalizeSettingsOpenPayload(payload: unknown): SettingsOpenPayload | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const rawProvider = (payload as { focusBrowserCodeProvider?: unknown }).focusBrowserCodeProvider;
+  if (typeof rawProvider !== 'string') return undefined;
+  const providerId = rawProvider.trim();
+  if (!providerId || providerId.length > 80) return undefined;
+  return { focusBrowserCodeProvider: providerId };
+}
+
+function openSettingsInShell(payload?: SettingsOpenPayload): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  shellWindow.show();
+  shellWindow.focus();
+  shellWindow.webContents.send('open-settings', payload);
+}
+
+function restorableResumeUrl(lastUrl: string | null | undefined): string {
+  if (!lastUrl) return 'about:blank';
+  try {
+    const parsed = new URL(lastUrl);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:') {
+      return lastUrl;
+    }
+  } catch {
+    // Fall through to the blank page fallback.
+  }
+  return 'about:blank';
+}
 
 // ---------------------------------------------------------------------------
 // Single-instance focus
@@ -550,20 +582,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('logs:show', (_evt, sessionId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     mainLogger.info('main.logs:show', { sessionId, anchor });
     showLogs(sessionId, anchor ?? null);
-    // Only take OS-level focus when the SHELL window itself is already
-    // focused (user actively interacting with the hub). The previous gate
-    // checked BrowserWindow.getFocusedWindow() !== null which was true
-    // even when the user had the global-shortcut PILL focused — pill is
-    // also one of our windows. Focusing logs in that path then activated
-    // the entire app on macOS, yanking the user back to Browser Use.
-    // AgentPane auto-fires logs.show() when it mounts for a new session,
-    // so this happened on every pill-submitted task.
-    const logsWin = getLogsWindow();
-    if (
-      logsWin && !logsWin.isDestroyed() &&
-      shellWindow && !shellWindow.isDestroyed() &&
-      shellWindow.isFocused()
-    ) logsWin.focus();
     return true;
   });
   ipcMain.handle('logs:close', () => {
@@ -774,7 +792,7 @@ app.whenReady().then(async () => {
         webContents: view.webContents,
         cdpPort: resolvedCdp.port,
         signal: abortController.signal,
-        onSessionId: (sid) => sessionManager.setClaudeSessionId(id, sid),
+        onSessionId: (sid) => sessionManager.setEngineSessionId(id, sid),
         onModelResolved: ({ model }) => sessionManager.setSessionModel(id, model),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
         onEvent: (event) => {
@@ -812,6 +830,42 @@ app.whenReady().then(async () => {
   }
 
   channelRouter.setStartSession(startSessionWithAgent);
+
+  const localTaskServer = await createLocalTaskServer({
+    userDataPath: app.getPath('userData'),
+    log: mainLogger,
+    submitTask: async (payload) => {
+      const validatedPrompt = assertString(payload.prompt, 'prompt', 10000);
+      const engineId = payload.engine == null ? DEFAULT_ENGINE_ID : assertString(payload.engine, 'engine', 50);
+      mainLogger.info('main.localTask.submit', {
+        promptLength: validatedPrompt.length,
+        engineId,
+      });
+
+      const id = sessionManager.createSession(validatedPrompt);
+      sessionManager.setSessionEngine(id, engineId);
+      captureEvent('session_created', {
+        source: 'local-task-server',
+        engine: engineId,
+        prompt_length: validatedPrompt.length,
+        attachments_count: 0,
+      });
+
+      try {
+        await startSessionWithAgent(id);
+        return { id, started: true, engine: engineId };
+      } catch (err) {
+        const error = (err as Error).message || 'Session start failed';
+        mainLogger.warn('main.localTask.startFailed', { id, error });
+        return { id, started: false, engine: engineId, error };
+      }
+    },
+  });
+  app.once('before-quit', () => {
+    void localTaskServer.close().catch((err) => {
+      mainLogger.warn('main.localTaskServer.closeFailed', { error: (err as Error).message });
+    });
+  });
 
   ipcMain.handle('sessions:create', (_event, payload: unknown) => {
     let promptRaw: unknown;
@@ -868,6 +922,12 @@ app.whenReady().then(async () => {
       attachmentMeta: resumeAttachments.map((a) => ({ name: a.name, mime: a.mime, size: a.bytes.byteLength })),
     });
 
+    const currentSession = sessionManager.getSession(validatedId);
+    if (!currentSession) return { error: 'Session not found' };
+    if (currentSession.status !== 'idle' && currentSession.status !== 'stopped') {
+      return { error: `Session ${validatedId} is ${currentSession.status}, expected idle or stopped` };
+    }
+
     if (resumeAttachments.length > 0) {
       const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
       for (const a of resumeAttachments) {
@@ -876,10 +936,35 @@ app.whenReady().then(async () => {
       mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length });
     }
 
-    const webContents = browserPool.getWebContents(validatedId);
+    let webContents = browserPool.getWebContents(validatedId);
     if (!webContents) {
-      mainLogger.warn('main.sessions:resume.noBrowser', { id: validatedId });
-      return { error: 'Browser session expired — start a new session' };
+      const restoreUrl = restorableResumeUrl(currentSession.lastUrl);
+      mainLogger.info('main.sessions:resume.recreateBrowser', {
+        id: validatedId,
+        hasLastUrl: Boolean(currentSession.lastUrl),
+        restoreUrl,
+      });
+      const view = browserPool.create(validatedId, Date.now());
+      if (!view) {
+        mainLogger.warn('main.sessions:resume.poolFull', { id: validatedId, stats: browserPool.getStats() });
+        return { error: 'Browser pool full' };
+      }
+      if (shellWindow && !shellWindow.isDestroyed()) {
+        browserPool.detachAll(shellWindow);
+        mainLogger.info('main.sessions:resume.detachedAwaitingRenderer', { id: validatedId });
+      }
+      try {
+        await view.webContents.loadURL(restoreUrl);
+      } catch (err) {
+        mainLogger.warn('main.sessions:resume.restoreUrl.failed', {
+          id: validatedId,
+          restoreUrl,
+          error: (err as Error).message,
+        });
+        try { await view.webContents.loadURL('about:blank'); }
+        catch { /* keep going; runEngine will surface target failures */ }
+      }
+      webContents = view.webContents;
     }
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
@@ -904,8 +989,8 @@ app.whenReady().then(async () => {
       webContents,
       cdpPort: resolvedCdp.port,
       signal: abortController.signal,
-      resumeSessionId: sessionManager.getClaudeSessionId(validatedId),
-      onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      resumeSessionId: sessionManager.getEngineSessionId(validatedId),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
@@ -982,7 +1067,7 @@ app.whenReady().then(async () => {
       signal: abortController.signal,
       // Rerun intentionally starts a fresh conversation; SessionManager.rerunSession
       // already cleared any stored resume id.
-      onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
@@ -1365,23 +1450,12 @@ app.whenReady().then(async () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Settings window IPC
+  // Settings page IPC
   // ---------------------------------------------------------------------------
-  ipcMain.handle('settings:open', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+  ipcMain.handle('settings:open', (_e, rawPayload?: unknown) => {
+    const payload = normalizeSettingsOpenPayload(rawPayload);
     mainLogger.info('main.settings:open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
-    if (shellWindow && !shellWindow.isDestroyed()) {
-      shellWindow.show();
-      shellWindow.focus();
-      shellWindow.webContents.send('open-settings');
-      if (payload?.focusBrowserCodeProvider) {
-        const providerId = payload.focusBrowserCodeProvider;
-        setTimeout(() => {
-          if (shellWindow && !shellWindow.isDestroyed()) {
-            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
-          }
-        }, 150);
-      }
-    }
+    openSettingsInShell(payload);
   });
 
   ipcMain.handle('settings:app:get-info', () => {
@@ -1426,27 +1500,11 @@ app.whenReady().then(async () => {
     hidePill();
   });
 
-  ipcMain.handle('pill:open-settings', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+  ipcMain.handle('pill:open-settings', (_e, rawPayload?: unknown) => {
+    const payload = normalizeSettingsOpenPayload(rawPayload);
     mainLogger.info('main.pill:open-settings', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
-    if (shellWindow && !shellWindow.isDestroyed()) {
-      shellWindow.show();
-      shellWindow.focus();
-      shellWindow.webContents.send('open-settings');
-      if (payload?.focusBrowserCodeProvider) {
-        const providerId = payload.focusBrowserCodeProvider;
-        setTimeout(() => {
-          if (shellWindow && !shellWindow.isDestroyed()) {
-            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
-          }
-        }, 150);
-      }
-    }
+    openSettingsInShell(payload);
     hidePill();
-  });
-
-  ipcMain.handle('settings:close', () => {
-    mainLogger.info('main.settings:close');
-    closeSettingsWindow();
   });
 
   // ---------------------------------------------------------------------------
@@ -1571,10 +1629,7 @@ function buildApplicationMenu(): void {
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             mainLogger.debug('menu.openSettings');
-            if (shellWindow && !shellWindow.isDestroyed()) {
-              shellWindow.webContents.send('open-settings');
-              shellWindow.focus();
-            }
+            openSettingsInShell();
           },
         },
         { type: 'separator' },

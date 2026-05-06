@@ -32,7 +32,7 @@ declare global {
       ) => Promise<{ task_id: string }>;
       hide: () => void;
       setExpanded: (expanded: boolean | number) => void;
-      listSessions: () => Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastActivityAt?: number }>>;
+      listSessions: () => Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastUrl?: string | null; lastActivityAt?: number }>>;
       selectSession: (id: string) => void;
       openHub?: () => void;
       openSettings?: () => void;
@@ -53,6 +53,7 @@ interface SessionLite {
   status: string;
   createdAt: number;
   primarySite?: string | null;
+  lastUrl?: string | null;
   lastActivityAt?: number;
 }
 

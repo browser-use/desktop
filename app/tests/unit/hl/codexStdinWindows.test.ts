@@ -86,7 +86,7 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     );
 
     const env = { ...process.env, Path: `${tmp};${process.env.Path ?? ''}` };
-    const resolved = resolveCliSpawn('codex', ['exec', '--json', '--yolo', '-'], { env, platform: 'win32' });
+    const resolved = resolveCliSpawn('codex', ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'], { env, platform: 'win32' });
     expect(resolved.viaCmdShell).toBe(true);
 
     let stdoutBuf = '';
@@ -108,7 +108,7 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     expect(fs.existsSync(stdinOut), `stdin file not created${diag}`).toBe(true);
 
     const argv = fs.readFileSync(argvOut, 'utf-8').trim().split(/\r?\n/);
-    expect(argv).toEqual(['exec', '--json', '--yolo', '-']);
+    expect(argv).toEqual(['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-']);
 
     const stdinSeen = fs.readFileSync(stdinOut, 'utf-8').replace(/\r\n/g, '\n').replace(/\n$/, '');
     expect(stdinSeen).toBe(MULTILINE_PROMPT);

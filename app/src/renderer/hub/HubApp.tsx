@@ -11,19 +11,14 @@ import { Sidebar } from './Sidebar';
 import { MOCK_SESSIONS } from './mock-data';
 import type { AgentSession, HlEvent } from './types';
 import type { ActionId } from './keybindings';
+import type { SettingsOpenIntent, SettingsSectionId } from './SettingsPane';
+import { orderSessionsForSidebar } from './sessionOrdering';
 
-function groupSessions(sessions: AgentSession[]): { group: string; sessions: AgentSession[] }[] {
-  const groups = new Map<string, AgentSession[]>();
-  for (const s of sessions) {
-    const key = s.group ?? 'ungrouped';
-    const arr = groups.get(key);
-    if (arr) arr.push(s);
-    else groups.set(key, [s]);
-  }
-  return Array.from(groups, ([group, items]) => ({ group, sessions: items }));
-}
-
-type ViewMode = 'dashboard' | 'grid';
+type ViewMode = 'dashboard' | 'grid' | 'settings';
+type SettingsOpenPayload = {
+  sectionId?: SettingsSectionId;
+  focusBrowserCodeProvider?: string;
+};
 
 let sessionCounter = MOCK_SESSIONS.length + 1;
 let entryCounter = 1000;
@@ -61,15 +56,26 @@ function DashboardIcon(): React.ReactElement {
   );
 }
 
+function SettingsIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M5.73 1.68a1.25 1.25 0 0 1 2.54 0l.1.44a1.25 1.25 0 0 0 1.63.8l.42-.16a1.25 1.25 0 0 1 1.58 1.73l-.2.4a1.25 1.25 0 0 0 .37 1.55l.35.27a1.25 1.25 0 0 1-.44 2.2l-.43.13a1.25 1.25 0 0 0-.86 1.46l.08.44a1.25 1.25 0 0 1-1.97 1.27l-.33-.3a1.25 1.25 0 0 0-1.6-.06l-.36.27a1.25 1.25 0 0 1-2.03-1.17l.05-.44a1.25 1.25 0 0 0-.92-1.42l-.43-.12a1.25 1.25 0 0 1-.33-2.22l.37-.26a1.25 1.25 0 0 0 .44-1.53l-.18-.41A1.25 1.25 0 0 1 4.7 2.93l.42.17a1.25 1.25 0 0 0 1.6-.86l.11-.44Z" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  );
+}
+
 interface HubViewToggleProps {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
+  onOpenSettings: () => void;
   tipDashboard: string;
   tipGrid: string;
+  tipSettings: string;
 }
 
 const HubViewToggle = React.memo(function HubViewToggle({
-  viewMode, setViewMode, tipDashboard, tipGrid,
+  viewMode, setViewMode, onOpenSettings, tipDashboard, tipGrid, tipSettings,
 }: HubViewToggleProps): React.ReactElement {
   return (
     <div className="hub-toolbar__view-toggle" role="radiogroup" aria-label="View mode">
@@ -88,6 +94,14 @@ const HubViewToggle = React.memo(function HubViewToggle({
         data-tip={tipGrid}
       >
         <GridIcon />
+      </button>
+      <button
+        className={`hub-toolbar__view-btn${viewMode === 'settings' ? ' hub-toolbar__view-btn--active' : ''}`}
+        onClick={onOpenSettings}
+        aria-label="Settings"
+        data-tip={tipSettings}
+      >
+        <SettingsIcon />
       </button>
     </div>
   );
@@ -119,11 +133,15 @@ export function HubApp(): React.ReactElement {
   });
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
-    try { window.localStorage.setItem('hub-view-mode', mode); } catch { /* ignore */ }
+    window.electronAPI?.sessions?.viewsSetVisible?.(mode !== 'settings')?.catch(() => {});
+    if (mode === 'dashboard' || mode === 'grid') {
+      try { window.localStorage.setItem('hub-view-mode', mode); } catch { /* ignore */ }
+    }
   }, []);
   const openPill = useCallback(() => { window.electronAPI?.pill.toggle(); }, []);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsIntent, setSettingsIntent] = useState<SettingsOpenIntent | null>(null);
+  const settingsRequestIdRef = useRef(0);
   const [focusIndex, setFocusIndex] = useState(0);
   const [zoomFactor, setZoomFactor] = useState(1.0);
   // Grid is permanently 1x1 (gridColumns = 1), but gridPage is real state —
@@ -140,14 +158,31 @@ export function HubApp(): React.ReactElement {
     try { window.localStorage.setItem('hub-cmdbar-visible', '0'); } catch { /* ignore */ }
   }, []);
 
+  const showBrowserViews = useCallback(() => {
+    window.electronAPI?.sessions?.viewsSetVisible?.(true)?.catch(() => {});
+  }, []);
+
+  const openSettingsPage = useCallback((payload?: SettingsOpenPayload) => {
+    window.electronAPI?.pill.hide();
+    settingsRequestIdRef.current += 1;
+    setSettingsIntent({
+      requestId: settingsRequestIdRef.current,
+      sectionId: payload?.sectionId ?? (payload?.focusBrowserCodeProvider ? 'settings-model-providers' : undefined),
+      focusBrowserCodeProvider: payload?.focusBrowserCodeProvider,
+    });
+    setViewMode('settings');
+  }, [setViewMode]);
+
   const visibleSessionCount = sessions.length;
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('pane:layout-change'));
   }, [visibleSessionCount, gridColumns, gridPage, viewMode]);
 
+  const orderedSessions = useMemo(() => orderSessionsForSidebar(sessions), [sessions]);
+
   const vimHandlers = useMemo<Partial<Record<ActionId, () => void>>>(() => ({
     'nav.down': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const currVis = visible.findIndex((v) => v.id === sessions[focusIndex]?.id);
       const nextVis = Math.min((currVis < 0 ? 0 : currVis + 1), visible.length - 1);
@@ -156,7 +191,7 @@ export function HubApp(): React.ReactElement {
       setFocusIndex(nextGlobal);
     },
     'nav.up': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const currVis = visible.findIndex((v) => v.id === sessions[focusIndex]?.id);
       const nextVis = Math.max((currVis < 0 ? 0 : currVis - 1), 0);
@@ -165,13 +200,13 @@ export function HubApp(): React.ReactElement {
       setFocusIndex(nextGlobal);
     },
     'nav.top': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const nextGlobal = sessions.findIndex((s) => s.id === visible[0].id);
       setFocusIndex(nextGlobal);
     },
     'nav.bottom': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const lastVis = visible.length - 1;
       const nextGlobal = sessions.findIndex((s) => s.id === visible[lastVis].id);
@@ -182,7 +217,7 @@ export function HubApp(): React.ReactElement {
     },
     'goto.dashboard': () => setViewMode('dashboard'),
     'goto.agents': () => setViewMode('grid'),
-    'goto.settings': () => { window.electronAPI?.pill.hide(); hideBrowserViews(); setSettingsOpen(true); },
+    'goto.settings': () => { openSettingsPage(); },
     'search.open': () => { window.electronAPI?.pill.toggle(); },
     'action.create': () => { window.electronAPI?.pill.toggle(); },
     'action.createPane': () => { window.electronAPI?.pill.toggle(); },
@@ -216,14 +251,17 @@ export function HubApp(): React.ReactElement {
       const el = document.querySelector('.hub-grid, .dashboard');
       if (el) el.scrollBy({ top: -(el.clientHeight / 2), behavior: 'smooth' });
     },
-    'meta.help': () => { window.electronAPI?.pill.hide(); hideBrowserViews(); setSettingsOpen(true); },
+    'meta.help': () => { openSettingsPage({ sectionId: 'settings-shortcuts' }); },
     'meta.commandPalette': () => { window.electronAPI?.pill.toggle(); },
     'meta.escape': () => {
-      if (helpOpen) { setHelpOpen(false); showBrowserViews(); return; }
-      if (settingsOpen) { setSettingsOpen(false); showBrowserViews(); return; }
+      if (helpOpen) {
+        setHelpOpen(false);
+        if (viewMode !== 'settings') showBrowserViews();
+        return;
+      }
       setFocusIndex(-1);
     },
-  }), [sessions, focusIndex, helpOpen, settingsOpen, gridColumns]);
+  }), [sessions, orderedSessions, focusIndex, helpOpen, viewMode, setViewMode, openSettingsPage, showBrowserViews]);
 
   const vim = useVimKeys(vimHandlers);
 
@@ -232,14 +270,6 @@ export function HubApp(): React.ReactElement {
     return kb?.keys[0] ? vim.formatShortcut(kb.keys[0]) : '';
   };
 
-  const hideBrowserViews = useCallback(() => {
-    window.electronAPI?.sessions.viewsSetVisible(false).catch(() => {});
-  }, []);
-
-  const showBrowserViews = useCallback(() => {
-    window.electronAPI?.sessions.viewsSetVisible(true).catch(() => {});
-  }, []);
-
   const tip = (label: string, actionId: ActionId): string => {
     const key = shortcutFor(actionId);
     return key ? `${label}  (${key})` : label;
@@ -247,22 +277,19 @@ export function HubApp(): React.ReactElement {
 
 
   useEffect(() => {
-    const unsub = window.electronAPI?.on?.openSettings?.(() => {
-      window.electronAPI?.pill.hide();
-      hideBrowserViews();
-      setSettingsOpen(true);
+    const unsub = window.electronAPI?.on?.openSettings?.((payload) => {
+      openSettingsPage(payload);
     });
     return unsub;
-  }, []);
+  }, [openSettingsPage]);
 
   useEffect(() => {
     const unsub = window.electronAPI?.on?.pillToggled?.(() => {
-      setSettingsOpen(false);
       setHelpOpen(false);
-      showBrowserViews();
+      if (viewMode !== 'settings') showBrowserViews();
     });
     return unsub;
-  }, []);
+  }, [showBrowserViews, viewMode]);
 
   // Main-process signal (e.g. fired by onboarding:complete after Skip) telling
   // the hub to switch to a specific view regardless of the saved preference.
@@ -425,7 +452,23 @@ export function HubApp(): React.ReactElement {
         console.error('[HubApp] followUp failed', err);
       }
     }
-  }, [isMock]);
+  }, [isMock, updateSession]);
+
+  const handleResume = useCallback(async (sessionId: string) => {
+    if (isMock) return;
+    const api = window.electronAPI;
+    if (!api) return;
+    try {
+      console.log('[HubApp] resume', { sessionId });
+      const result = await api.sessions.resume(sessionId, 'Continue from where you left off.');
+      if (result?.error) {
+        console.warn('[HubApp] resume error', { sessionId, error: result.error });
+        updateSession(sessionId, { status: 'stopped' as const, error: result.error });
+      }
+    } catch (err) {
+      console.error('[HubApp] resume failed', err);
+    }
+  }, [isMock, updateSession]);
 
   const handleSelectSession = useCallback((id: string) => {
     const idx = sessions.findIndex((s) => s.id === id);
@@ -456,7 +499,7 @@ export function HubApp(): React.ReactElement {
         <div className="hub-toolbar__left">
           <span className="hub-toolbar__title">Browser Use</span>
           <MemoryIndicator
-            onOpenSettings={() => { hideBrowserViews(); setSettingsOpen(true); }}
+            onOpenSettings={() => openSettingsPage()}
             settingsShortcut={shortcutFor('goto.settings')}
           />
         </div>
@@ -464,8 +507,10 @@ export function HubApp(): React.ReactElement {
           <HubViewToggle
             viewMode={viewMode}
             setViewMode={setViewMode}
+            onOpenSettings={() => openSettingsPage()}
             tipDashboard={tip('Dashboard', 'goto.dashboard')}
             tipGrid={tip('Grid view', 'goto.agents')}
+            tipSettings={tip('Settings', 'goto.settings')}
           />
         </div>
         <div className="hub-toolbar__right">
@@ -503,7 +548,7 @@ export function HubApp(): React.ReactElement {
         selectedId={selectedSessionId}
         onSelect={(id) => {
           handleSelectSession(id);
-          if (viewMode === 'dashboard') setViewMode('grid');
+          if (viewMode !== 'grid') setViewMode('grid');
         }}
         onNewAgent={() => openPill()}
         onRowAction={(id, action) => {
@@ -519,7 +564,17 @@ export function HubApp(): React.ReactElement {
         }}
       />
       <div className="hub-main">
-      {viewMode === 'dashboard' ? (
+      {viewMode === 'settings' ? (
+        <SettingsPane
+          intent={settingsIntent}
+          keybindings={vim.keybindings}
+          overrides={vim.overrides}
+          onUpdateBinding={vim.updateBinding}
+          onResetBinding={vim.resetBinding}
+          onResetAll={vim.resetAll}
+          formatShortcut={vim.formatShortcut}
+        />
+      ) : viewMode === 'dashboard' ? (
         <Dashboard
           sessions={sessions}
           onSwitchToGrid={() => setViewMode('grid')}
@@ -565,6 +620,7 @@ export function HubApp(): React.ReactElement {
                       onRerun={(id) => {
                         window.electronAPI?.sessions.rerun(id).catch((err) => console.error('[HubApp] rerun failed', err));
                       }}
+                      onResume={handleResume}
                       onFollowUp={handleFollowUp}
                       onDismiss={(id) => {
                         // Real dismiss: flips session status to 'stopped' AND tears down the
@@ -583,9 +639,7 @@ export function HubApp(): React.ReactElement {
                         window.electronAPI?.logs.focusFollowUp(session.id);
                       }}
                       onOpenSettings={() => {
-                        window.electronAPI?.pill.hide();
-                        hideBrowserViews();
-                        setSettingsOpen(true);
+                        openSettingsPage();
                       }}
                       followUpShortcut={shortcutFor('action.followUp')}
                     />
@@ -619,25 +673,15 @@ export function HubApp(): React.ReactElement {
 
       <KeybindingsOverlay
         open={helpOpen}
-        onClose={() => { setHelpOpen(false); showBrowserViews(); }}
+        onClose={() => {
+          setHelpOpen(false);
+          if (viewMode !== 'settings') showBrowserViews();
+        }}
         keybindings={vim.keybindings}
         onOpenSettings={() => {
           setHelpOpen(false);
-          window.electronAPI?.pill.hide();
-          hideBrowserViews();
-          setSettingsOpen(true);
+          openSettingsPage({ sectionId: 'settings-shortcuts' });
         }}
-        formatShortcut={vim.formatShortcut}
-      />
-
-      <SettingsPane
-        open={settingsOpen}
-        onClose={() => { setSettingsOpen(false); showBrowserViews(); }}
-        keybindings={vim.keybindings}
-        overrides={vim.overrides}
-        onUpdateBinding={vim.updateBinding}
-        onResetBinding={vim.resetBinding}
-        onResetAll={vim.resetAll}
         formatShortcut={vim.formatShortcut}
       />
     </div>

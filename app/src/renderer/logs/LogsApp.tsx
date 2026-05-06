@@ -289,18 +289,6 @@ export function LogsApp(): React.ReactElement {
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`;
   }, [input]);
 
-  // Auto-focus the follow-up textarea on active-session switch so the user
-  // can start typing immediately after clicking a card. Skip when the logs
-  // are collapsed (dot has no input) or the session is ended (textarea
-  // replaced with "Session ended" label). rAF lets the sessionStatus state
-  // update settle first.
-  useEffect(() => {
-    if (!sessionId) return;
-    if (mode === 'dot') return;
-    if (sessionStatus === 'stopped') return;
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [sessionId, mode, sessionStatus]);
-
   useEffect(() => {
     const unsub = window.logsAPI.onModeChanged((m) => {
       console.log('[LogsApp] mode-changed', { mode: m });
@@ -402,6 +390,9 @@ export function LogsApp(): React.ReactElement {
   }, [mode]);
 
   const onExpandFromDot = useCallback(() => { window.logsAPI.setMode('normal'); }, []);
+  const preventButtonFocus = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+  }, []);
   // Minus steps down one size: full → normal (card), normal → dot. Going
   // full → dot in one click skips the card view the user most often wants.
   const onMinimize = useCallback(() => {
@@ -445,6 +436,8 @@ export function LogsApp(): React.ReactElement {
         type="button"
         className="logs-dot"
         onClick={onExpandFromDot}
+        onMouseDown={preventButtonFocus}
+        tabIndex={-1}
         aria-label="Expand logs"
         title="Expand logs"
       >
@@ -462,6 +455,8 @@ export function LogsApp(): React.ReactElement {
             type="button"
             className="logs-header__btn"
             onClick={onMinimize}
+            onMouseDown={preventButtonFocus}
+            tabIndex={-1}
             aria-label="Minimize to dot"
             title="Minimize"
           >
@@ -473,6 +468,8 @@ export function LogsApp(): React.ReactElement {
             type="button"
             className="logs-header__btn"
             onClick={onToggleFull}
+            onMouseDown={preventButtonFocus}
+            tabIndex={-1}
             aria-label={mode === 'full' ? 'Restore size' : 'Expand to full pane'}
             title={mode === 'full' ? 'Restore' : 'Expand'}
           >
@@ -490,6 +487,8 @@ export function LogsApp(): React.ReactElement {
             type="button"
             className="logs-header__btn"
             onClick={() => window.logsAPI.close()}
+            onMouseDown={preventButtonFocus}
+            tabIndex={-1}
             aria-label="Close"
             title="Close"
           >

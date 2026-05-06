@@ -165,6 +165,25 @@ describe('ChannelLogger — JSONL output format', () => {
     expect(entries[0]!['duration_ms']).toBe(42);
   });
 
+  it('does not let extra fields overwrite structural log fields', () => {
+    logger.info('request received', {
+      level: 1,
+      msg: 'renderer override',
+      channel: 'renderer',
+      ts: 'not-a-real-timestamp',
+    });
+    const entries = readJsonLines(logPath);
+    const entry = entries[0]!;
+    expect(entry['level']).toBe('info');
+    expect(entry['msg']).toBe('request received');
+    expect(entry['channel']).toBe('main');
+    expect(entry['ts']).not.toBe('not-a-real-timestamp');
+    expect(entry['extra_level']).toBe(1);
+    expect(entry['extra_msg']).toBe('renderer override');
+    expect(entry['extra_channel']).toBe('renderer');
+    expect(entry['extra_ts']).toBe('not-a-real-timestamp');
+  });
+
   it('sets level=debug for debug() calls', () => {
     logger.debug('debug msg');
     const entries = readJsonLines(logPath);

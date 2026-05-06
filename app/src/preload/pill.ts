@@ -48,7 +48,7 @@ log.info('preload.pill', { message: 'Pill preload script initializing' });
 // ---------------------------------------------------------------------------
 
 contextBridge.exposeInMainWorld('pillAPI', {
-  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastActivityAt?: number }>> => {
+  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastUrl?: string | null; lastActivityAt?: number }>> => {
     return ipcRenderer.invoke('sessions:list');
   },
   /**
@@ -114,7 +114,7 @@ contextBridge.exposeInMainWorld('pillAPI', {
   },
 
   /**
-   * Open the settings window.
+   * Open the settings page in the hub window.
    */
   openSettings: (): void => {
     log.info('preload.pill.openSettings', { message: 'Invoking pill:open-settings' });
@@ -265,11 +265,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (payload?: { focusBrowserCodeProvider?: string }): Promise<void> => {
       log.info('preload.pill.electronAPI.settings.open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
       return ipcRenderer.invoke('pill:open-settings', payload);
-    },
-    onFocusBrowserCodeProvider: (handler: (providerId: string) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { providerId: string }) => handler(payload.providerId);
-      ipcRenderer.on('settings:browsercode:focus-provider', listener);
-      return () => ipcRenderer.removeListener('settings:browsercode:focus-provider', listener);
     },
     browserCode: {
       getStatus: (): Promise<{

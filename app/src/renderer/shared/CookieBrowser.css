@@ -1,5 +1,5 @@
 /*
- * CookieBrowser — shared styles for the Settings Connections cookie card and
+ * CookieBrowser — shared styles for the Settings Browser Sync cookie card and
  * the onboarding profile-import step. Dark, terminal-flavored to match the
  * rest of the hub.
  */
@@ -93,7 +93,7 @@
 
 .cb-profile {
   display: grid;
-  grid-template-columns: 36px 1fr auto;
+  grid-template-columns: 42px 1fr auto;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -108,18 +108,9 @@
   border-color: rgba(255, 255, 255, 0.09);
 }
 
-.cb-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+.cb-browser-logo {
+  width: 42px;
+  height: 42px;
 }
 
 .cb-profile-meta {

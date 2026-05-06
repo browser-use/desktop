@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVimKeys, type VimKeysReturn } from '../../../src/renderer/hub/useVimKeys';
+import type { ActionId } from '../../../src/renderer/hub/keybindings';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,20 +27,43 @@ function installElectronApi(accelerator = 'CommandOrControl+Alt+Space', platform
   });
 }
 
-function Harness({ onCreatePane, onReady }: { onCreatePane: () => void; onReady?: (vim: VimKeysReturn) => void }): React.ReactElement {
-  const vim = useVimKeys({ 'action.createPane': onCreatePane });
+function Harness({
+  handlers,
+  onReady,
+}: {
+  handlers: Partial<Record<ActionId, () => void>>;
+  onReady?: (vim: VimKeysReturn) => void;
+}): React.ReactElement {
+  const vim = useVimKeys(handlers);
   onReady?.(vim);
   return <input data-testid="task-input" />;
 }
 
-function renderHarness(onCreatePane: () => void, onReady?: (vim: VimKeysReturn) => void): { container: HTMLDivElement; root: Root } {
+function renderShortcutHarness(
+  handlers: Partial<Record<ActionId, () => void>>,
+  onReady?: (vim: VimKeysReturn) => void,
+): { container: HTMLDivElement; root: Root } {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(<Harness onCreatePane={onCreatePane} onReady={onReady} />);
+    root.render(<Harness handlers={handlers} onReady={onReady} />);
   });
   return { container, root };
+}
+
+function renderHarness(onCreatePane: () => void, onReady?: (vim: VimKeysReturn) => void): { container: HTMLDivElement; root: Root } {
+  return renderShortcutHarness({ 'action.createPane': onCreatePane }, onReady);
+}
+
+function dispatchKey(key: string, code: string, init?: KeyboardEventInit): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', {
+    key,
+    code,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  }));
 }
 
 describe('useVimKeys global command fallback', () => {
@@ -93,6 +117,86 @@ describe('useVimKeys global command fallback', () => {
     });
 
     expect(window.electronAPI?.hotkeys?.setGlobalCmdbar).toHaveBeenCalledWith('CommandOrControl+Shift+Space');
+
+    act(() => root.unmount());
+  });
+});
+
+describe('useVimKeys app shortcuts', () => {
+  beforeEach(() => {
+    installElectronApi();
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('matches lowercase vim navigation keys from real browser key events', async () => {
+    const onDown = vi.fn();
+    const onUp = vi.fn();
+    const { root } = renderShortcutHarness({
+      'nav.down': onDown,
+      'nav.up': onUp,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      dispatchKey('j', 'KeyJ');
+      dispatchKey('k', 'KeyK');
+    });
+
+    expect(onDown).toHaveBeenCalledTimes(1);
+    expect(onUp).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it('keeps lowercase g as a chord prefix instead of jumping to the last session', async () => {
+    const onDashboard = vi.fn();
+    const onBottom = vi.fn();
+    const { root } = renderShortcutHarness({
+      'goto.dashboard': onDashboard,
+      'nav.bottom': onBottom,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      dispatchKey('g', 'KeyG');
+    });
+    expect(onBottom).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dispatchKey('d', 'KeyD');
+    });
+
+    expect(onDashboard).toHaveBeenCalledTimes(1);
+    expect(onBottom).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('still treats shift-g as the vim shortcut for the last session', async () => {
+    const onBottom = vi.fn();
+    const { root } = renderShortcutHarness({
+      'nav.bottom': onBottom,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      dispatchKey('G', 'KeyG', { shiftKey: true });
+    });
+
+    expect(onBottom).toHaveBeenCalledTimes(1);
 
     act(() => root.unmount());
   });

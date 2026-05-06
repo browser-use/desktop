@@ -63,11 +63,11 @@ Helpful log commands:
 
 ```bash
 task logs:all
-task logs:main
+task logs:app
 task logs:browser
-task logs:renderer
+task logs:agent SESSION_ID=<session-id>
 task logs:engine
-task logs:session SESSION_ID=<session-id>
+task logs:errors
 ```
 
 By default, local logs are read from:

@@ -37,6 +37,7 @@ import { estimateCostUsd } from '../../pricing';
 const ID = 'codex';
 const DISPLAY = 'Codex';
 const BIN = 'codex';
+const BYPASS_APPROVALS_FLAG = '--dangerously-bypass-approvals-and-sandbox';
 
 function codexAuthFilePath(): string {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -128,13 +129,12 @@ const codexAdapter: EngineAdapter = {
     // `codex exec resume <id> -` for continuation; otherwise plain exec.
     // The trailing `-` tells codex to read the prompt from stdin — see
     // getStdinPayload below for why we never pass the prompt via argv.
-    // --yolo skips sandbox + approvals — acceptable because the agent is
-    //   already scoped by env BU_TARGET_ID and cwd. Equivalent to Claude Code's
-    //   --dangerously-skip-permissions.
+    // The bypass flag skips sandbox + approvals, mirroring Claude Code's
+    // --dangerously-skip-permissions for this app-managed harness.
     if (ctx.resumeSessionId) {
-      return ['exec', 'resume', ctx.resumeSessionId, '--json', '--yolo', '-'];
+      return ['exec', 'resume', '--json', BYPASS_APPROVALS_FLAG, ctx.resumeSessionId, '-'];
     }
-    return ['exec', '--json', '--yolo', '-'];
+    return ['exec', '--json', BYPASS_APPROVALS_FLAG, '-'];
   },
 
   getStdinPayload(_ctx: SpawnContext, wrappedPrompt: string): string {

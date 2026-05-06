@@ -7,7 +7,11 @@ import net from 'node:net';
 import { session } from 'electron';
 import WebSocket from 'ws';
 import { mainLogger } from '../logger';
-import { resolveChromeProfilePath } from './profiles';
+import {
+  chromiumBrowserExecutableCandidates,
+  findDefaultChromiumBrowser,
+  resolveChromeBrowserProfile,
+} from './profiles';
 
 type Platform = NodeJS.Platform;
 
@@ -29,6 +33,24 @@ const SKIP_FILES = new Set([
 const CDP_STARTUP_TIMEOUT_MS = 15000;
 const CDP_COOKIE_TIMEOUT_MS = 10000;
 
+function cookieStorePaths(profilePath: string): string[] {
+  return [
+    path.join(profilePath, 'Cookies'),
+    path.join(profilePath, 'Network', 'Cookies'),
+  ];
+}
+
+function isReadableFile(filePath: string): boolean {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return false;
+    fs.accessSync(filePath, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function executableNames(name: string, platform: Platform): string[] {
   if (platform !== 'win32') return [name];
   const lower = name.toLowerCase();
@@ -49,44 +71,14 @@ function findOnPath(names: string[], env: NodeJS.ProcessEnv, platform: Platform)
 }
 
 export function chromeBinaryCandidates(opts: ChromeBinaryOptions = {}): string[] {
-  const platform = opts.platform ?? process.platform;
-  const env = opts.env ?? process.env;
-  const home = opts.homedir ?? os.homedir();
-  const pathMod = platform === 'win32' ? path.win32 : path;
-
-  if (platform === 'darwin') {
-    return [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    ];
-  }
-
-  if (platform === 'win32') {
-    const localAppData = env.LOCALAPPDATA ?? pathMod.join(home, 'AppData', 'Local');
-    const programFiles = env.ProgramFiles ?? 'C:\\Program Files';
-    const programFilesX86 = env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)';
-    return [
-      pathMod.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      pathMod.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      pathMod.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      pathMod.join(localAppData, 'Google', 'Chrome SxS', 'Application', 'chrome.exe'),
-      pathMod.join(programFiles, 'Chromium', 'Application', 'chrome.exe'),
-    ];
-  }
-
-  return [
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
-  ];
+  return chromiumBrowserExecutableCandidates(opts);
 }
 
 export function findChromeBinary(opts: ChromeBinaryOptions = {}): string {
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
+  const browser = findDefaultChromiumBrowser(opts);
+  if (browser) return browser.path;
   for (const p of chromeBinaryCandidates(opts)) {
     if (fs.existsSync(p)) return p;
   }
@@ -96,7 +88,7 @@ export function findChromeBinary(opts: ChromeBinaryOptions = {}): string {
     platform,
   );
   if (onPath) return onPath;
-  throw new Error('Chrome not found. Install Google Chrome to import cookies.');
+  throw new Error('Compatible Chromium browser not found. Install a supported browser to import cookies.');
 }
 
 async function getFreePort(): Promise<number> {
@@ -113,6 +105,9 @@ async function getFreePort(): Promise<number> {
 }
 
 export interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -155,7 +150,7 @@ function cdpSameSiteToElectron(value?: string): 'unspecified' | 'no_restriction'
   }
 }
 
-async function copyProfileToTemp(profilePath: string): Promise<string> {
+async function copyProfileToTemp(profilePath: string, userDataDir: string): Promise<string> {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'chrome-profile-'));
   const destProfile = path.join(tempDir, 'Default');
 
@@ -184,16 +179,29 @@ async function copyProfileToTemp(profilePath: string): Promise<string> {
   }
 
   await copyDir(profilePath, destProfile);
-  mainLogger.info('chromeImport.copyProfile', { src: profilePath, dest: tempDir });
+  try {
+    await fsp.copyFile(path.join(userDataDir, 'Local State'), path.join(tempDir, 'Local State'));
+  } catch {
+    // Some profile-like directories do not have a Local State file. The
+    // browser can still start with the copied profile, so keep this best-effort.
+  }
+  if (!cookieStorePaths(destProfile).some((cookiePath) => isReadableFile(cookiePath))) {
+    fsp.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    throw new Error('Could not copy the browser profile cookie store. Close the source browser and check profile file permissions, then try again.');
+  }
+  mainLogger.info('chromeImport.copyProfile', { src: profilePath, userDataDir, dest: tempDir });
   return tempDir;
 }
 
-async function launchChromeHeadless(tempUserDataDir: string, debugPort: number): Promise<ChildProcess> {
-  const chromeBin = findChromeBinary();
+async function launchChromiumHeadless(
+  browserName: string,
+  browserPath: string,
+  tempUserDataDir: string,
+  debugPort: number,
+): Promise<ChildProcess> {
+  mainLogger.info('chromeImport.launchChromium', { browserName, browserPath, tempUserDataDir, debugPort });
 
-  mainLogger.info('chromeImport.launchChrome', { chromeBin, tempUserDataDir, debugPort });
-
-  const proc = spawn(chromeBin, [
+  const proc = spawn(browserPath, [
     '--headless=new',
     '--disable-gpu',
     '--no-first-run',
@@ -210,7 +218,7 @@ async function launchChromeHeadless(tempUserDataDir: string, debugPort: number):
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       proc.kill();
-      reject(new Error(`Chrome headless did not start within ${CDP_STARTUP_TIMEOUT_MS}ms.\n\nstderr: ${stderrBuf.slice(0, 500)}`));
+      reject(new Error(`${browserName} headless did not start within ${CDP_STARTUP_TIMEOUT_MS}ms.\n\nstderr: ${stderrBuf.slice(0, 500)}`));
     }, CDP_STARTUP_TIMEOUT_MS);
 
     proc.stderr?.on('data', (chunk: Buffer) => {
@@ -223,11 +231,11 @@ async function launchChromeHeadless(tempUserDataDir: string, debugPort: number):
 
     proc.on('exit', (code) => {
       clearTimeout(timeout);
-      reject(new Error(`Chrome exited with code ${code}.\n\nstderr: ${stderrBuf.slice(0, 500)}`));
+      reject(new Error(`${browserName} exited with code ${code}.\n\nstderr: ${stderrBuf.slice(0, 500)}`));
     });
   });
 
-  mainLogger.info('chromeImport.chromeStarted', { debugPort });
+  mainLogger.info('chromeImport.chromiumStarted', { browserName, debugPort });
   return proc;
 }
 
@@ -276,18 +284,18 @@ async function getCookiesViaCdp(port: number): Promise<CdpCookie[]> {
   });
 }
 
-export async function importChromeProfileCookies(profileDir: string): Promise<CookieImportResult> {
-  mainLogger.info('chromeImport.importCookies.start', { profileDir });
+export async function importChromeProfileCookies(profileId: string): Promise<CookieImportResult> {
+  mainLogger.info('chromeImport.importCookies.start', { profileId });
 
-  const profilePath = resolveChromeProfilePath(profileDir);
-  const tempDir = await copyProfileToTemp(profilePath);
+  const sourceProfile = resolveChromeBrowserProfile(profileId);
+  const tempDir = await copyProfileToTemp(sourceProfile.profilePath, sourceProfile.userDataDir);
   const debugPort = await getFreePort();
 
   let proc: ChildProcess | null = null;
   let cookies: CdpCookie[];
 
   try {
-    proc = await launchChromeHeadless(tempDir, debugPort);
+    proc = await launchChromiumHeadless(sourceProfile.browserName, sourceProfile.browserPath, tempDir, debugPort);
     cookies = await getCookiesViaCdp(debugPort);
   } finally {
     if (proc) proc.kill();
@@ -436,6 +444,9 @@ export async function importChromeProfileCookies(profileDir: string): Promise<Co
   }
 
   const result: CookieImportResult = {
+    profileId: sourceProfile.id,
+    browserName: sourceProfile.browserName,
+    profileDirectory: sourceProfile.directory,
     total: cookies.length,
     imported,
     failed,
