@@ -14,6 +14,13 @@ const mockState = vi.hoisted(() => {
   };
 });
 
+const authMocks = vi.hoisted(() => ({
+  resolveAuth: vi.fn(async (): Promise<unknown> => null),
+  loadOpenAIKey: vi.fn(async (): Promise<string | null> => null),
+  loadClaudeSubscriptionType: vi.fn(async (): Promise<string | null> => null),
+  loadBrowserCodeConfig: vi.fn(async (): Promise<unknown> => null),
+}));
+
 vi.mock('electron', () => ({
   app: {
     getPath: vi.fn((name: string) => {
@@ -23,11 +30,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('../../../src/main/identity/authStore', () => ({
-  resolveAuth: vi.fn(async () => null),
-  loadOpenAIKey: vi.fn(async () => null),
-  loadClaudeSubscriptionType: vi.fn(async () => null),
-}));
+vi.mock('../../../src/main/identity/authStore', () => authMocks);
 
 const { register } = await import('../../../src/main/hl/engines/registry');
 const { runEngine } = await import('../../../src/main/hl/engines/runEngine');
@@ -90,6 +93,10 @@ describe('runEngine harness watcher', () => {
 
   beforeEach(() => {
     harnessDir = prepareHarness();
+    authMocks.resolveAuth.mockResolvedValue(null);
+    authMocks.loadOpenAIKey.mockResolvedValue(null);
+    authMocks.loadClaudeSubscriptionType.mockResolvedValue(null);
+    authMocks.loadBrowserCodeConfig.mockResolvedValue(null);
   });
 
   afterAll(() => {
@@ -147,5 +154,53 @@ describe('runEngine harness watcher', () => {
 
     expect(events.some((event) => event.type === 'tool_call')).toBe(true);
     expect(events.some((event) => event.type === 'harness_edited')).toBe(false);
+  });
+
+  test('passes BrowserCode provider/model config through the generic spawn context', async () => {
+    authMocks.loadBrowserCodeConfig.mockResolvedValue({
+      providerId: 'alibaba',
+      model: 'alibaba/qwen3-coder-plus',
+      apiKey: 'test-browsercode-key',
+    });
+    const seenContexts: SpawnContext[] = [];
+    const adapter: EngineAdapter = {
+      id: 'browsercode',
+      displayName: 'BrowserCode Test',
+      binaryName: process.execPath,
+      async probeInstalled() { return { installed: true }; },
+      async probeAuthed() { return { authed: false }; },
+      async openLoginInTerminal() { return { opened: false }; },
+      buildSpawnArgs(ctx: SpawnContext) {
+        seenContexts.push(ctx);
+        return ['-e', "console.log(JSON.stringify({ type: 'done' }));"];
+      },
+      buildEnv(_ctx: SpawnContext, baseEnv: NodeJS.ProcessEnv) { return baseEnv; },
+      wrapPrompt(ctx: SpawnContext) { return ctx.prompt; },
+      parseLine(line) {
+        const event = JSON.parse(line) as { type?: string };
+        if (event.type === 'done') return { events: [{ type: 'done', summary: 'ok', iterations: 1 }] };
+        return { events: [] };
+      },
+    };
+    register(adapter);
+    const resolvedModels: Array<{ model: string; source: 'config' | 'engine' }> = [];
+
+    await runEngine({
+      engineId: 'browsercode',
+      prompt: 'test',
+      sessionId: 'test-session',
+      webContents: createWebContents() as unknown as WebContents,
+      cdpPort: 9222,
+      harnessDir,
+      onEvent: () => undefined,
+      onModelResolved: (info) => resolvedModels.push(info),
+    });
+
+    expect(seenContexts[0]).toMatchObject({
+      providerId: 'alibaba',
+      model: 'alibaba/qwen3-coder-plus',
+      savedApiKey: 'test-browsercode-key',
+    });
+    expect(resolvedModels).toEqual([{ model: 'alibaba/qwen3-coder-plus', source: 'config' }]);
   });
 });

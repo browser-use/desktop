@@ -6,11 +6,10 @@ import { assertString } from '../ipc-validators';
 import { createPillWindow, togglePill, onPillVisibilityChange } from '../pill';
 import { saveApiKey as authSaveApiKey, setAuthMode as authSetMode, saveOpenAIKey as authSaveOpenAIKey } from './authStore';
 import { getAdapter } from '../hl/engines';
-import { enrichedEnv, resolveCliSpawn } from '../hl/engines/pathEnrich';
+import { runCliCapture, spawnCli } from '../hl/engines/cliSpawn';
 import { normalizeAccelerator } from '../../shared/hotkeys';
 import { getGlobalCmdbarAccelerator, registerHotkeys, setGlobalCmdbarAccelerator } from '../hotkeys';
 
-const ANTHROPIC_SERVICE = 'com.browser-use.desktop.anthropic';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const API_TEST_MODEL = 'claude-haiku-4-5-20251001';
@@ -58,7 +57,7 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       mainLogger.error('onboardingHandlers.saveApiKey.failed', {
         error: (err as Error).message,
       });
-      throw new Error('Failed to save API key to the OS credential store');
+      throw new Error('Failed to save API key to the OS credential store', { cause: err });
     }
   });
 
@@ -100,9 +99,7 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
    * directly without needing Terminal in the common case.
    */
   ipcMain.handle('onboarding:run-claude-login', async () => {
-    const env = enrichedEnv();
-    const resolved = resolveCliSpawn('claude', ['auth', 'login', '--claudeai'], { env });
-    const child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
+    const child = spawnCli('claude', ['auth', 'login', '--claudeai']);
     let stderrBuf = '';
     let stdoutBuf = '';
     child.stdout?.on('data', (d) => { stdoutBuf += String(d); if (stdoutBuf.length > 4096) stdoutBuf = stdoutBuf.slice(-4096); });
@@ -285,7 +282,7 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       await authSaveOpenAIKey(validated);
     } catch (err) {
       mainLogger.error('onboardingHandlers.saveOpenAIKey.failed', { error: (err as Error).message });
-      throw new Error('Failed to save OpenAI key to the OS credential store');
+      throw new Error('Failed to save OpenAI key to the OS credential store', { cause: err });
     }
   });
 
@@ -480,27 +477,5 @@ function extractVersion(stdout: string): string | undefined {
 }
 
 function runCli(bin: string, args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn(bin, args, { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
-    } catch (err) {
-      resolve({ ok: false, stdout: '', stderr: '', error: (err as Error).message });
-      return;
-    }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ ok: false, stdout, stderr, error: err.message });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, stdout, stderr });
-    });
-  });
+  return runCliCapture(bin, args, timeoutMs);
 }

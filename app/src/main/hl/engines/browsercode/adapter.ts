@@ -6,9 +6,9 @@
  * disabled so agents keep using this app's Electron-scoped helpers.js harness.
  */
 
-import { spawn } from 'node:child_process';
 import { register } from '../registry';
 import { enrichedEnv } from '../pathEnrich';
+import { runCliCapture } from '../cliSpawn';
 import type {
   EngineAdapter,
   InstallProbe,
@@ -42,31 +42,6 @@ const CUSTOM_PROVIDER_CONFIG: Record<string, { name: string; npm: string; baseUR
   },
 };
 
-function runCapture(bin: string, args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
-    } catch (err) {
-      resolve({ ok: false, stdout: '', stderr: (err as Error).message });
-      return;
-    }
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch { /* already dead */ } }, timeoutMs);
-    child.stdout.on('data', (d) => { stdout += String(d); if (stdout.length > 4096) stdout = stdout.slice(-4096); });
-    child.stderr.on('data', (d) => { stderr += String(d); if (stderr.length > 4096) stderr = stderr.slice(-4096); });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ ok: false, stdout, stderr: err.message });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, stdout, stderr });
-    });
-  });
-}
-
 function textFromPart(part: unknown): string {
   if (!part || typeof part !== 'object') return '';
   const rec = part as Record<string, unknown>;
@@ -95,8 +70,8 @@ const browserCodeAdapter: EngineAdapter = {
   binaryName: BIN,
 
   async probeInstalled(): Promise<InstallProbe> {
-    const r = await runCapture(BIN, ['--version']);
-    if (!r.ok) return { installed: false, error: r.stderr || 'bcode not found on PATH' };
+    const r = await runCliCapture(BIN, ['--version']);
+    if (!r.ok) return { installed: false, error: r.stderr || r.error || 'bcode not found on PATH' };
     return { installed: true, version: (r.stdout || r.stderr).trim().split(/\s+/).at(-1) };
   },
 
@@ -111,7 +86,7 @@ const browserCodeAdapter: EngineAdapter = {
   },
 
   buildSpawnArgs(ctx: SpawnContext, wrappedPrompt: string): string[] {
-    const model = ctx.browserCodeModel || DEFAULT_MODEL;
+    const model = ctx.model || DEFAULT_MODEL;
     const args = ['run', '--format', 'json', '--dangerously-skip-permissions', '--model', model];
     if (ctx.resumeSessionId) args.push('--session', ctx.resumeSessionId);
     for (const a of ctx.attachmentRefs) args.push('--file', a.relPath);
@@ -125,8 +100,8 @@ const browserCodeAdapter: EngineAdapter = {
     env.BU_CDP_PORT = String(ctx.cdpPort);
     env.DO_NOT_TRACK = env.DO_NOT_TRACK ?? '1';
 
-    const providerId = ctx.browserCodeProviderId ?? 'moonshotai';
-    const model = ctx.browserCodeModel || DEFAULT_MODEL;
+    const providerId = ctx.providerId ?? 'moonshotai';
+    const model = ctx.model || DEFAULT_MODEL;
     if (ctx.savedApiKey) {
       env.OPENCODE_AUTH_CONTENT = JSON.stringify({
         [providerId]: { type: 'api', key: ctx.savedApiKey },

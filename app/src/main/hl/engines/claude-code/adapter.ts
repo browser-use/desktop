@@ -10,10 +10,10 @@
  *   result                  → done / error
  */
 
-import { spawn } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
-import { enrichedEnv, resolveCliSpawn } from '../pathEnrich';
+import { enrichedEnv } from '../pathEnrich';
+import { runCliCapture, spawnCli } from '../cliSpawn';
 import type {
   AuthProbe,
   EngineAdapter,
@@ -56,24 +56,6 @@ function stringifyToolResult(content: unknown): { text: string; isError: boolean
   return { text: JSON.stringify(content), isError: false };
 }
 
-function runCli(args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn(BIN, args, { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
-    }
-    catch { resolve({ ok: false, stdout: '', stderr: 'spawn failed' }); return; }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', () => { clearTimeout(timer); resolve({ ok: false, stdout, stderr }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr }); });
-  });
-}
-
 // ── adapter ─────────────────────────────────────────────────────────────────
 
 const claudeCodeAdapter: EngineAdapter = {
@@ -82,14 +64,14 @@ const claudeCodeAdapter: EngineAdapter = {
   binaryName: BIN,
 
   async probeInstalled(): Promise<InstallProbe> {
-    const r = await runCli(['--version']);
-    if (!r.ok) return { installed: false, error: r.stderr || 'claude not found on PATH' };
+    const r = await runCliCapture(BIN, ['--version']);
+    if (!r.ok) return { installed: false, error: r.stderr || r.error || 'claude not found on PATH' };
     const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
     return { installed: true, version: m?.[1] };
   },
 
   async probeAuthed(): Promise<AuthProbe> {
-    const r = await runCli(['auth', 'status']);
+    const r = await runCliCapture(BIN, ['auth', 'status']);
     return r.ok ? { authed: true } : { authed: false, error: r.stderr || r.stdout || 'not logged in' };
   },
 
@@ -97,7 +79,7 @@ const claudeCodeAdapter: EngineAdapter = {
     // Shortcut the interactive chooser: jump straight into the subscription
     // OAuth flow and let Claude open the browser itself.
     return new Promise((resolve) => {
-      const child = spawn(BIN, ['auth', 'login', '--claudeai'], { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+      const child = spawnCli(BIN, ['auth', 'login', '--claudeai'], { env: enrichedEnv() });
       let stdoutBuf = '';
       let stderrBuf = '';
       let settled = false;

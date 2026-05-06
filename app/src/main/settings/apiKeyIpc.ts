@@ -6,7 +6,6 @@
  */
 
 import { ipcMain } from 'electron';
-import { spawn } from 'node:child_process';
 import { mainLogger } from '../logger';
 import { assertString } from '../ipc-validators';
 import {
@@ -21,7 +20,7 @@ import {
   loadBrowserCodeConfig,
 } from '../identity/authStore';
 import { probeClaudeAuthStatus } from '../identity/claudeCodeAuth';
-import { enrichedEnv, resolveCliSpawn } from '../hl/engines/pathEnrich';
+import { spawnCli } from '../hl/engines/cliSpawn';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -218,13 +217,7 @@ async function handleClaudeCodeLogin(): Promise<{ ok: boolean; error?: string }>
     };
     let child;
     try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn('claude', ['auth', 'login', '--claudeai'], { env });
-      child = spawn(resolved.command, resolved.args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env,
-        ...resolved.spawnOptions,
-      });
+      child = spawnCli('claude', ['auth', 'login', '--claudeai']);
     } catch (err) {
       finish({ ok: false, error: (err as Error).message });
       return;
@@ -501,9 +494,7 @@ function runLogoutCommand(bin: string, args: string[]): Promise<{ opened: boolea
   return new Promise((resolve) => {
     let child;
     try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn(bin, args, { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
+      child = spawnCli(bin, args);
     } catch (err) {
       resolve({ opened: false, error: `spawn failed: ${(err as Error).message}` });
       return;

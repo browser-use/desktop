@@ -15,9 +15,8 @@
  *   anthropic-beta: oauth-2025-04-20
  */
 
-import { spawn } from 'node:child_process';
 import { mainLogger } from '../logger';
-import { enrichedEnv } from '../hl/engines/pathEnrich';
+import { runCliCapture } from '../hl/engines/cliSpawn';
 
 // Public Claude Code OAuth client id (from the Claude Code install).
 // Not a secret — this is the identifier Anthropic uses to scope the flow.
@@ -69,43 +68,23 @@ export interface ClaudeAuthStatus {
  * rewrites the entry. The CLI subprocess reads its OWN credential entry.
  */
 export function probeClaudeAuthStatus(timeoutMs = 5000): Promise<ClaudeAuthStatus> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn('claude', ['auth', 'status', '--json'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: enrichedEnv(),
-      });
-    } catch {
-      resolve({ loggedIn: false });
-      return;
+  return runCliCapture('claude', ['auth', 'status', '--json'], timeoutMs).then((result) => {
+    if (!result.ok) {
+      mainLogger.debug('claudeCodeAuth.probeStatus.nonZero', { stderr: result.stderr.slice(-200), error: result.error });
+      return { loggedIn: false };
     }
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch { /* dead */ } }, timeoutMs);
-    child.on('error', () => { clearTimeout(timer); resolve({ loggedIn: false }); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        mainLogger.debug('claudeCodeAuth.probeStatus.nonZero', { code, stderr: stderr.slice(-200) });
-        resolve({ loggedIn: false });
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout) as ClaudeAuthStatus;
-        resolve({
-          loggedIn: Boolean(parsed.loggedIn),
-          authMethod: parsed.authMethod,
-          email: parsed.email,
-          subscriptionType: parsed.subscriptionType,
-        });
-      } catch (err) {
-        mainLogger.warn('claudeCodeAuth.probeStatus.parseFailed', { error: (err as Error).message, stdoutPreview: stdout.slice(0, 200) });
-        resolve({ loggedIn: false });
-      }
-    });
+    try {
+      const parsed = JSON.parse(result.stdout) as ClaudeAuthStatus;
+      return {
+        loggedIn: Boolean(parsed.loggedIn),
+        authMethod: parsed.authMethod,
+        email: parsed.email,
+        subscriptionType: parsed.subscriptionType,
+      };
+    } catch (err) {
+      mainLogger.warn('claudeCodeAuth.probeStatus.parseFailed', { error: (err as Error).message, stdoutPreview: result.stdout.slice(0, 200) });
+      return { loggedIn: false };
+    }
   });
 }
 

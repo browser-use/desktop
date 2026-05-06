@@ -7,15 +7,15 @@
  * spawn args, env, and NDJSON dialect behind this contract.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { engineLogger } from '../../logger';
-import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType } from '../../identity/authStore';
+import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType, loadBrowserCodeConfig } from '../../identity/authStore';
 import { helpersPath, toolsPath, skillPath } from '../harness';
 import { get as getAdapter } from './registry';
-import { resolveCliSpawn } from './pathEnrich';
+import { spawnCli } from './cliSpawn';
 import type {
   EngineAdapter,
   ParseContext,
@@ -129,12 +129,22 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   //    the key appropriate to its provider so we can't accidentally send an
   //    Anthropic key to OpenAI (or vice versa).
   let savedApiKey: string | undefined;
+  let providerId: string | undefined;
+  let model: string | undefined;
   let cliAuthed = false;
   try {
     if (adapter.id === 'codex') {
       const k = await loadOpenAIKey();
       if (k) savedApiKey = k;
       cliAuthed = (await adapter.probeAuthed()).authed;
+    } else if (adapter.id === 'browsercode') {
+      const cfg = await loadBrowserCodeConfig();
+      if (cfg?.apiKey) savedApiKey = cfg.apiKey;
+      if (cfg?.providerId) providerId = cfg.providerId;
+      if (cfg?.model) model = cfg.model;
+      // BrowserCode is configured exclusively through provider API keys in
+      // Settings. Do not classify a saved provider key as CLI-managed OAuth.
+      cliAuthed = false;
     } else {
       const auth = await resolveAuth();
       if (auth?.type === 'apiKey') savedApiKey = auth.value;
@@ -194,6 +204,10 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     try { opts.onAuthResolved({ authMode: resolvedAuthMode, subscriptionType: resolvedSubType }); }
     catch (err) { engineLogger.warn('engines.run.onAuthResolved.threw', { error: (err as Error).message }); }
   }
+  if (model && opts.onModelResolved) {
+    try { opts.onModelResolved({ model, source: 'config' }); }
+    catch (err) { engineLogger.warn('engines.run.onModelResolved.threw', { source: 'config', error: (err as Error).message }); }
+  }
 
   // 4. Build spawn context + let adapter compose args/env/prompt.
   const spawnCtx: SpawnContext = {
@@ -204,6 +218,8 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     cdpPort: opts.cdpPort,
     resumeSessionId: opts.resumeSessionId,
     savedApiKey,
+    providerId,
+    model,
     attachmentRefs,
   };
   const wrappedPrompt = adapter.wrapPrompt(spawnCtx);
@@ -218,6 +234,8 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     cdpPort: opts.cdpPort,
     hasResume: !!opts.resumeSessionId,
     attachmentCount: attachmentRefs.length,
+    providerId,
+    model,
     authSource: savedApiKey ? 'savedApiKey' : 'cliManaged',
     args: args.map((a) => (a.length > 120 ? `${a.slice(0, 100)}…<${a.length}ch>` : a)),
     envAuthFlags: {
@@ -246,8 +264,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
 
   let child: ChildProcessWithoutNullStreams;
   try {
-    const resolved = resolveCliSpawn(adapter.binaryName, args, { env });
-    child = spawn(resolved.command, resolved.args, { cwd: opts.harnessDir, env, stdio: [stdinMode, 'pipe', 'pipe'], ...resolved.spawnOptions });
+    child = spawnCli(adapter.binaryName, args, { cwd: opts.harnessDir, env, stdio: [stdinMode, 'pipe', 'pipe'] });
   } catch (err) {
     opts.onEvent({ type: 'error', message: `spawn_failed: ${(err as Error).message}` });
     return;
@@ -398,6 +415,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   let buf = '';
   let stderrBuf = '';
   let stdoutBuf = ''; // tail of raw stdout for diagnostics on early exit
+  let lastResolvedModel = model;
   // Engines (esp. Claude CLI) have been observed to exit non-zero even after
   // emitting a successful `done`. Track whether we already saw one so the
   // close handler doesn't overwrite the completed session with an error.
@@ -428,6 +446,11 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
         }
         for (const raw of result.events) {
           for (const out of postProcess(raw)) emit(out);
+        }
+        if (parseCtx.currentModel && parseCtx.currentModel !== lastResolvedModel && opts.onModelResolved) {
+          lastResolvedModel = parseCtx.currentModel;
+          try { opts.onModelResolved({ model: parseCtx.currentModel, source: 'engine' }); }
+          catch (err) { engineLogger.warn('engines.run.onModelResolved.threw', { source: 'engine', error: (err as Error).message }); }
         }
       } catch (err) {
         engineLogger.warn('engines.run.parse.failed', {

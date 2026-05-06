@@ -24,10 +24,10 @@ export interface SpawnContext {
   resumeSessionId?: string;
   /** Optional user-supplied API key; adapter decides how to inject. */
   savedApiKey?: string;
-  /** BrowserCode/opencode provider id used to build OPENCODE_AUTH_CONTENT. */
-  browserCodeProviderId?: string;
-  /** BrowserCode/opencode model id in provider/model format. */
-  browserCodeModel?: string;
+  /** Optional provider id for engines that route through provider/model registries. */
+  providerId?: string;
+  /** Optional model id selected for this run. */
+  model?: string;
   /** List of attachment paths (relative to harnessDir) the adapter may mention in wrappedPrompt. */
   attachmentRefs: Array<{ relPath: string; mime: string; size: number }>;
 }
