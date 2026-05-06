@@ -41,23 +41,12 @@ crashReporter.start({
   compress: true,
 });
 
-// Enforce a single running instance. Launching a second copy would race on
-// the sessions SQLite db, the .vite dev cache, and the user-data dir — and
-// most commonly just confuses the user. When the second instance tries to
-// start, surface the existing window instead.
+// Enforce a single running instance. The lock loser exits, while the primary
+// process handles `second-instance` by focusing or recreating its main window.
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
-  throw new Error('another instance is already running');
+  app.exit(0);
 }
-app.on('second-instance', () => {
-  const windows = BrowserWindow.getAllWindows();
-  const main = windows.find((w) => !w.isDestroyed() && !w.isMinimized()) ?? windows[0];
-  if (main) {
-    if (main.isMinimized()) main.restore();
-    main.show();
-    main.focus();
-  }
-});
+app.on('second-instance', handleSecondInstanceLaunch);
 
 // Populate the native About dialog (macOS + Linux) instead of showing the
 // default Electron panel with no branding.
@@ -234,6 +223,42 @@ function restorableResumeUrl(lastUrl: string | null | undefined): string {
     // Fall through to the blank page fallback.
   }
   return 'about:blank';
+}
+
+// ---------------------------------------------------------------------------
+// Single-instance focus
+// ---------------------------------------------------------------------------
+function handleSecondInstanceLaunch(): void {
+  mainLogger.info('main.singleInstance.focusExisting', {
+    currentVersion: app.getVersion(),
+  });
+  showAndFocusPrimaryWindow();
+}
+
+function showAndFocusPrimaryWindow(): void {
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+  const preferred = [shellWindow, onboardingWindow, BrowserWindow.getFocusedWindow(), ...windows]
+    .find((win): win is BrowserWindow => Boolean(win && !win.isDestroyed()));
+
+  if (preferred) {
+    if (preferred.isMinimized()) preferred.restore();
+    preferred.show();
+    preferred.focus();
+    return;
+  }
+
+  setTimeout(() => {
+    if (BrowserWindow.getAllWindows().some((win) => !win.isDestroyed())) return;
+    if (accountStore.isOnboardingComplete()) {
+      openShellAndWire();
+      return;
+    }
+    onboardingWindow = createOnboardingWindow();
+    onboardingWindow.on('closed', () => {
+      mainLogger.info('main.onboardingWindow.closed');
+      onboardingWindow = null;
+    });
+  }, 100);
 }
 
 // ---------------------------------------------------------------------------
