@@ -4678,6 +4678,13 @@ button:focus:not(:focus-visible) {
   color: var(--color-fg-primary);
 }
 
+.sidebar__row:focus-visible,
+.sidebar__icon-btn:focus-visible,
+.sidebar__row-menu-btn:focus-visible,
+.sidebar__row-menu-item:focus-visible {
+  outline: none;
+}
+
 .sidebar__row--active {
   background-color: var(--color-surface-interactive-active, var(--color-surface-raised));
   color: var(--color-fg-primary);

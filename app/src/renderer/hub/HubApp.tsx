@@ -12,17 +12,7 @@ import { MOCK_SESSIONS } from './mock-data';
 import type { AgentSession, HlEvent } from './types';
 import type { ActionId } from './keybindings';
 import type { SettingsOpenIntent, SettingsSectionId } from './SettingsPane';
-
-function groupSessions(sessions: AgentSession[]): { group: string; sessions: AgentSession[] }[] {
-  const groups = new Map<string, AgentSession[]>();
-  for (const s of sessions) {
-    const key = s.group ?? 'ungrouped';
-    const arr = groups.get(key);
-    if (arr) arr.push(s);
-    else groups.set(key, [s]);
-  }
-  return Array.from(groups, ([group, items]) => ({ group, sessions: items }));
-}
+import { orderSessionsForSidebar } from './sessionOrdering';
 
 type ViewMode = 'dashboard' | 'grid' | 'settings';
 type SettingsOpenPayload = {
@@ -188,9 +178,11 @@ export function HubApp(): React.ReactElement {
     window.dispatchEvent(new CustomEvent('pane:layout-change'));
   }, [visibleSessionCount, gridColumns, gridPage, viewMode]);
 
+  const orderedSessions = useMemo(() => orderSessionsForSidebar(sessions), [sessions]);
+
   const vimHandlers = useMemo<Partial<Record<ActionId, () => void>>>(() => ({
     'nav.down': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const currVis = visible.findIndex((v) => v.id === sessions[focusIndex]?.id);
       const nextVis = Math.min((currVis < 0 ? 0 : currVis + 1), visible.length - 1);
@@ -199,7 +191,7 @@ export function HubApp(): React.ReactElement {
       setFocusIndex(nextGlobal);
     },
     'nav.up': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const currVis = visible.findIndex((v) => v.id === sessions[focusIndex]?.id);
       const nextVis = Math.max((currVis < 0 ? 0 : currVis - 1), 0);
@@ -208,13 +200,13 @@ export function HubApp(): React.ReactElement {
       setFocusIndex(nextGlobal);
     },
     'nav.top': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const nextGlobal = sessions.findIndex((s) => s.id === visible[0].id);
       setFocusIndex(nextGlobal);
     },
     'nav.bottom': () => {
-      const visible = sessions;
+      const visible = orderedSessions;
       if (!visible.length) return;
       const lastVis = visible.length - 1;
       const nextGlobal = sessions.findIndex((s) => s.id === visible[lastVis].id);
@@ -269,7 +261,7 @@ export function HubApp(): React.ReactElement {
       }
       setFocusIndex(-1);
     },
-  }), [sessions, focusIndex, helpOpen, viewMode, setViewMode, openSettingsPage, showBrowserViews]);
+  }), [sessions, orderedSessions, focusIndex, helpOpen, viewMode, setViewMode, openSettingsPage, showBrowserViews]);
 
   const vim = useVimKeys(vimHandlers);
 
