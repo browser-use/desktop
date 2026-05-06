@@ -16,19 +16,29 @@ export type { AgentSession, SessionStatus, SessionEvents };
 
 const STUCK_TIMEOUT_MS = 30_000;
 
+function isRestorableUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:';
+  } catch {
+    return false;
+  }
+}
+
 export class SessionManager extends EventEmitter {
   private sessions: Map<string, AgentSession> = new Map();
   private abortControllers: Map<string, AbortController> = new Map();
   private stuckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   /**
-   * Per-session Claude Code conversation id (from `system/init` stream event).
-   * Passed as `--resume <id>` on the next spawn to continue the conversation.
-   * In-memory only — cleared on process restart and on rerun.
+   * Per-session provider conversation id (Claude `session_id`, Codex
+   * `thread_id`, BrowserCode/OpenCode `sessionID`). Passed to the adapter on
+   * follow-up so the provider continues its own local transcript.
    */
-  private claudeSessionIds: Map<string, string> = new Map();
+  private engineSessionIds: Map<string, string> = new Map();
   /**
-   * Per-session engine id chosen at create time. In-memory only; reverts to
-   * default on process restart until a DB column is added in migration v8.
+   * Per-session engine id chosen at create time. Mirrored in the DB and
+   * hydrated at startup so historical sessions resume on the same backend.
    */
   private sessionEngines: Map<string, string> = new Map();
   private termStates: Map<string, TermTranslatorState> = new Map();
@@ -65,11 +75,15 @@ export class SessionManager extends EventEmitter {
         originChannel: row.origin_channel ?? undefined,
         originConversationId: row.origin_conversation_id ?? undefined,
         primarySite: row.primary_site ?? null,
+        lastUrl: row.last_url ?? null,
         lastActivityAt: row.updated_at,
       };
       if (row.engine) {
         (session as AgentSession & { engine?: string }).engine = row.engine;
         this.sessionEngines.set(row.id, row.engine);
+      }
+      if (row.engine_session_id) {
+        this.engineSessionIds.set(row.id, row.engine_session_id);
       }
       if (row.model) {
         session.model = row.model;
@@ -310,21 +324,28 @@ export class SessionManager extends EventEmitter {
     return eventsToTermBytes(events);
   }
 
-  /** Update the session's primarySite to match the domain of the given URL.
+  /** Update the session's latest restorable browser URL and primarySite.
    *  Called by index.ts when BrowserPool fires a navigation event — the
    *  browser is the source of truth for what page the session is on. */
-  updatePrimarySiteFromUrl(id: string, url: string): void {
+  updateNavigationFromUrl(id: string, url: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
+    if (!isRestorableUrl(url)) return;
     const domain = extractRegistrableDomain(url);
-    if (!domain) return;
-    if (session.primarySite === domain) return;
+    const nextSite = domain ?? session.primarySite ?? null;
+    if (session.primarySite === nextSite && session.lastUrl === url) return;
     const from = session.primarySite ?? null;
-    session.primarySite = domain;
+    session.primarySite = nextSite;
+    session.lastUrl = url;
     session.lastActivityAt = Date.now();
-    this.db.updatePrimarySite(session.id, domain);
-    mainLogger.info('SessionManager.primarySite.update', { id: session.id, from, to: domain, url });
+    this.db.updateNavigation(session.id, nextSite, url);
+    mainLogger.info('SessionManager.navigation.update', { id: session.id, from, to: nextSite, url });
     this.emitEvent('session-updated', { ...session });
+  }
+
+  /** Back-compat for callers/tests that only cared about the display domain. */
+  updatePrimarySiteFromUrl(id: string, url: string): void {
+    this.updateNavigationFromUrl(id, url);
   }
 
   completeSession(id: string): void {
@@ -353,8 +374,8 @@ export class SessionManager extends EventEmitter {
     if (!session) {
       throw new Error(`Session not found: ${id}`);
     }
-    if (session.status !== 'idle') {
-      throw new Error(`Session ${id} is ${session.status}, expected idle`);
+    if (session.status !== 'idle' && session.status !== 'stopped') {
+      throw new Error(`Session ${id} is ${session.status}, expected idle or stopped`);
     }
 
     this.hydrateOutput(id);
@@ -367,6 +388,7 @@ export class SessionManager extends EventEmitter {
 
     session.prompt = prompt;
     session.status = 'running';
+    session.error = undefined;
     this.db.updateSessionPrompt(id, prompt);
     this.db.updateSessionStatus(id, 'running');
     const abortController = new AbortController();
@@ -427,9 +449,10 @@ export class SessionManager extends EventEmitter {
     this.db.clearEvents(id);
     this.termStates.delete(id);
     this.emitEvent('session-output-term', id, '\x1bc');
-    // Rerun starts a fresh conversation — clear any resume id so the next
-    // spawn doesn't attempt --resume against a now-invalid thread.
-    this.claudeSessionIds.delete(id);
+    // Rerun starts a fresh conversation — clear any provider resume id so the
+    // next spawn doesn't attempt resume against a now-invalid thread.
+    this.engineSessionIds.delete(id);
+    this.db.updateEngineSessionId(id, null);
 
     const abortController = new AbortController();
     this.abortControllers.set(id, abortController);
@@ -510,20 +533,30 @@ export class SessionManager extends EventEmitter {
       .map((s) => ({ ...s, output: [] }));
   }
 
-  /** Store the Claude Code `session_id` reported in the `system/init` event. */
+  /** Store the provider conversation id reported by the engine stream. */
+  setEngineSessionId(id: string, engineSessionId: string): void {
+    this.engineSessionIds.set(id, engineSessionId);
+    this.db.updateEngineSessionId(id, engineSessionId);
+    mainLogger.info('SessionManager.setEngineSessionId', { id, engineSessionId });
+  }
+
+  /** Retrieve a previously-captured provider conversation id, if any. */
+  getEngineSessionId(id: string): string | undefined {
+    return this.engineSessionIds.get(id);
+  }
+
+  /** Back-compat wrappers for older call sites. */
   setClaudeSessionId(id: string, claudeSessionId: string): void {
-    this.claudeSessionIds.set(id, claudeSessionId);
-    mainLogger.info('SessionManager.setClaudeSessionId', { id, claudeSessionId });
+    this.setEngineSessionId(id, claudeSessionId);
   }
 
-  /** Retrieve a previously-captured Claude Code session id, if any. */
   getClaudeSessionId(id: string): string | undefined {
-    return this.claudeSessionIds.get(id);
+    return this.getEngineSessionId(id);
   }
 
-  /** Record the engine id chosen for this session (in-memory only). Also
-   *  stamps `session.engine` so every future `{ ...session }` snapshot carries
-   *  the provider id to the renderer for header icon rendering. */
+  /** Record the engine id chosen for this session. Also stamps
+   *  `session.engine` so every future snapshot carries the provider id to the
+   *  renderer for header icon rendering. */
   setSessionEngine(id: string, engineId: string): void {
     this.sessionEngines.set(id, engineId);
     const session = this.sessions.get(id);

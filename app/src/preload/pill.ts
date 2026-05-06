@@ -48,7 +48,7 @@ log.info('preload.pill', { message: 'Pill preload script initializing' });
 // ---------------------------------------------------------------------------
 
 contextBridge.exposeInMainWorld('pillAPI', {
-  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastActivityAt?: number }>> => {
+  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastUrl?: string | null; lastActivityAt?: number }>> => {
     return ipcRenderer.invoke('sessions:list');
   },
   /**

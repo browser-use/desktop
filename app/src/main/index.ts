@@ -193,11 +193,11 @@ browserPool.setOnGone((sessionId) => {
   // to 'stopped' so the UI stops showing "Idle" and renders the end state.
   sessionManager.markBrowserEnded(sessionId);
 });
-// Keep each session's primarySite in sync with the actual page — the
-// browser is the source of truth. Covers agent-driven navigation and
+// Keep each session's primarySite + lastUrl in sync with the actual page —
+// the browser is the source of truth. Covers agent-driven navigation and
 // any clicks the user makes inside the attached view.
 browserPool.setOnNavigate((sessionId, url) => {
-  sessionManager.updatePrimarySiteFromUrl(sessionId, url);
+  sessionManager.updateNavigationFromUrl(sessionId, url);
 });
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
@@ -223,6 +223,18 @@ function openSettingsInShell(payload?: SettingsOpenPayload): void {
   shellWindow.webContents.send('open-settings', payload);
 }
 
+function restorableResumeUrl(lastUrl: string | null | undefined): string {
+  if (!lastUrl) return 'about:blank';
+  try {
+    const parsed = new URL(lastUrl);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:') {
+      return lastUrl;
+    }
+  } catch {
+    // Fall through to the blank page fallback.
+  }
+  return 'about:blank';
+}
 
 // ---------------------------------------------------------------------------
 // Shell window factory
@@ -769,7 +781,7 @@ app.whenReady().then(async () => {
         webContents: view.webContents,
         cdpPort: resolvedCdp.port,
         signal: abortController.signal,
-        onSessionId: (sid) => sessionManager.setClaudeSessionId(id, sid),
+        onSessionId: (sid) => sessionManager.setEngineSessionId(id, sid),
         onModelResolved: ({ model }) => sessionManager.setSessionModel(id, model),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
         onEvent: (event) => {
@@ -899,6 +911,12 @@ app.whenReady().then(async () => {
       attachmentMeta: resumeAttachments.map((a) => ({ name: a.name, mime: a.mime, size: a.bytes.byteLength })),
     });
 
+    const currentSession = sessionManager.getSession(validatedId);
+    if (!currentSession) return { error: 'Session not found' };
+    if (currentSession.status !== 'idle' && currentSession.status !== 'stopped') {
+      return { error: `Session ${validatedId} is ${currentSession.status}, expected idle or stopped` };
+    }
+
     if (resumeAttachments.length > 0) {
       const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
       for (const a of resumeAttachments) {
@@ -907,10 +925,35 @@ app.whenReady().then(async () => {
       mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length });
     }
 
-    const webContents = browserPool.getWebContents(validatedId);
+    let webContents = browserPool.getWebContents(validatedId);
     if (!webContents) {
-      mainLogger.warn('main.sessions:resume.noBrowser', { id: validatedId });
-      return { error: 'Browser session expired — start a new session' };
+      const restoreUrl = restorableResumeUrl(currentSession.lastUrl);
+      mainLogger.info('main.sessions:resume.recreateBrowser', {
+        id: validatedId,
+        hasLastUrl: Boolean(currentSession.lastUrl),
+        restoreUrl,
+      });
+      const view = browserPool.create(validatedId, Date.now());
+      if (!view) {
+        mainLogger.warn('main.sessions:resume.poolFull', { id: validatedId, stats: browserPool.getStats() });
+        return { error: 'Browser pool full' };
+      }
+      if (shellWindow && !shellWindow.isDestroyed()) {
+        browserPool.detachAll(shellWindow);
+        mainLogger.info('main.sessions:resume.detachedAwaitingRenderer', { id: validatedId });
+      }
+      try {
+        await view.webContents.loadURL(restoreUrl);
+      } catch (err) {
+        mainLogger.warn('main.sessions:resume.restoreUrl.failed', {
+          id: validatedId,
+          restoreUrl,
+          error: (err as Error).message,
+        });
+        try { await view.webContents.loadURL('about:blank'); }
+        catch { /* keep going; runEngine will surface target failures */ }
+      }
+      webContents = view.webContents;
     }
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
@@ -935,8 +978,8 @@ app.whenReady().then(async () => {
       webContents,
       cdpPort: resolvedCdp.port,
       signal: abortController.signal,
-      resumeSessionId: sessionManager.getClaudeSessionId(validatedId),
-      onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      resumeSessionId: sessionManager.getEngineSessionId(validatedId),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
@@ -1013,7 +1056,7 @@ app.whenReady().then(async () => {
       signal: abortController.signal,
       // Rerun intentionally starts a fresh conversation; SessionManager.rerunSession
       // already cleared any stored resume id.
-      onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {

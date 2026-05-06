@@ -24,6 +24,7 @@ export interface AgentSession {
   group?: string;
   hasBrowser?: boolean;
   primarySite?: string | null;
+  lastUrl?: string | null;
   lastActivityAt?: number;
   engine?: string;
   model?: string;

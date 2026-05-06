@@ -136,6 +136,7 @@ export const AgentSessionSchema = z.object({
   originChannel: z.string().optional(),
   originConversationId: z.string().optional(),
   primarySite: z.string().nullable().optional(),
+  lastUrl: z.string().nullable().optional(),
   lastActivityAt: z.number().optional(),
   engine: z.string().optional(),
   model: z.string().optional(),
