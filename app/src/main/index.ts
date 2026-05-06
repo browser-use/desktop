@@ -557,20 +557,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('logs:show', (_evt, sessionId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     mainLogger.info('main.logs:show', { sessionId, anchor });
     showLogs(sessionId, anchor ?? null);
-    // Only take OS-level focus when the SHELL window itself is already
-    // focused (user actively interacting with the hub). The previous gate
-    // checked BrowserWindow.getFocusedWindow() !== null which was true
-    // even when the user had the global-shortcut PILL focused — pill is
-    // also one of our windows. Focusing logs in that path then activated
-    // the entire app on macOS, yanking the user back to Browser Use.
-    // AgentPane auto-fires logs.show() when it mounts for a new session,
-    // so this happened on every pill-submitted task.
-    const logsWin = getLogsWindow();
-    if (
-      logsWin && !logsWin.isDestroyed() &&
-      shellWindow && !shellWindow.isDestroyed() &&
-      shellWindow.isFocused()
-    ) logsWin.focus();
     return true;
   });
   ipcMain.handle('logs:close', () => {
