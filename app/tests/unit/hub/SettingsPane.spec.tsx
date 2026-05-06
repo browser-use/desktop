@@ -53,8 +53,6 @@ function renderSettingsPane(onUpdateBinding: (id: ActionId, keys: string[]) => P
   act(() => {
     root.render(
       <SettingsPane
-        open
-        onClose={vi.fn()}
         keybindings={[createPaneBinding]}
         overrides={{}}
         onUpdateBinding={onUpdateBinding}
@@ -106,6 +104,15 @@ describe('SettingsPane shortcut recorder', () => {
 
     expect(onUpdateBinding).toHaveBeenCalledWith('action.createPane', ['Cmd+Alt+Space']);
     expect(container.querySelector('.settings-pane__key-error')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it('includes Browser Sync as its own anchored settings tab', () => {
+    const { container, root } = renderSettingsPane(vi.fn(async () => true));
+    const browserSyncTab = container.querySelector<HTMLButtonElement>('[data-settings-tab="settings-browser-sync"]');
+
+    expect(browserSyncTab?.textContent).toBe('Browser Sync');
 
     act(() => root.unmount());
   });

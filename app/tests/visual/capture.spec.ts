@@ -12,7 +12,7 @@
  *   Onboarding: welcome, naming, account, account-scopes
  *   Shell: empty, 3-tabs
  *   Pill: idle, streaming, result
- *   Settings: api-key, agent, appearance, scopes, danger-zone
+ *   Settings: providers, connections, shortcuts, privacy, application
  *
  * Track H Visual QA owns this file.
  */
@@ -23,7 +23,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { build as viteBuild } from 'vite';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -103,9 +102,7 @@ function logWarn(msg: string, extra?: Record<string, unknown>): void {
 
 // URL patterns for each window type
 const SHELL_URL_PATTERNS = ['shell.html', '/shell/', 'localhost:5173'];
-const PILL_URL_PATTERNS  = ['pill.html', '/pill/', 'localhost:5174'];
 const ONBOARDING_URL_PATTERNS = ['onboarding.html', '/onboarding/'];
-const SETTINGS_URL_PATTERNS = ['settings.html', '/settings/', 'settings/settings'];
 const SKIP_URL_PATTERNS = ['devtools://', 'chrome-devtools', 'google.com', 'about:blank'];
 
 function matchesPatterns(url: string, patterns: string[]): boolean {
@@ -169,23 +166,6 @@ async function getShellWindow(electronApp: ElectronApplication): Promise<Page> {
   return waitForWindow(electronApp, SHELL_URL_PATTERNS, 15_000);
 }
 
-/** Get the settings window specifically */
-async function getSettingsWindow(electronApp: ElectronApplication): Promise<Page | null> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const windows = electronApp.windows();
-    for (const win of windows) {
-      const url = win.url();
-      if (matchesPatterns(url, SETTINGS_URL_PATTERNS)) {
-        await win.waitForLoadState('domcontentloaded');
-        return win;
-      }
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  return null;
-}
-
 // ---------------------------------------------------------------------------
 // Common launch helper
 // ---------------------------------------------------------------------------
@@ -220,8 +200,7 @@ async function launchApp(opts: {
     ],
     env: {
       ...(process.env as Record<string, string>),
-      // Use 'test' so SettingsWindow.ts does NOT auto-open DevTools
-      // (the guard is `NODE_ENV !== 'production'`)
+      // Use 'test' so renderer and main-process dev-only behavior stays deterministic.
       NODE_ENV: 'test',
       DEV_MODE: '1',
       KEYCHAIN_MOCK: '1',
@@ -301,44 +280,6 @@ async function screenshot(page: Page, stateName: string, notes?: string): Promis
     throw err;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Pre-build: settings renderer
-// ---------------------------------------------------------------------------
-// The settings renderer is NOT built by `npm run build` when running the
-// capture harness standalone (Forge VitePlugin only runs during `npm run start`
-// or `npm run make`).  We pre-build it here so SettingsWindow.ts can loadFile
-// from .vite/renderer/settings/settings.html at test time.
-// Option B from the unskip plan — runs fast (<500ms, cached modules).
-
-test.beforeAll(async () => {
-  const configFile = path.join(MY_APP_ROOT, 'vite.settings.config.ts');
-  if (!fs.existsSync(configFile)) {
-    logWarn('vite.settings.config.ts not found — skipping pre-build');
-    return;
-  }
-  const outDir = path.join(MY_APP_ROOT, '.vite', 'renderer', 'settings');
-  const htmlPath = path.join(outDir, 'settings.html');
-
-  // Skip if already built (common in watch-mode re-runs)
-  if (fs.existsSync(htmlPath)) {
-    log('Settings renderer already built — skipping pre-build', { htmlPath });
-    return;
-  }
-
-  log('Pre-building settings renderer (Option B)…', { configFile, outDir });
-  try {
-    await viteBuild({
-      configFile,
-      logLevel: 'warn',
-    });
-    log('Settings renderer pre-build complete', { htmlPath });
-  } catch (err) {
-    logWarn('Settings renderer pre-build failed — settings captures will fail', {
-      error: (err as Error).message,
-    });
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Manifest flush after all tests
@@ -801,10 +742,10 @@ test('capture: pill-error', async () => {
 // Settings captures — open via IPC, screenshot each tab
 // ===========================================================================
 
-async function captureSettingsTab(
+async function captureSettingsSection(
   tabLabel: string,
   stateName: string,
-  clickSelector: string,
+  sectionId: string,
   notes: string,
 ): Promise<void> {
   log(`=== Settings: ${stateName} ===`);
@@ -819,8 +760,8 @@ async function captureSettingsTab(
 
     // Wait for the shell window first (it always opens)
     const shellPage = await getShellWindow(electronApp);
-    await shellPage.waitForSelector('#root', { timeout: UI_TIMEOUT_MS });
-    log('Shell ready, opening settings window');
+    await shellPage.waitForSelector('#hub-root', { timeout: UI_TIMEOUT_MS });
+    log('Shell ready, opening settings page');
 
     // Trigger the Settings menu item via the application Menu (CmdOrCtrl+,).
     // electronApp.evaluate receives the electron module as the first parameter.
@@ -843,23 +784,17 @@ async function captureSettingsTab(
       findAndClick(menu.items);
     });
 
-    // Wait for the settings window to open
-    await shellPage.waitForTimeout(2_000);
-    const settingsPage = await getSettingsWindow(electronApp);
+    await shellPage.waitForSelector('.settings-page', { timeout: UI_TIMEOUT_MS });
+    await shellPage.emulateMedia({ reducedMotion: 'reduce' });
 
-    if (!settingsPage) {
-      throw new Error('Settings window did not open');
-    }
-
-    await settingsPage.emulateMedia({ reducedMotion: 'reduce' });
-
-    // Click the requested tab
-    const tabBtn = settingsPage.locator(clickSelector).first();
+    const tabBtn = shellPage.locator(`button[data-settings-tab="${sectionId}"]`).first();
     await tabBtn.waitFor({ state: 'visible', timeout: UI_TIMEOUT_MS });
     await tabBtn.click();
-    log(`Clicked settings tab: ${tabLabel}`);
+    await shellPage.locator(`#${sectionId}`).waitFor({ state: 'visible', timeout: UI_TIMEOUT_MS });
+    await shellPage.waitForTimeout(SETTLE_MS);
+    log(`Clicked settings section tab: ${tabLabel}`);
 
-    await screenshot(settingsPage, stateName, notes);
+    await screenshot(shellPage, stateName, notes);
   } catch (err) {
     logWarn(`Settings state ${stateName} failed`, { error: (err as Error).message });
     recordCapture({
@@ -868,54 +803,54 @@ async function captureSettingsTab(
       captured_at: new Date().toISOString(),
       width: 0, height: 0, success: false,
       error: (err as Error).message,
-      notes: 'Settings window not reachable in test env',
+      notes: 'Settings page not reachable in test env',
     });
   } finally {
     if (result) await teardown(result.electronApp, result.userDataDir);
   }
 }
 
-test('capture: settings-api-key', async () => {
-  await captureSettingsTab(
-    'API Key',
-    'settings-api-key',
-    'button:has-text("API Key")',
-    'Settings — API Key tab',
+test('capture: settings-providers', async () => {
+  await captureSettingsSection(
+    'Model providers',
+    'settings-providers',
+    'settings-model-providers',
+    'Settings - Model providers section',
   );
 });
 
-test('capture: settings-agent', async () => {
-  await captureSettingsTab(
-    'Agent',
-    'settings-agent',
-    'button:has-text("Agent")',
-    'Settings — Agent tab',
+test('capture: settings-connections', async () => {
+  await captureSettingsSection(
+    'Connections',
+    'settings-connections',
+    'settings-connections',
+    'Settings - Connections section',
   );
 });
 
-test('capture: settings-appearance', async () => {
-  await captureSettingsTab(
-    'Appearance',
-    'settings-appearance',
-    'button:has-text("Appearance")',
-    'Settings — Appearance tab',
+test('capture: settings-shortcuts', async () => {
+  await captureSettingsSection(
+    'Shortcuts',
+    'settings-shortcuts',
+    'settings-shortcuts',
+    'Settings - Shortcuts section',
   );
 });
 
-test('capture: settings-scopes', async () => {
-  await captureSettingsTab(
-    'Google Scopes',
-    'settings-scopes',
-    'button:has-text("Google Scopes")',
-    'Settings — Google Scopes tab',
+test('capture: settings-privacy', async () => {
+  await captureSettingsSection(
+    'Privacy',
+    'settings-privacy',
+    'settings-privacy',
+    'Settings - Privacy section',
   );
 });
 
-test('capture: settings-danger-zone', async () => {
-  await captureSettingsTab(
-    'Danger Zone',
-    'settings-danger-zone',
-    'button:has-text("Danger Zone")',
-    'Settings — Danger Zone tab',
+test('capture: settings-application', async () => {
+  await captureSettingsSection(
+    'Application',
+    'settings-application',
+    'settings-application',
+    'Settings - Application section',
   );
 });
