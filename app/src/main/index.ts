@@ -8,7 +8,6 @@
  */
 
 import { config as loadDotEnv } from 'dotenv';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,14 +16,8 @@ import path from 'node:path';
 // dev-time fallback.
 loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
-import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell, type Event } from 'electron';
+import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
 import { mergeChromiumFeature } from './startup/chromiumFeatures';
-import {
-  createSingleInstanceLaunchData,
-  parseSingleInstanceLaunchData,
-  shouldHandoffToNewerInstance,
-  type SingleInstanceLaunchData,
-} from './startup/singleInstance';
 
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch(
@@ -48,22 +41,9 @@ crashReporter.start({
   compress: true,
 });
 
-// Enforce a single running instance. Launching a second copy would race on
-// the sessions SQLite db, the .vite dev cache, and the user-data dir. When the
-// second instance is the same version, surface the existing window. When it is
-// a newer installed binary, quit this process and hand off to that binary so a
-// manual install can complete without users first finding and quitting the old
-// process.
-const singleInstanceLaunchData = createSingleInstanceLaunchData({
-  version: app.getVersion(),
-  execPath: process.execPath,
-  argv: process.argv,
-  cwd: process.cwd(),
-  appPath: app.getAppPath(),
-  pid: process.pid,
-  platform: process.platform,
-});
-if (!app.requestSingleInstanceLock(singleInstanceLaunchData)) {
+// Enforce a single running instance. The lock loser exits, while the primary
+// process handles `second-instance` by focusing or recreating its main window.
+if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 }
 app.on('second-instance', handleSecondInstanceLaunch);
@@ -186,7 +166,6 @@ if (started) {
 let shellWindow: BrowserWindow | null = null;
 let onboardingWindow: BrowserWindow | null = null;
 let isQuitting = false;
-let pendingNewerInstanceLaunch: SingleInstanceLaunchData | null = null;
 
 const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'sessions.db'));
 // Bootstrap the editable helpers harness — writes stock helpers.js + TOOLS.json
@@ -215,19 +194,11 @@ const whatsAppAdapter = new WhatsAppAdapter();
 const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
 
 // ---------------------------------------------------------------------------
-// Single-instance handoff
+// Single-instance focus
 // ---------------------------------------------------------------------------
-function handleSecondInstanceLaunch(_event: Event, _argv: string[], _workingDirectory: string, additionalData: unknown): void {
-  const incoming = parseSingleInstanceLaunchData(additionalData);
-  const incomingVersion = incoming ? incoming.version : null;
-  if (shouldHandoffToNewerInstance(app.getVersion(), incoming)) {
-    scheduleNewerInstanceHandoff(incoming);
-    return;
-  }
-
+function handleSecondInstanceLaunch(): void {
   mainLogger.info('main.singleInstance.focusExisting', {
     currentVersion: app.getVersion(),
-    incomingVersion,
   });
   showAndFocusPrimaryWindow();
 }
@@ -256,54 +227,6 @@ function showAndFocusPrimaryWindow(): void {
       onboardingWindow = null;
     });
   }, 100);
-}
-
-function scheduleNewerInstanceHandoff(incoming: SingleInstanceLaunchData): void {
-  if (pendingNewerInstanceLaunch) {
-    mainLogger.info('main.singleInstance.newerLaunchAlreadyPending', {
-      currentVersion: app.getVersion(),
-      incomingVersion: incoming.version,
-      execPath: incoming.execPath,
-    });
-    return;
-  }
-
-  pendingNewerInstanceLaunch = incoming;
-  mainLogger.info('main.singleInstance.newerLaunch', {
-    currentVersion: app.getVersion(),
-    incomingVersion: incoming.version,
-    execPath: incoming.execPath,
-    appPath: incoming.appPath,
-  });
-
-  app.once('will-quit', () => {
-    const launch = pendingNewerInstanceLaunch;
-    if (!launch) return;
-    app.releaseSingleInstanceLock();
-    launchNewerInstance(launch);
-  });
-
-  isQuitting = true;
-  app.quit();
-}
-
-function launchNewerInstance(incoming: SingleInstanceLaunchData): void {
-  const args = incoming.argv
-    .slice(1)
-    .filter((arg) => !arg.startsWith('--original-process-start-time='));
-  try {
-    const child = spawn(incoming.execPath, args, {
-      cwd: incoming.cwd,
-      detached: true,
-      stdio: 'ignore',
-    });
-    child.unref();
-  } catch (err) {
-    mainLogger.warn('main.singleInstance.newerLaunchFailed', {
-      error: (err as Error)?.message ?? String(err),
-      execPath: incoming.execPath,
-    });
-  }
 }
 
 // ---------------------------------------------------------------------------
