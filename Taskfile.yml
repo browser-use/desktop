@@ -40,6 +40,28 @@ tasks:
     cmds:
       - npm run start:reset-sessions
 
+  agent:run:
+    desc: Submit a task to a running local app, e.g. task agent:run PROMPT='open example.com' ENGINE=codex
+    silent: true
+    cmds:
+      - |
+        PROMPT="{{default "" .PROMPT}}"
+        ENGINE="{{default "" .ENGINE}}"
+        JSON="{{default "" .JSON}}"
+        if [ -z "$PROMPT" ]; then
+          echo "Set PROMPT, e.g. task agent:run PROMPT='open example.com and report the title' ENGINE=codex"
+          exit 1
+        fi
+        if [ -n "$ENGINE" ] && [ "$JSON" = "1" ]; then
+          node app/scripts/run-task.mjs --json --engine "$ENGINE" "$PROMPT"
+        elif [ -n "$ENGINE" ]; then
+          node app/scripts/run-task.mjs --engine "$ENGINE" "$PROMPT"
+        elif [ "$JSON" = "1" ]; then
+          node app/scripts/run-task.mjs --json "$PROMPT"
+        else
+          node app/scripts/run-task.mjs "$PROMPT"
+        fi
+
   lint:
     desc: Run eslint
     dir: "{{.APP_DIR}}"

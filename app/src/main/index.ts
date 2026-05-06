@@ -90,6 +90,7 @@ import { registerTelemetryHandlers } from './telemetryIpc';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
+import { createLocalTaskServer } from './localTaskServer';
 import {
   resolveUserDataDir,
   resolveCdpPort,
@@ -787,6 +788,42 @@ app.whenReady().then(async () => {
   }
 
   channelRouter.setStartSession(startSessionWithAgent);
+
+  const localTaskServer = await createLocalTaskServer({
+    userDataPath: app.getPath('userData'),
+    log: mainLogger,
+    submitTask: async (payload) => {
+      const validatedPrompt = assertString(payload.prompt, 'prompt', 10000);
+      const engineId = payload.engine == null ? DEFAULT_ENGINE_ID : assertString(payload.engine, 'engine', 50);
+      mainLogger.info('main.localTask.submit', {
+        promptLength: validatedPrompt.length,
+        engineId,
+      });
+
+      const id = sessionManager.createSession(validatedPrompt);
+      sessionManager.setSessionEngine(id, engineId);
+      captureEvent('session_created', {
+        source: 'local-task-server',
+        engine: engineId,
+        prompt_length: validatedPrompt.length,
+        attachments_count: 0,
+      });
+
+      try {
+        await startSessionWithAgent(id);
+        return { id, started: true, engine: engineId };
+      } catch (err) {
+        const error = (err as Error).message || 'Session start failed';
+        mainLogger.warn('main.localTask.startFailed', { id, error });
+        return { id, started: false, engine: engineId, error };
+      }
+    },
+  });
+  app.once('before-quit', () => {
+    void localTaskServer.close().catch((err) => {
+      mainLogger.warn('main.localTaskServer.closeFailed', { error: (err as Error).message });
+    });
+  });
 
   ipcMain.handle('sessions:create', (_event, payload: unknown) => {
     let promptRaw: unknown;
