@@ -2,11 +2,10 @@
  * Structured rotating logger for Browser Use Desktop.
  *
  * Outputs JSONL (one JSON object per line) to channel-specific files:
- *   ~/Library/Application Support/Browser Use/logs/main.log
+ *   ~/Library/Application Support/Browser Use/logs/app.log
  *   ~/Library/Application Support/Browser Use/logs/browser.log
  *   ~/Library/Application Support/Browser Use/logs/renderer.log
  *   ~/Library/Application Support/Browser Use/logs/engine.log
- *   ~/Library/Application Support/Browser Use/logs/agent-task-{taskId}.log
  *
  * Rotation: 10 MB per file, keep 5 rotated files.
  * Format: { ts, level, channel, msg, ...extra }
@@ -26,6 +25,7 @@ const LOG_PREFIX = '[Logger]';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;   // 10 MB
 const MAX_ROTATED_FILES = 5;
 const LOG_DIR_NAME = 'logs';
+const RESERVED_LOG_FIELDS = new Set(['ts', 'level', 'channel', 'msg']);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +49,19 @@ export function sanitizeLogChannel(channel: string): string {
     .replace(/^\.+/, '');
 
   return safe || 'log';
+}
+
+export function sanitizeLogExtra(extra?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!extra) return undefined;
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(extra)) {
+    if (RESERVED_LOG_FIELDS.has(key)) {
+      safe[`extra_${key}`] = value;
+    } else {
+      safe[key] = value;
+    }
+  }
+  return safe;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +191,7 @@ export class ChannelLogger {
       level,
       channel: this.channel,
       msg,
-      ...extra,
+      ...sanitizeLogExtra(extra),
     };
 
     const line = JSON.stringify(entry);
@@ -226,9 +239,8 @@ export class LoggerFactory {
   /**
    * Get or create a channel logger.
    * Channel names are sanitized before mapping to filenames:
-   *   'main'          → main.log
+   *   'app'           → app.log
    *   'daemon'        → daemon.log
-   *   'agent-task-X'  → agent-task-X.log
    */
   getLogger(channel: string, minLevel?: LogLevel): ChannelLogger {
     const safeChannel = sanitizeLogChannel(channel);
@@ -255,7 +267,7 @@ export class LoggerFactory {
 // ---------------------------------------------------------------------------
 
 export const loggerFactory = new LoggerFactory();
-export const mainLogger = loggerFactory.getLogger('main');
+export const mainLogger = loggerFactory.getLogger('app');
 export const browserLogger = loggerFactory.getLogger('browser');
 export const rendererLogger = loggerFactory.getLogger('renderer');
 export const engineLogger = loggerFactory.getLogger('engine');

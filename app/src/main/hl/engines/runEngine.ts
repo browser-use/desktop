@@ -512,7 +512,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       } else if (code !== 0 && !doneEmitted) {
         const stderrTrim = stderrBuf.trim();
         const stdoutTrim = stdoutBuf.trim();
-        const detail = stderrTrim || stdoutTrim || `exit_code=${code} (no stderr/stdout — check main.log engines.run.spawn + engines.run.exit)`;
+        const detail = stderrTrim || stdoutTrim || `exit_code=${code} (no stderr/stdout — check app.log engines.run.spawn + engines.run.exit)`;
         opts.onEvent({ type: 'error', message: `${adapter.id}_exit: ${detail.slice(-800)}` });
       } else if (code !== 0) {
         engineLogger.warn('engines.run.exit.postDoneNonZero', { engineId: adapter.id, code, stderrTail: stderrBuf.slice(-200) });
