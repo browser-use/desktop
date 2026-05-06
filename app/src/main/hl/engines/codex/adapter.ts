@@ -18,10 +18,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
-import { enrichedEnv, resolveCliSpawn } from '../pathEnrich';
+import { enrichedEnv } from '../pathEnrich';
+import { runCliCapture } from '../cliSpawn';
 import { runCodexDeviceLogin } from '../../../identity/codexLogin';
 import type {
   AuthProbe,
@@ -37,24 +37,6 @@ import { estimateCostUsd } from '../../pricing';
 const ID = 'codex';
 const DISPLAY = 'Codex';
 const BIN = 'codex';
-
-function runCli(args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn(BIN, args, { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
-    }
-    catch { resolve({ ok: false, stdout: '', stderr: 'spawn failed' }); return; }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', () => { clearTimeout(timer); resolve({ ok: false, stdout, stderr }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr }); });
-  });
-}
 
 function codexAuthFilePath(): string {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -96,8 +78,8 @@ const codexAdapter: EngineAdapter = {
   binaryName: BIN,
 
   async probeInstalled(): Promise<InstallProbe> {
-    const r = await runCli(['--version']);
-    if (!r.ok) return { installed: false, error: r.stderr || 'codex not found on PATH' };
+    const r = await runCliCapture(BIN, ['--version']);
+    if (!r.ok) return { installed: false, error: r.stderr || r.error || 'codex not found on PATH' };
     const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
     return { installed: true, version: m?.[1] };
   },
@@ -189,7 +171,6 @@ const codexAdapter: EngineAdapter = {
     const type = e.type as string | undefined;
     const events: HlEvent[] = [];
     let capturedSessionId: string | undefined;
-    let terminalDone = false;
     let terminalError: string | undefined;
 
     if (type === 'thread.started') {

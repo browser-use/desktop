@@ -24,6 +24,10 @@ export interface SpawnContext {
   resumeSessionId?: string;
   /** Optional user-supplied API key; adapter decides how to inject. */
   savedApiKey?: string;
+  /** Optional provider id for engines that route through provider/model registries. */
+  providerId?: string;
+  /** Optional model id selected for this run. */
+  model?: string;
   /** List of attachment paths (relative to harnessDir) the adapter may mention in wrappedPrompt. */
   attachmentRefs: Array<{ relPath: string; mime: string; size: number }>;
 }
@@ -127,6 +131,8 @@ export interface RunEngineOptions {
   signal?: AbortSignal;
   onEvent: (e: HlEvent) => void;
   onSessionId?: (id: string) => void;
+  /** Fired when the runner can identify the model that this spawn is using. */
+  onModelResolved?: (info: { model: string; source: 'config' | 'engine' }) => void;
   /** Fired once per run with the resolved auth for this spawn, so the caller
    *  can stamp the session with the mode that actually ran it. */
   onAuthResolved?: (info: { authMode: 'apiKey' | 'subscription' | null; subscriptionType: string | null }) => void;

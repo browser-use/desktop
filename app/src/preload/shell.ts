@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hide: (sessionId: string): Promise<void> => ipcRenderer.invoke('takeover:hide', sessionId),
   },
   settings: {
+    open: (payload?: { focusBrowserCodeProvider?: string }): Promise<void> => ipcRenderer.invoke('settings:open', payload),
+    onFocusBrowserCodeProvider: (handler: (providerId: string) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { providerId: string }) => handler(payload.providerId);
+      ipcRenderer.on('settings:browsercode:focus-provider', listener);
+      return () => ipcRenderer.removeListener('settings:browsercode:focus-provider', listener);
+    },
     apiKey: {
       getMasked: (): Promise<{ present: boolean; masked: string | null }> =>
         ipcRenderer.invoke('settings:api-key:get-masked'),
@@ -90,6 +96,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('sessions:engine-login', 'codex', opts),
       logout: (): Promise<{ opened: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:codex:logout'),
+    },
+    browserCode: {
+      getStatus: (): Promise<{
+        keys: Record<string, { masked: string; lastModel?: string }>;
+        active: string | null;
+        installed?: { installed: boolean; version?: string; error?: string };
+        providers: Array<{
+          id: string;
+          name: string;
+          defaultModel: string;
+          models: Array<{ id: string; label: string }>;
+        }>;
+      }> => ipcRenderer.invoke('settings:browsercode:get-status'),
+      save: (payload: { providerId: string; apiKey: string; lastModel?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:save', payload),
+      test: (payload: { providerId: string; apiKey: string; model?: string }): Promise<{ success: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:browsercode:test', payload),
+      delete: (payload?: { providerId?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:delete', payload),
+      setActive: (payload: { providerId: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:set-active', payload),
     },
     privacy: {
       get: (): Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }> =>
@@ -195,6 +222,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('sessions:engine-status', engineId),
     engineLogin: (engineId: string): Promise<{ opened: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:engine-login', engineId),
+    engineInstall: (engineId: string): Promise<{ opened: boolean; error?: string; command?: string; displayName?: string }> =>
+      ipcRenderer.invoke('sessions:engine-install', engineId),
     resume: (
       id: string,
       prompt: string,

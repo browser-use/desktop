@@ -3,6 +3,10 @@ import anthropicLogo from './anthropic-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogo from './openai-logo.svg';
 import codexLogo from './codex-logo.svg';
+import opencodeLogo from './opencode-logo-dark.svg';
+import kimiLogo from './kimi-color.svg';
+import qwenLogo from './qwen-color.svg';
+import minimaxLogo from './minimax-color.svg';
 import { CookieBrowser, type CookieBrowserApi } from '../shared/CookieBrowser';
 
 type WaStatus = 'disconnected' | 'connecting' | 'qr_ready' | 'connected' | 'error';
@@ -17,11 +21,48 @@ interface OpenAiStatus {
   present: boolean;
   masked?: string;
 }
-interface CodexStatus {
+interface EngineCliStatus {
   installed: boolean;
   authed: boolean;
   version?: string;
   error?: string;
+}
+interface BrowserCodeProvider {
+  id: string;
+  name: string;
+  defaultModel: string;
+  models: Array<{ id: string; label: string }>;
+}
+interface BrowserCodeStatus {
+  keys: Record<string, { masked: string; lastModel?: string }>;
+  active: string | null;
+  installed?: { installed: boolean; version?: string; error?: string };
+  providers: BrowserCodeProvider[];
+}
+
+const BROWSER_CODE_PROVIDER_LOGOS: Record<string, string> = {
+  moonshotai: kimiLogo,
+  alibaba: qwenLogo,
+  minimax: minimaxLogo,
+};
+
+function friendlyKeyError(raw?: string): string {
+  if (!raw) return 'Key rejected by provider';
+  const s = raw.toLowerCase();
+  if (s.includes('credit') || s.includes('quota') || s.includes('insufficient') || s.includes('balance')) {
+    return 'Out of credits — top up your provider account.';
+  }
+  if (s.includes('invalid') || s.includes('401') || s.includes('unauthorized') || s.includes('authentication')) {
+    return 'Invalid API key — double-check it in your provider dashboard.';
+  }
+  if (s.includes('rate') || s.includes('429')) {
+    return 'Rate limit exceeded — try again in a moment.';
+  }
+  if (s.includes('network') || s.includes('fetch') || s.includes('econnrefused') || s.includes('timeout') || s.includes('aborted')) {
+    return 'Network error — check your connection and retry.';
+  }
+  if (s.includes('no api key saved')) return 'No saved key to test for this provider.';
+  return raw;
 }
 
 interface ConnectionsPaneProps {
@@ -46,7 +87,8 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
   }, []);
 
   const [authStatus, setAuthStatus] = useState<AuthStatus>({ type: 'none' });
-  const [claudeCodeAvailable, setClaudeCodeAvailable] = useState<{ available: boolean; subscriptionType?: string | null }>({ available: false });
+  const [, setClaudeCodeAvailable] = useState<{ available: boolean; subscriptionType?: string | null }>({ available: false });
+  const [claudeStatus, setClaudeStatus] = useState<EngineCliStatus>({ installed: false, authed: false });
   // True while we've spawned `claude auth login --claudeai` and are waiting
   // for the user to complete the OAuth in their browser. Drives the card's
   // 'Waiting for login…' subtitle + button-disabled state.
@@ -62,13 +104,21 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
   const [openaiKeyStatus, setOpenaiKeyStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [openaiError, setOpenaiError] = useState<string | null>(null);
 
-  const [codexStatus, setCodexStatus] = useState<CodexStatus>({ installed: false, authed: false });
+  const [codexStatus, setCodexStatus] = useState<EngineCliStatus>({ installed: false, authed: false });
   const [codexWaiting, setCodexWaiting] = useState(false);
   // Surfaced from the codex login PTY when --device-auth is in play. Drives
   // the small "one-time code" block below the Codex card so users on
   // restricted networks (no localhost-callback) can still sign in.
   const [codexDeviceCode, setCodexDeviceCode] = useState<string | null>(null);
   const [codexVerificationUrl, setCodexVerificationUrl] = useState<string | null>(null);
+
+  const [browserCodeStatus, setBrowserCodeStatus] = useState<BrowserCodeStatus>({ keys: {}, active: null, providers: [] });
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
+  const [browserCodeKeyDraft, setBrowserCodeKeyDraft] = useState('');
+  const [browserCodeKeyStatus, setBrowserCodeKeyStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [browserCodeError, setBrowserCodeError] = useState<string | null>(null);
+  const [browserCodeErrorProviderId, setBrowserCodeErrorProviderId] = useState<string | null>(null);
+  const [installingEngine, setInstallingEngine] = useState<string | null>(null);
 
   const refreshKey = useCallback(async () => {
     const api = window.electronAPI;
@@ -90,6 +140,23 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     }
   }, []);
 
+  const refreshClaudeCli = useCallback(async () => {
+    const api = window.electronAPI;
+    if (!api?.sessions?.engineStatus) return;
+    try {
+      const s = await api.sessions.engineStatus('claude-code');
+      setClaudeStatus({
+        installed: s.installed.installed,
+        authed: s.authed.authed,
+        version: s.installed.version,
+        error: s.installed.error ?? s.authed.error,
+      });
+      if (s.installed.installed && installingEngine === 'claude-code') setInstallingEngine(null);
+    } catch (err) {
+      console.error('[connections] refreshClaudeCli failed', err);
+    }
+  }, [installingEngine]);
+
   const refreshCodex = useCallback(async () => {
     const api = window.electronAPI;
     if (!api?.settings?.codex) return;
@@ -101,15 +168,72 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
         version: s.installed.version,
         error: s.installed.error ?? s.authed.error,
       });
+      if (s.installed.installed && installingEngine === 'codex') setInstallingEngine(null);
     } catch (err) {
       console.error('[connections] refreshCodex failed', err);
     }
-  }, []);
+  }, [installingEngine]);
+
+  const refreshBrowserCode = useCallback(async () => {
+    const api = window.electronAPI;
+    if (!api?.settings?.browserCode) return;
+    try {
+      const s = await api.settings.browserCode.getStatus();
+      console.info('[connections] browserCode.status', {
+        connectedProviders: Object.keys(s.keys),
+        active: s.active,
+        installed: s.installed?.installed,
+        installedError: s.installed?.error,
+      });
+      setBrowserCodeStatus(s);
+      if (s.installed?.installed && installingEngine === 'browsercode') setInstallingEngine(null);
+    } catch (err) {
+      console.error('[connections] refreshBrowserCode failed', err);
+    }
+  }, [installingEngine]);
+
+  const handleInstallEngine = useCallback(async (engineId: string) => {
+    const api = window.electronAPI;
+    if (!api?.sessions?.engineInstall) return;
+    setInstallingEngine(engineId);
+    setKeyError(null);
+    setOpenaiError(null);
+    setBrowserCodeError(null);
+    try {
+      const result = await api.sessions.engineInstall(engineId);
+      console.info('[connections] engine.install.result', { engineId, result });
+      if (!result.opened) {
+        setInstallingEngine(null);
+        const msg = result.error ?? `Failed to open installer for ${engineId}`;
+        if (engineId === 'claude-code') setKeyError(msg);
+        else if (engineId === 'codex') setOpenaiError(msg);
+        else if (engineId === 'browsercode') setBrowserCodeError(msg);
+      }
+      setTimeout(() => {
+        if (engineId === 'claude-code') void refreshClaudeCli();
+        if (engineId === 'codex') void refreshCodex();
+        if (engineId === 'browsercode') void refreshBrowserCode();
+      }, 3000);
+      setTimeout(() => {
+        setInstallingEngine((current) => (current === engineId ? null : current));
+      }, 120000);
+    } catch (err) {
+      setInstallingEngine(null);
+      const msg = (err as Error).message;
+      if (engineId === 'claude-code') setKeyError(msg);
+      else if (engineId === 'codex') setOpenaiError(msg);
+      else if (engineId === 'browsercode') setBrowserCodeError(msg);
+    }
+  }, [refreshBrowserCode, refreshClaudeCli, refreshCodex]);
 
   const handleUseClaudeCode = useCallback(async () => {
     const api = window.electronAPI;
     if (!api?.settings?.claudeCode) return;
     setKeyError(null);
+    if (!claudeStatus.installed) {
+      setKeyError('Install Claude Code before signing in.');
+      return;
+    }
     // Two cases: (a) Claude CLI is already authed → just record the
     // mode preference; (b) it isn't → spawn `claude auth login --claudeai`,
     // let Claude open the browser, poll until creds appear, then record.
@@ -136,7 +260,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
       setClaudeWaiting(false);
       setKeyError((err as Error).message);
     }
-  }, [refreshKey]);
+  }, [claudeStatus.installed, refreshKey]);
 
   // Poll while we're waiting for `claude auth login --claudeai` to complete.
   // 1s interval so the panel flips fast once auth.json appears in the CLI's
@@ -171,9 +295,11 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
 
   useEffect(() => {
     refreshKey();
+    refreshClaudeCli();
     refreshOpenai();
     refreshCodex();
-  }, [refreshKey, refreshOpenai, refreshCodex]);
+    refreshBrowserCode();
+  }, [refreshKey, refreshClaudeCli, refreshOpenai, refreshCodex, refreshBrowserCode]);
 
   // Periodic refresh while the pane is mounted — catches external state
   // changes (user runs `claude auth logout` in a terminal, codex token
@@ -182,11 +308,13 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
   useEffect(() => {
     const id = setInterval(() => {
       refreshKey();
+      refreshClaudeCli();
       refreshOpenai();
       refreshCodex();
+      refreshBrowserCode();
     }, 5000);
     return () => clearInterval(id);
-  }, [refreshKey, refreshOpenai, refreshCodex]);
+  }, [refreshKey, refreshClaudeCli, refreshOpenai, refreshCodex, refreshBrowserCode]);
 
   // Poll codex status while user completes the codex OAuth flow. Tighter
   // interval than the 5s panel refresh so the UI flips to "Signed in" the
@@ -216,6 +344,11 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
   const handleSaveOpenai = useCallback(async () => {
     const api = window.electronAPI;
     if (!api?.settings?.openaiKey) return;
+    if (!codexStatus.installed) {
+      setOpenaiKeyStatus('error');
+      setOpenaiError('Install Codex before adding an OpenAI API key.');
+      return;
+    }
     const trimmed = openaiDraft.trim();
     if (!trimmed) return;
     setOpenaiKeyStatus('testing');
@@ -231,7 +364,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     setOpenaiDraft('');
     setOpenaiEditing(false);
     await refreshOpenai();
-  }, [openaiDraft, refreshOpenai]);
+  }, [codexStatus.installed, openaiDraft, refreshOpenai]);
 
   const handleDeleteOpenai = useCallback(async () => {
     const api = window.electronAPI;
@@ -241,6 +374,93 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     setOpenaiError(null);
     await refreshOpenai();
   }, [refreshOpenai]);
+
+  const handleStartEditBrowserCode = useCallback((providerId: string) => {
+    setEditingProviderId(providerId);
+    setBrowserCodeKeyDraft('');
+    setBrowserCodeKeyStatus('idle');
+    setBrowserCodeError(null);
+    setBrowserCodeErrorProviderId(null);
+  }, []);
+
+  const handleCancelEditBrowserCode = useCallback(() => {
+    setEditingProviderId(null);
+    setBrowserCodeKeyDraft('');
+    setBrowserCodeKeyStatus('idle');
+    setBrowserCodeError(null);
+    setBrowserCodeErrorProviderId(null);
+  }, []);
+
+  const handleSaveBrowserCode = useCallback(async (providerId: string) => {
+    const api = window.electronAPI;
+    if (!api?.settings?.browserCode) return;
+    if (browserCodeStatus.installed?.installed === false) {
+      setBrowserCodeKeyStatus('error');
+      setBrowserCodeError('Install BrowserCode before adding a provider API key.');
+      setBrowserCodeErrorProviderId(providerId);
+      return;
+    }
+    const apiKey = browserCodeKeyDraft.trim();
+    if (!apiKey) return;
+    setBrowserCodeError(null);
+    setBrowserCodeErrorProviderId(null);
+    setBrowserCodeKeyStatus('testing');
+    const test = await api.settings.browserCode.test({ providerId, apiKey });
+    if (!test.success) {
+      setBrowserCodeKeyStatus('error');
+      setBrowserCodeError(friendlyKeyError(test.error));
+      setBrowserCodeErrorProviderId(providerId);
+      return;
+    }
+    await api.settings.browserCode.save({ providerId, apiKey });
+    setBrowserCodeKeyStatus('ok');
+    setBrowserCodeKeyDraft('');
+    setEditingProviderId(null);
+    await refreshBrowserCode();
+  }, [browserCodeKeyDraft, browserCodeStatus.installed?.installed, refreshBrowserCode]);
+
+  const handleRemoveBrowserCodeKey = useCallback(async (providerId: string) => {
+    const api = window.electronAPI;
+    if (!api?.settings?.browserCode) return;
+    await api.settings.browserCode.delete({ providerId });
+    setBrowserCodeKeyDraft('');
+    setBrowserCodeKeyStatus('idle');
+    setBrowserCodeError(null);
+    setBrowserCodeErrorProviderId(null);
+    if (editingProviderId === providerId) setEditingProviderId(null);
+    await refreshBrowserCode();
+  }, [editingProviderId, refreshBrowserCode]);
+
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [testResultByProvider, setTestResultByProvider] = useState<Record<string, { ok: boolean; message: string } | undefined>>({});
+
+  const handleTestBrowserCodeKey = useCallback(async (providerId: string) => {
+    const api = window.electronAPI;
+    if (!api?.settings?.browserCode) return;
+    setTestingProviderId(providerId);
+    setTestResultByProvider((prev) => ({ ...prev, [providerId]: undefined }));
+    try {
+      const result = await api.settings.browserCode.test({ providerId, apiKey: '' });
+      const message = result.success
+        ? 'Key works'
+        : friendlyKeyError(result.error);
+      setTestResultByProvider((prev) => ({ ...prev, [providerId]: { ok: result.success, message } }));
+    } catch (err) {
+      setTestResultByProvider((prev) => ({ ...prev, [providerId]: { ok: false, message: friendlyKeyError((err as Error).message) } }));
+    } finally {
+      setTestingProviderId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const api = window.electronAPI?.settings;
+    if (!api?.onFocusBrowserCodeProvider) return;
+    const unsubscribe = api.onFocusBrowserCodeProvider((providerId: string) => {
+      console.info('[connections] focus browserCode provider', { providerId });
+      handleStartEditBrowserCode(providerId);
+    });
+    return unsubscribe;
+  }, [handleStartEditBrowserCode]);
 
   const handleCodexLogin = useCallback(async (opts?: { deviceAuth?: boolean }) => {
     const api = window.electronAPI;
@@ -279,6 +499,11 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
   const handleSaveKey = useCallback(async () => {
     const api = window.electronAPI;
     if (!api?.settings?.apiKey) return;
+    if (!claudeStatus.installed) {
+      setKeyStatus('error');
+      setKeyError('Install Claude Code before adding an Anthropic API key.');
+      return;
+    }
     const trimmed = draftKey.trim();
     if (!trimmed) return;
     setKeyStatus('testing');
@@ -294,7 +519,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     setDraftKey('');
     setEditing(false);
     await refreshKey();
-  }, [draftKey, refreshKey]);
+  }, [claudeStatus.installed, draftKey, refreshKey]);
 
   const handleDeleteKey = useCallback(async () => {
     const api = window.electronAPI;
@@ -384,6 +609,8 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     <div className={embedded ? 'conn-section' : 'conn-pane'}>
       {!embedded && <span className="conn-pane__title">Connections</span>}
 
+      <span className="conn-pane__section-title">Providers</span>
+
       <div className="conn-card">
         <div className="conn-card__header">
           <img
@@ -394,11 +621,15 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
           <div className="conn-card__info">
             <div className="conn-card__title-row">
               <span className="conn-card__name">Anthropic</span>
-              <span className={`conn-card__dot ${authStatus.type !== 'none' ? 'conn-card__dot--connected' : 'conn-card__dot--disconnected'}`} />
+              <span className={`conn-card__dot ${authStatus.type !== 'none' && claudeStatus.installed ? 'conn-card__dot--connected' : installingEngine === 'claude-code' ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
             </div>
             <span className="conn-card__subtitle">
               {editing
                 ? 'Enter a new key — it will be tested before saving'
+                : !claudeStatus.installed && authStatus.type !== 'none'
+                ? 'Credentials saved · Claude Code CLI not installed'
+                : !claudeStatus.installed
+                ? 'Claude Code CLI not installed'
                 : claudeWaiting
                 ? 'Finish the OAuth flow in your browser…'
                 : authStatus.type === 'oauth'
@@ -409,7 +640,16 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
             </span>
           </div>
           <div className="conn-card__actions">
-            {!editing && authStatus.type === 'none' && (
+            {!editing && !claudeStatus.installed && (
+              <button
+                className="conn-card__btn conn-card__btn--primary"
+                onClick={() => handleInstallEngine('claude-code')}
+                disabled={installingEngine === 'claude-code'}
+              >
+                {installingEngine === 'claude-code' ? 'Installing…' : 'Install Claude Code'}
+              </button>
+            )}
+            {!editing && claudeStatus.installed && authStatus.type === 'none' && (
               <button
                 className="conn-card__btn conn-card__btn--primary"
                 onClick={handleUseClaudeCode}
@@ -418,7 +658,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
                 {claudeWaiting ? 'Waiting…' : 'Sign in with Claude'}
               </button>
             )}
-            {!editing && authStatus.type === 'none' && (
+            {!editing && claudeStatus.installed && authStatus.type === 'none' && (
               <button
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setEditing(true); setDraftKey(''); setKeyStatus('idle'); setKeyError(null); }}
@@ -426,7 +666,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
                 Add API key
               </button>
             )}
-            {!editing && authStatus.type === 'apiKey' && (
+            {!editing && claudeStatus.installed && authStatus.type === 'apiKey' && (
               <button
                 className="conn-card__btn conn-card__btn--primary"
                 onClick={() => { setEditing(true); setDraftKey(''); setKeyStatus('idle'); setKeyError(null); }}
@@ -472,6 +712,145 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
             )}
           </div>
         )}
+        {!editing && keyError && (
+          <div className="conn-card__api-key-edit">
+            <span className="conn-card__api-key-error">{keyError}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="conn-card">
+        <div className="conn-card__header">
+          <img className="conn-card__icon conn-card__icon--contain" src={opencodeLogo} alt="" />
+          <div className="conn-card__info">
+            <div className="conn-card__title-row">
+              <span className="conn-card__name">BrowserCode</span>
+              <span className={`conn-card__dot ${Object.keys(browserCodeStatus.keys).length > 0 && browserCodeStatus.installed?.installed !== false ? 'conn-card__dot--connected' : installingEngine === 'browsercode' ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
+            </div>
+            <span className="conn-card__subtitle">
+              {browserCodeStatus.installed?.installed === false
+                ? 'bcode CLI not installed'
+                : Object.keys(browserCodeStatus.keys).length === 0
+                ? 'Connect a provider to use BrowserCode with your own API key'
+                : `${Object.keys(browserCodeStatus.keys).length} provider${Object.keys(browserCodeStatus.keys).length === 1 ? '' : 's'} connected`}
+            </span>
+          </div>
+          <div className="conn-card__actions">
+            {browserCodeStatus.installed?.installed === false && (
+              <button
+                className="conn-card__btn conn-card__btn--primary"
+                onClick={() => handleInstallEngine('browsercode')}
+                disabled={installingEngine === 'browsercode'}
+              >
+                {installingEngine === 'browsercode' ? 'Installing…' : 'Install BrowserCode'}
+              </button>
+            )}
+          </div>
+        </div>
+        {browserCodeStatus.installed?.installed !== false && browserCodeStatus.providers.map((provider) => {
+          const entry = browserCodeStatus.keys[provider.id];
+          const connected = !!entry;
+          const isEditing = editingProviderId === provider.id;
+          const logo = BROWSER_CODE_PROVIDER_LOGOS[provider.id] ?? opencodeLogo;
+          return (
+            <div key={provider.id} className="conn-card__sub">
+              <div className="conn-card__sub-header">
+                <img className="conn-card__icon conn-card__icon--small conn-card__icon--contain" src={logo} alt="" />
+                <div className="conn-card__info">
+                  <div className="conn-card__title-row">
+                    <span className="conn-card__name conn-card__name--sub">{provider.name}</span>
+                    <span className={`conn-card__dot ${connected ? 'conn-card__dot--connected' : 'conn-card__dot--disconnected'}`} />
+                  </div>
+                  {(isEditing || connected) && (
+                    <span className="conn-card__subtitle">
+                      {isEditing
+                        ? 'Enter a new key — it will be tested before saving'
+                        : `API key · ${entry.masked}`}
+                    </span>
+                  )}
+                </div>
+                <div className="conn-card__actions">
+                  {!isEditing && !connected && (
+                    <button
+                      className="conn-card__btn conn-card__btn--primary"
+                      onClick={() => handleStartEditBrowserCode(provider.id)}
+                    >
+                      Connect
+                    </button>
+                  )}
+                  {!isEditing && connected && (
+                    <button
+                      className="conn-card__btn conn-card__btn--secondary"
+                      onClick={() => handleTestBrowserCodeKey(provider.id)}
+                      disabled={testingProviderId === provider.id}
+                    >
+                      {testingProviderId === provider.id ? 'Testing...' : 'Test'}
+                    </button>
+                  )}
+                  {!isEditing && connected && (
+                    <button
+                      className="conn-card__btn conn-card__btn--primary"
+                      onClick={() => handleStartEditBrowserCode(provider.id)}
+                    >
+                      Update key
+                    </button>
+                  )}
+                  {!isEditing && connected && (
+                    <button
+                      className="conn-card__btn conn-card__btn--secondary"
+                      onClick={() => handleRemoveBrowserCodeKey(provider.id)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                  {isEditing && (
+                    <button
+                      className="conn-card__btn conn-card__btn--secondary"
+                      onClick={handleCancelEditBrowserCode}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+              {!isEditing && testResultByProvider[provider.id] && (
+                <div className="conn-card__api-key-edit">
+                  <span className={testResultByProvider[provider.id]!.ok ? 'conn-card__api-key-ok' : 'conn-card__api-key-error'}>
+                    {testResultByProvider[provider.id]!.message}
+                  </span>
+                </div>
+              )}
+              {isEditing && (
+                <div className="conn-card__api-key-edit">
+                  <input
+                    type="password"
+                    className="conn-card__api-key-input"
+                    placeholder="sk-..."
+                    value={browserCodeKeyDraft}
+                    onChange={(e) => { setBrowserCodeKeyDraft(e.target.value); setBrowserCodeKeyStatus('idle'); setBrowserCodeError(null); setBrowserCodeErrorProviderId(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveBrowserCode(provider.id); }}
+                    autoFocus
+                  />
+                  <button
+                    className="conn-card__btn conn-card__btn--primary"
+                    onClick={() => handleSaveBrowserCode(provider.id)}
+                    disabled={!browserCodeKeyDraft.trim() || browserCodeKeyStatus === 'testing'}
+                  >
+                    {browserCodeKeyStatus === 'testing' ? 'Testing...' : 'Save'}
+                  </button>
+                  {browserCodeKeyStatus === 'error' && browserCodeError && browserCodeErrorProviderId === provider.id && (
+                    <span className="conn-card__api-key-error">{browserCodeError}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {browserCodeError && !editingProviderId && (
+          <div className="conn-card__api-key-edit">
+            <span className="conn-card__api-key-error">{browserCodeError}</span>
+          </div>
+        )}
       </div>
 
       <div className="conn-card">
@@ -484,26 +863,34 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
           <div className="conn-card__info">
             <div className="conn-card__title-row">
               <span className="conn-card__name">OpenAI</span>
-              <span className={`conn-card__dot ${codexStatus.authed || openaiStatus.present ? 'conn-card__dot--connected' : codexWaiting ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
+              <span className={`conn-card__dot ${(codexStatus.authed || openaiStatus.present) && codexStatus.installed ? 'conn-card__dot--connected' : codexWaiting || installingEngine === 'codex' ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
             </div>
             <span className="conn-card__subtitle">
               {openaiEditing
                 ? 'Enter a new key — it will be tested before saving'
+                : !codexStatus.installed && openaiStatus.present
+                ? 'API key saved · Codex CLI not installed'
+                : !codexStatus.installed
+                ? 'Codex CLI not installed'
+                : openaiStatus.present && openaiStatus.masked
+                ? `API key · ${openaiStatus.masked}`
                 : codexStatus.authed
-                ? `Signed in with Codex${codexStatus.version ? ` · v${codexStatus.version}` : ''}`
+                ? `Signed in with ChatGPT subscription${codexStatus.version ? ` · Codex v${codexStatus.version}` : ''}`
                 : codexWaiting && codexDeviceCode
                 ? 'Enter the code shown below on the verification page.'
                 : codexWaiting
                 ? 'Finish the OAuth flow in your browser…'
-                : openaiStatus.present && openaiStatus.masked
-                ? `API key · ${openaiStatus.masked}`
                 : 'Not connected'}
             </span>
           </div>
           <div className="conn-card__actions">
-            {!openaiEditing && codexStatus.authed && (
-              <button className="conn-card__btn conn-card__btn--secondary" onClick={handleCodexLogout}>
-                Sign out
+            {!openaiEditing && !codexStatus.installed && (
+              <button
+                className="conn-card__btn conn-card__btn--primary"
+                onClick={() => handleInstallEngine('codex')}
+                disabled={installingEngine === 'codex'}
+              >
+                {installingEngine === 'codex' ? 'Installing…' : 'Install Codex'}
               </button>
             )}
             {!openaiEditing && !openaiStatus.present && !codexStatus.authed && codexStatus.installed && (
@@ -514,7 +901,7 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
                 {codexWaiting ? 'Restart' : 'Sign in with Codex'}
               </button>
             )}
-            {!openaiEditing && !openaiStatus.present && !codexStatus.authed && (
+            {!openaiEditing && codexStatus.installed && !openaiStatus.present && !codexStatus.authed && (
               <button
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setOpenaiEditing(true); setOpenaiDraft(''); setOpenaiKeyStatus('idle'); setOpenaiError(null); }}
@@ -522,17 +909,22 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
                 Add API key
               </button>
             )}
-            {!openaiEditing && openaiStatus.present && (
+            {!openaiEditing && codexStatus.installed && openaiStatus.present && (
               <button
-                className="conn-card__btn conn-card__btn--primary"
+                className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setOpenaiEditing(true); setOpenaiDraft(''); setOpenaiKeyStatus('idle'); setOpenaiError(null); }}
               >
-                Change
+                Change API key
               </button>
             )}
-            {!openaiEditing && openaiStatus.present && (
+            {!openaiEditing && openaiStatus.present && !codexStatus.authed && (
               <button className="conn-card__btn conn-card__btn--secondary" onClick={handleDeleteOpenai}>
                 Sign out
+              </button>
+            )}
+            {!openaiEditing && codexStatus.authed && (
+              <button className="conn-card__btn conn-card__btn--secondary" onClick={handleCodexLogout}>
+                {openaiStatus.present ? 'Sign out of ChatGPT' : 'Sign out'}
               </button>
             )}
             {openaiEditing && (
@@ -589,12 +981,27 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
             >
               {openaiKeyStatus === 'testing' ? 'Testing...' : 'Save'}
             </button>
+            {openaiStatus.present && (
+              <button
+                className="conn-card__btn conn-card__btn--secondary"
+                onClick={() => { void handleDeleteOpenai(); setOpenaiEditing(false); }}
+              >
+                Remove API key
+              </button>
+            )}
             {openaiKeyStatus === 'error' && openaiError && (
               <span className="conn-card__api-key-error">{openaiError}</span>
             )}
           </div>
         )}
+        {!openaiEditing && openaiError && (
+          <div className="conn-card__api-key-edit">
+            <span className="conn-card__api-key-error">{openaiError}</span>
+          </div>
+        )}
       </div>
+
+      <span className="conn-pane__section-title">Connections</span>
 
       <div className="conn-card">
         <div className="conn-card__header">
