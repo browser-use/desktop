@@ -8,6 +8,7 @@
  */
 
 import { config as loadDotEnv } from 'dotenv';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -16,8 +17,14 @@ import path from 'node:path';
 // dev-time fallback.
 loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
-import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell, type Event } from 'electron';
 import { mergeChromiumFeature } from './startup/chromiumFeatures';
+import {
+  createSingleInstanceLaunchData,
+  parseSingleInstanceLaunchData,
+  shouldHandoffToNewerInstance,
+  type SingleInstanceLaunchData,
+} from './startup/singleInstance';
 
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch(
@@ -42,22 +49,24 @@ crashReporter.start({
 });
 
 // Enforce a single running instance. Launching a second copy would race on
-// the sessions SQLite db, the .vite dev cache, and the user-data dir — and
-// most commonly just confuses the user. When the second instance tries to
-// start, surface the existing window instead.
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-  throw new Error('another instance is already running');
-}
-app.on('second-instance', () => {
-  const windows = BrowserWindow.getAllWindows();
-  const main = windows.find((w) => !w.isDestroyed() && !w.isMinimized()) ?? windows[0];
-  if (main) {
-    if (main.isMinimized()) main.restore();
-    main.show();
-    main.focus();
-  }
+// the sessions SQLite db, the .vite dev cache, and the user-data dir. When the
+// second instance is the same version, surface the existing window. When it is
+// a newer installed binary, quit this process and hand off to that binary so a
+// manual install can complete without users first finding and quitting the old
+// process.
+const singleInstanceLaunchData = createSingleInstanceLaunchData({
+  version: app.getVersion(),
+  execPath: process.execPath,
+  argv: process.argv,
+  cwd: process.cwd(),
+  appPath: app.getAppPath(),
+  pid: process.pid,
+  platform: process.platform,
 });
+if (!app.requestSingleInstanceLock(singleInstanceLaunchData)) {
+  app.exit(0);
+}
+app.on('second-instance', handleSecondInstanceLaunch);
 
 // Populate the native About dialog (macOS + Linux) instead of showing the
 // default Electron panel with no branding.
@@ -176,6 +185,7 @@ if (started) {
 let shellWindow: BrowserWindow | null = null;
 let onboardingWindow: BrowserWindow | null = null;
 let isQuitting = false;
+let pendingNewerInstanceLaunch: SingleInstanceLaunchData | null = null;
 
 const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'sessions.db'));
 // Bootstrap the editable helpers harness — writes stock helpers.js + TOOLS.json
@@ -202,6 +212,98 @@ browserPool.setOnNavigate((sessionId, url) => {
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
 const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
+
+// ---------------------------------------------------------------------------
+// Single-instance handoff
+// ---------------------------------------------------------------------------
+function handleSecondInstanceLaunch(_event: Event, _argv: string[], _workingDirectory: string, additionalData: unknown): void {
+  const incoming = parseSingleInstanceLaunchData(additionalData);
+  const incomingVersion = incoming ? incoming.version : null;
+  if (shouldHandoffToNewerInstance(app.getVersion(), incoming)) {
+    scheduleNewerInstanceHandoff(incoming);
+    return;
+  }
+
+  mainLogger.info('main.singleInstance.focusExisting', {
+    currentVersion: app.getVersion(),
+    incomingVersion,
+  });
+  showAndFocusPrimaryWindow();
+}
+
+function showAndFocusPrimaryWindow(): void {
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+  const preferred = [shellWindow, onboardingWindow, BrowserWindow.getFocusedWindow(), ...windows]
+    .find((win): win is BrowserWindow => Boolean(win && !win.isDestroyed()));
+
+  if (preferred) {
+    if (preferred.isMinimized()) preferred.restore();
+    preferred.show();
+    preferred.focus();
+    return;
+  }
+
+  setTimeout(() => {
+    if (BrowserWindow.getAllWindows().some((win) => !win.isDestroyed())) return;
+    if (accountStore.isOnboardingComplete()) {
+      openShellAndWire();
+      return;
+    }
+    onboardingWindow = createOnboardingWindow();
+    onboardingWindow.on('closed', () => {
+      mainLogger.info('main.onboardingWindow.closed');
+      onboardingWindow = null;
+    });
+  }, 100);
+}
+
+function scheduleNewerInstanceHandoff(incoming: SingleInstanceLaunchData): void {
+  if (pendingNewerInstanceLaunch) {
+    mainLogger.info('main.singleInstance.newerLaunchAlreadyPending', {
+      currentVersion: app.getVersion(),
+      incomingVersion: incoming.version,
+      execPath: incoming.execPath,
+    });
+    return;
+  }
+
+  pendingNewerInstanceLaunch = incoming;
+  mainLogger.info('main.singleInstance.newerLaunch', {
+    currentVersion: app.getVersion(),
+    incomingVersion: incoming.version,
+    execPath: incoming.execPath,
+    appPath: incoming.appPath,
+  });
+
+  app.once('will-quit', () => {
+    const launch = pendingNewerInstanceLaunch;
+    if (!launch) return;
+    app.releaseSingleInstanceLock();
+    launchNewerInstance(launch);
+  });
+
+  isQuitting = true;
+  app.quit();
+}
+
+function launchNewerInstance(incoming: SingleInstanceLaunchData): void {
+  const args = incoming.argv
+    .slice(1)
+    .filter((arg) => !arg.startsWith('--original-process-start-time='));
+  try {
+    const child = spawn(incoming.execPath, args, {
+      cwd: incoming.cwd,
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch (err) {
+    mainLogger.warn('main.singleInstance.newerLaunchFailed', {
+      error: (err as Error)?.message ?? String(err),
+      execPath: incoming.execPath,
+    });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shell window factory
