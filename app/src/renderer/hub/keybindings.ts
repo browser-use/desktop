@@ -17,7 +17,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { id: 'nav.down', label: 'Next session', keys: ['j'], category: 'Navigation' },
   { id: 'nav.up', label: 'Previous session', keys: ['k'], category: 'Navigation' },
   { id: 'nav.top', label: 'First session', keys: ['g g'], category: 'Navigation' },
-  { id: 'nav.bottom', label: 'Last session', keys: ['G'], category: 'Navigation' },
+  { id: 'nav.bottom', label: 'Last session', keys: ['G', 'Shift+G'], category: 'Navigation' },
   { id: 'nav.open', label: 'Open session', keys: ['Enter'], category: 'Navigation' },
   { id: 'goto.dashboard', label: 'Dashboard', keys: ['g d'], category: 'Views' },
   { id: 'goto.agents', label: 'Grid view', keys: ['g a'], category: 'Views' },
