@@ -198,6 +198,70 @@ describe('BrowserPool — getTabs', () => {
   });
 });
 
+describe('BrowserPool — manual navigation', () => {
+  let pool: BrowserPool;
+
+  beforeEach(() => { pool = new BrowserPool(5); });
+  afterEach(() => { pool.destroyAll(); });
+
+  it('normalizes and dispatches typed URLs to the active browser', async () => {
+    pool.create('s1');
+
+    const result = await pool.navigate('s1', 'example.com/docs');
+    const state = pool.getNavigationState('s1');
+
+    expect(result).toMatchObject({ ok: true, url: 'https://example.com/docs' });
+    expect(state).toMatchObject({
+      url: 'https://example.com/docs',
+      title: 'https://example.com/docs',
+      canGoBack: true,
+      canGoForward: false,
+    });
+  });
+
+  it('normalizes plain text into search navigation', async () => {
+    pool.create('s1');
+
+    const result = await pool.navigate('s1', 'browser use desktop');
+
+    expect(result).toMatchObject({
+      ok: true,
+      url: 'https://www.google.com/search?q=browser%20use%20desktop',
+    });
+  });
+
+  it('returns clear errors for invalid input and navigation failures', async () => {
+    pool.create('s1');
+    const wc = pool.getWebContents('s1') as unknown as {
+      __setNavigationState: (state: { loadError?: Error | null }) => void;
+    };
+
+    expect(await pool.navigate('s1', 'javascript:alert(1)')).toMatchObject({
+      ok: false,
+      error: 'Unsupported URL scheme: javascript',
+    });
+
+    wc.__setNavigationState({ loadError: new Error('DNS failed') });
+    expect(await pool.navigate('s1', 'https://example.com')).toMatchObject({
+      ok: false,
+      error: 'DNS failed',
+    });
+  });
+
+  it('dispatches history and reload controls', async () => {
+    pool.create('s1');
+    const wc = pool.getWebContents('s1') as unknown as {
+      __setNavigationState: (state: { canGoBack?: boolean; canGoForward?: boolean }) => void;
+    };
+
+    wc.__setNavigationState({ canGoBack: true, canGoForward: true });
+
+    expect(pool.goBack('s1')).toMatchObject({ ok: true });
+    expect(pool.goForward('s1')).toMatchObject({ ok: true });
+    expect(pool.reload('s1')).toMatchObject({ ok: true });
+  });
+});
+
 describe('BrowserPool — fitted resize', () => {
   let pool: BrowserPool;
   let win: any;

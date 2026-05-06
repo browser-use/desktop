@@ -572,6 +572,31 @@ function ResumeIcon(): React.ReactElement {
   );
 }
 
+function BackIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M8.5 3.5L5 7l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ForwardIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M5.5 3.5L9 7l-3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ReloadIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M11 5.5A4.5 4.5 0 104.8 11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M11 2.5v3H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 interface FollowUpAttachment { idx: number; name: string; mime: string; bytes: Uint8Array }
 
 async function fileToAttachment(file: File, idx: number): Promise<FollowUpAttachment> {
@@ -741,6 +766,116 @@ function CloseIcon(): React.ReactElement {
   );
 }
 
+function BrowserAddressBar({
+  sessionId,
+  disabled,
+  state,
+}: {
+  sessionId: string;
+  disabled: boolean;
+  state: BrowserNavigationState | null;
+}): React.ReactElement {
+  const [value, setValue] = useState(state?.url ?? '');
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) setValue(state?.url ?? '');
+  }, [editing, state?.url]);
+
+  const runNavigationCommand = useCallback(async (command: 'back' | 'forward' | 'reload') => {
+    const api = window.electronAPI?.sessions;
+    if (!api) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await api[command](sessionId);
+      if (!result.ok) setError(result.error ?? 'Navigation failed.');
+    } catch (err) {
+      setError((err as Error).message || 'Navigation failed.');
+    } finally {
+      setBusy(false);
+    }
+  }, [sessionId]);
+
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const api = window.electronAPI?.sessions;
+    if (!api) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await api.navigate(sessionId, value);
+      if (!result.ok) {
+        setError(result.error ?? 'Navigation failed.');
+      } else if (result.url) {
+        setValue(result.url);
+      }
+    } catch (err) {
+      setError((err as Error).message || 'Navigation failed.');
+    } finally {
+      setBusy(false);
+    }
+  }, [sessionId, value]);
+
+  return (
+    <form
+      className={`pane__address${error ? ' pane__address--error' : ''}`}
+      onSubmit={handleSubmit}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="pane__address-btn"
+        disabled={disabled || busy || !state?.canGoBack}
+        aria-label="Back"
+        title="Back"
+        onClick={() => { void runNavigationCommand('back'); }}
+      >
+        <BackIcon />
+      </button>
+      <button
+        type="button"
+        className="pane__address-btn"
+        disabled={disabled || busy || !state?.canGoForward}
+        aria-label="Forward"
+        title="Forward"
+        onClick={() => { void runNavigationCommand('forward'); }}
+      >
+        <ForwardIcon />
+      </button>
+      <button
+        type="button"
+        className="pane__address-btn"
+        disabled={disabled || busy}
+        aria-label="Reload"
+        title="Reload"
+        onClick={() => { void runNavigationCommand('reload'); }}
+      >
+        <ReloadIcon />
+      </button>
+      <label className="pane__address-field">
+        <span className="pane__address-title">{state?.title || 'New Tab'}</span>
+        <input
+          className="pane__address-input"
+          value={value}
+          disabled={disabled || busy}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label="Address and search"
+          placeholder="Search or enter address"
+          spellCheck={false}
+        />
+      </label>
+      {busy || state?.isLoading ? <span className="pane__address-loading" aria-label="Loading" /> : null}
+      {error && <span className="pane__address-error" role="alert">{error}</span>}
+    </form>
+  );
+}
+
 interface AgentPaneProps {
   session: AgentSession;
   focused?: boolean;
@@ -763,6 +898,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
   const [browserDead, setBrowserDead] = useState(false);
   const [browserMissing, setBrowserMissing] = useState(false);
   const [frameRect, setFrameRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [navigationState, setNavigationState] = useState<BrowserNavigationState | null>(null);
   // Logs overlay is a separate window (see logsPill.ts). The pane tracks
   // visibility only to reflect it in the Logs button's active state.
   const [logsOpen, setLogsOpen] = useState(false);
@@ -802,6 +938,28 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
       setBrowserDead(false);
     }
   }, [session.id, session.status]);
+
+  useEffect(() => {
+    setNavigationState(null);
+    const api = window.electronAPI;
+    if (!api?.sessions?.getNavigationState) return;
+    let cancelled = false;
+    void api.sessions.getNavigationState(session.id).then((state) => {
+      if (!cancelled) setNavigationState(state);
+    }).catch(() => {
+      if (!cancelled) setNavigationState(null);
+    });
+    return () => { cancelled = true; };
+  }, [session.id]);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.on?.sessionNavigationState) return;
+    const off = api.on.sessionNavigationState((id, state) => {
+      if (id === session.id) setNavigationState(state);
+    });
+    return off;
+  }, [session.id]);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -1167,6 +1325,14 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
       <div className="pane__progress" aria-hidden="true">
         {session.status === 'running' && <div className="pane__progress-bar" />}
       </div>
+
+      {session.status !== 'draft' && (
+        <BrowserAddressBar
+          sessionId={session.id}
+          disabled={browserDead || browserMissing}
+          state={navigationState}
+        />
+      )}
 
       {frameRect && (showErrorUi || browserDead || browserMissing || session.status === 'draft' || session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck') && (() => {
         const isStarting = !showErrorUi && !browserDead && !browserMissing && session.status === 'draft';

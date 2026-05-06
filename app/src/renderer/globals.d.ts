@@ -71,9 +71,22 @@ interface ElectronSessionAPI {
   viewsSetVisible: (visible: boolean) => Promise<void>;
   viewsDetachAll: () => Promise<void>;
   getTabs: (id: string) => Promise<unknown[]>;
+  getNavigationState: (id: string) => Promise<BrowserNavigationState | null>;
+  navigate: (id: string, input: string) => Promise<{ ok: boolean; url?: string; error?: string }>;
+  back: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  forward: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  reload: (id: string) => Promise<{ ok: boolean; error?: string }>;
   poolStats: () => Promise<unknown>;
   memory: () => Promise<{ totalMb: number; sessions: Array<{ id: string; mb: number; status: string }>; processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>; processCount: number }>;
   getTermReplay: (id: string) => Promise<string>;
+}
+
+interface BrowserNavigationState {
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  isLoading: boolean;
 }
 
 interface ElectronChannelsAPI {
@@ -142,6 +155,7 @@ interface ElectronChromeImportAPI {
 interface ElectronOnAPI {
   sessionUpdated: (cb: (session: import('./hub/types').AgentSession) => void) => () => void;
   sessionBrowserGone: (cb: (id: string) => void) => () => void;
+  sessionNavigationState: (cb: (id: string, state: BrowserNavigationState) => void) => () => void;
   sessionOutput: (cb: (id: string, event: import('./hub/types').HlEvent) => void) => () => void;
   sessionOutputTerm: (cb: (id: string, bytes: string) => void) => () => void;
   openSettings?: (cb: (payload?: { focusBrowserCodeProvider?: string }) => void) => () => void;

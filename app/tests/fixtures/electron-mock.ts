@@ -244,14 +244,40 @@ let webContentsIdCounter = 1;
 
 function createMockWebContents() {
   const id = webContentsIdCounter++;
+  let currentUrl = 'about:blank';
+  let title = 'New Tab';
+  let canGoBack = false;
+  let canGoForward = false;
+  let loadError: Error | null = null;
   return {
     id,
-    getURL: (): string => 'about:blank',
-    getTitle: (): string => 'New Tab',
+    getURL: (): string => currentUrl,
+    getTitle: (): string => title,
     getOSProcessId: (): number => 10000 + id,
+    canGoBack: (): boolean => canGoBack,
+    canGoForward: (): boolean => canGoForward,
+    goBack: (): void => { canGoForward = true; },
+    goForward: (): void => { canGoBack = true; },
+    reload: (): void => undefined,
+    isLoadingMainFrame: (): boolean => false,
+    isDestroyed: (): boolean => false,
     setFrameRate: (_fps: number): void => undefined,
     setBackgroundThrottling: (_throttle: boolean): void => undefined,
-    loadURL: (_url: string): Promise<void> => Promise.resolve(),
+    loadURL: (url: string): Promise<void> => {
+      if (loadError) return Promise.reject(loadError);
+      currentUrl = url;
+      title = url === 'about:blank' ? 'New Tab' : url;
+      canGoBack = true;
+      canGoForward = false;
+      return Promise.resolve();
+    },
+    __setNavigationState: (next: { url?: string; title?: string; canGoBack?: boolean; canGoForward?: boolean; loadError?: Error | null }): void => {
+      if (next.url !== undefined) currentUrl = next.url;
+      if (next.title !== undefined) title = next.title;
+      if (next.canGoBack !== undefined) canGoBack = next.canGoBack;
+      if (next.canGoForward !== undefined) canGoForward = next.canGoForward;
+      if ('loadError' in next) loadError = next.loadError ?? null;
+    },
     close: (): void => undefined,
     on: (): void => undefined,
     off: (): void => undefined,
