@@ -7,7 +7,7 @@
  *   onboarding-naming    — onboarding screen 2 (agent name input)
  *   onboarding-account   — onboarding screen 3 (Google sign-in)
  *   pill-idle            — pill overlay, idle state
- *   settings-api-key     — settings window, API Key tab
+ *   settings-providers   — shell settings page, Model providers section
  *
  * Reports written to: tests/a11y/reports/<screen>-axe.json
  *
@@ -249,14 +249,14 @@ test('axe-audit: install axe-core or @axe-core/playwright first', async () => {
 //   }
 // });
 //
-// test('axe-audit: settings-api-key', async () => {
+// test('axe-audit: settings-providers', async () => {
 //   const { electronApp, page, userDataDir } = await launchApp({
 //     prefix: 'settings',
 //     accountJson: COMPLETED_ACCOUNT,
 //     extraEnv: { SKIP_ONBOARDING: '1' },
 //   });
 //   try {
-//     await page.waitForSelector('#root', { timeout: 10_000 });
+//     await page.waitForSelector('#hub-root', { timeout: 10_000 });
 //     await electronApp.evaluate(({ Menu, BrowserWindow }) => {
 //       const menu = Menu.getApplicationMenu();
 //       if (!menu) return;
@@ -270,17 +270,10 @@ test('axe-audit: install axe-core or @axe-core/playwright first', async () => {
 //       }
 //       findAndClick(menu.items);
 //     });
-//     await page.waitForTimeout(2_000);
-//     const windows = electronApp.windows();
-//     let settingsPage: Page | null = null;
-//     for (const win of windows) {
-//       if (win.url().includes('settings')) { settingsPage = win; break; }
-//     }
-//     if (!settingsPage) throw new Error('Settings window did not open');
-//     await settingsPage.waitForSelector('.settings-shell', { timeout: 10_000 });
-//     const results = await runAxe(settingsPage, 'settings-api-key');
+//     await page.waitForSelector('.settings-page', { timeout: 10_000 });
+//     const results = await runAxe(page, 'settings-providers');
 //     const failing = getFailingViolations(results);
-//     expect(failing, `${failing.length} violations on settings-api-key`).toHaveLength(0);
+//     expect(failing, `${failing.length} violations on settings-providers`).toHaveLength(0);
 //   } finally {
 //     await teardown(electronApp, userDataDir);
 //   }

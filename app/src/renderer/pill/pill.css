@@ -813,6 +813,55 @@ html, body {
   color: rgb(153, 211, 255);
 }
 
+.browsercode-model-picker__skeleton {
+  display: inline-flex;
+  flex-shrink: 0;
+  background-color: rgba(255, 255, 255, 0.07);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.13) 44%,
+    rgba(255, 255, 255, 0.05) 88%
+  );
+  background-size: 220% 100%;
+  animation: browsercode-skeleton-shimmer 1.5s var(--ease-in-out) infinite;
+}
+
+.browsercode-model-picker__skeleton--mark {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.browsercode-model-picker__skeleton--toggle-label {
+  width: 86px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.browsercode-model-picker__skeleton--label {
+  flex: 1 1 auto;
+  width: 118px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.browsercode-model-picker__skeleton--badge {
+  width: 46px;
+  height: 18px;
+  margin-left: auto;
+  border-radius: 6px;
+}
+
+.browsercode-model-picker__skeleton-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+
 .browsercode-model-picker__menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -937,6 +986,10 @@ html, body {
   gap: 2px;
 }
 
+.browsercode-submenu--loading {
+  min-height: 110px;
+}
+
 .browsercode-model-picker__back {
   appearance: none;
   width: 100%;
@@ -956,4 +1009,22 @@ html, body {
 
 .browsercode-model-picker__back:hover {
   color: var(--color-fg-primary);
+}
+
+@keyframes browsercode-skeleton-shimmer {
+  0% {
+    background-position: 220% center;
+  }
+
+  100% {
+    background-position: -220% center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browsercode-model-picker__skeleton {
+    animation: none;
+    background-image: none;
+    opacity: 0.55;
+  }
 }

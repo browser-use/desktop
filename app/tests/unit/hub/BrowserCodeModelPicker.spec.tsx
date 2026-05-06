@@ -7,29 +7,31 @@ import { BrowserCodeProviderSubmenu } from '../../../src/renderer/hub/BrowserCod
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function installElectronApi(): void {
+const browserCodeStatus = {
+  keys: {
+    moonshotai: { masked: 'msk-1234' },
+  },
+  active: 'moonshotai',
+  providers: [
+    {
+      id: 'moonshotai',
+      name: 'Moonshot AI',
+      defaultModel: 'moonshotai/kimi-k2.6',
+      models: [
+        { id: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6' },
+        { id: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking' },
+      ],
+    },
+  ],
+};
+
+function installElectronApi(getStatus = vi.fn(async () => browserCodeStatus)): void {
   Object.defineProperty(window, 'electronAPI', {
     configurable: true,
     value: {
       settings: {
         browserCode: {
-          getStatus: vi.fn(async () => ({
-            keys: {
-              moonshotai: { masked: 'msk-1234' },
-            },
-            active: 'moonshotai',
-            providers: [
-              {
-                id: 'moonshotai',
-                name: 'Moonshot AI',
-                defaultModel: 'moonshotai/kimi-k2.6',
-                models: [
-                  { id: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6' },
-                  { id: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking' },
-                ],
-              },
-            ],
-          })),
+          getStatus,
           save: vi.fn(),
           setActive: vi.fn(),
         },
@@ -65,6 +67,25 @@ describe('BrowserCodeProviderSubmenu', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+  });
+
+  it('shows fixed provider skeleton rows while BrowserCode status is pending', async () => {
+    let resolveStatus: (status: typeof browserCodeStatus) => void = () => undefined;
+    installElectronApi(vi.fn(() => new Promise<typeof browserCodeStatus>((resolve) => {
+      resolveStatus = resolve;
+    })));
+    const { container, root } = renderSubmenu();
+
+    expect(container.querySelectorAll('.browsercode-model-picker__skeleton-item')).toHaveLength(3);
+
+    await act(async () => {
+      resolveStatus(browserCodeStatus);
+      await Promise.resolve();
+    });
+
+    expect(container.querySelectorAll('.browsercode-model-picker__skeleton-item')).toHaveLength(0);
+
+    act(() => root.unmount());
   });
 
   it('highlights the provider default model when the active provider has no saved lastModel', async () => {
