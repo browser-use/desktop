@@ -135,4 +135,43 @@ describe('browsercode adapter tool parsing', () => {
     }]);
     expect(ctx.pendingTools.size).toBe(0);
   });
+
+  it('marks cancelled terminal tool events as unsuccessful', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'));
+
+    const adapter = browserCodeAdapter();
+    const ctx = parseContext();
+
+    adapter.parseLine(JSON.stringify({ type: 'step_start' }), ctx);
+    adapter.parseLine(JSON.stringify({
+      type: 'tool_use',
+      part: {
+        id: 'tool-cancelled',
+        tool: 'Bash',
+        input: { command: 'sleep 10' },
+        state: { status: 'running' },
+      },
+    }), ctx);
+
+    vi.advanceTimersByTime(500);
+
+    const finished = adapter.parseLine(JSON.stringify({
+      type: 'tool_use',
+      part: {
+        id: 'tool-cancelled',
+        tool: 'Bash',
+        state: { status: 'cancelled', output: 'cancelled by user' },
+      },
+    }), ctx);
+
+    expect(finished.events).toEqual([{
+      type: 'tool_result',
+      name: 'Bash',
+      ok: false,
+      preview: 'cancelled by user',
+      ms: 500,
+    }]);
+    expect(ctx.pendingTools.size).toBe(0);
+  });
 });

@@ -23,6 +23,8 @@ import { loadBrowserCodeConfig } from '../../../identity/authStore';
 const ID = 'browsercode';
 const BIN = 'bcode';
 const DEFAULT_MODEL = 'moonshotai/kimi-k2.6';
+const TERMINAL_TOOL_STATUSES = new Set(['completed', 'success', 'done', 'error', 'failed', 'cancelled', 'canceled']);
+const FAILED_TOOL_STATUSES = new Set(['error', 'failed', 'cancelled', 'canceled']);
 
 const CUSTOM_PROVIDER_CONFIG: Record<string, { name: string; npm: string; baseURL: string }> = {
   moonshotai: {
@@ -72,9 +74,15 @@ function toolArgs(part: Record<string, unknown>, fallbackName: string): Record<s
 
 function isTerminalToolState(part: Record<string, unknown>): boolean {
   const state = part.state && typeof part.state === 'object' ? part.state as Record<string, unknown> : {};
-  const status = typeof state.status === 'string' ? state.status : null;
-  if (status && ['completed', 'success', 'done', 'error', 'failed', 'cancelled'].includes(status)) return true;
+  const status = typeof state.status === 'string' ? state.status.toLowerCase() : null;
+  if (status && TERMINAL_TOOL_STATUSES.has(status)) return true;
   return 'output' in state || 'result' in state || 'error' in state || 'output' in part;
+}
+
+function toolStateOk(state: Record<string, unknown>): boolean {
+  const status = typeof state.status === 'string' ? state.status.toLowerCase() : null;
+  if (status && FAILED_TOOL_STATUSES.has(status)) return false;
+  return !('error' in state);
 }
 
 function providerLocalModelId(providerId: string, model: string): string {
@@ -258,7 +266,7 @@ const browserCodeAdapter: EngineAdapter = {
         events.push({
           type: 'tool_result' as const,
           name: completedMatch?.name ?? name,
-          ok: state.status !== 'error' && state.status !== 'failed',
+          ok: toolStateOk(state),
           preview: toolPreview(part),
           ms: Math.max(0, Date.now() - startedAt),
         });
