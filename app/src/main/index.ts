@@ -4,7 +4,7 @@
  * Browser modules (tabs, bookmarks, history, downloads, extensions,
  * permissions, profiles, etc.) have been removed in the nuclear pivot.
  * Only the core infrastructure remains: shell window, pill, HL engine,
- * OAuth/identity, settings window, updater, hotkeys.
+ * OAuth/identity, settings page routing, updater, hotkeys.
  */
 
 import { config as loadDotEnv } from 'dotenv';
@@ -107,8 +107,6 @@ import { forwardAgentEvent } from './pill';
 // Session management
 import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
-// Settings window (no browser-feature IPC handlers)
-import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
 // Channels (WhatsApp)
 import { WhatsAppAdapter } from './channels/WhatsAppAdapter';
 import { ChannelRouter } from './channels/ChannelRouter';
@@ -204,6 +202,27 @@ browserPool.setOnNavigate((sessionId, url) => {
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
 const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
+
+type SettingsOpenPayload = {
+  focusBrowserCodeProvider?: string;
+};
+
+function normalizeSettingsOpenPayload(payload: unknown): SettingsOpenPayload | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const rawProvider = (payload as { focusBrowserCodeProvider?: unknown }).focusBrowserCodeProvider;
+  if (typeof rawProvider !== 'string') return undefined;
+  const providerId = rawProvider.trim();
+  if (!providerId || providerId.length > 80) return undefined;
+  return { focusBrowserCodeProvider: providerId };
+}
+
+function openSettingsInShell(payload?: SettingsOpenPayload): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  shellWindow.show();
+  shellWindow.focus();
+  shellWindow.webContents.send('open-settings', payload);
+}
+
 
 // ---------------------------------------------------------------------------
 // Shell window factory
@@ -1377,23 +1396,12 @@ app.whenReady().then(async () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Settings window IPC
+  // Settings page IPC
   // ---------------------------------------------------------------------------
-  ipcMain.handle('settings:open', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+  ipcMain.handle('settings:open', (_e, rawPayload?: unknown) => {
+    const payload = normalizeSettingsOpenPayload(rawPayload);
     mainLogger.info('main.settings:open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
-    if (shellWindow && !shellWindow.isDestroyed()) {
-      shellWindow.show();
-      shellWindow.focus();
-      shellWindow.webContents.send('open-settings');
-      if (payload?.focusBrowserCodeProvider) {
-        const providerId = payload.focusBrowserCodeProvider;
-        setTimeout(() => {
-          if (shellWindow && !shellWindow.isDestroyed()) {
-            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
-          }
-        }, 150);
-      }
-    }
+    openSettingsInShell(payload);
   });
 
   ipcMain.handle('settings:app:get-info', () => {
@@ -1438,27 +1446,11 @@ app.whenReady().then(async () => {
     hidePill();
   });
 
-  ipcMain.handle('pill:open-settings', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+  ipcMain.handle('pill:open-settings', (_e, rawPayload?: unknown) => {
+    const payload = normalizeSettingsOpenPayload(rawPayload);
     mainLogger.info('main.pill:open-settings', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
-    if (shellWindow && !shellWindow.isDestroyed()) {
-      shellWindow.show();
-      shellWindow.focus();
-      shellWindow.webContents.send('open-settings');
-      if (payload?.focusBrowserCodeProvider) {
-        const providerId = payload.focusBrowserCodeProvider;
-        setTimeout(() => {
-          if (shellWindow && !shellWindow.isDestroyed()) {
-            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
-          }
-        }, 150);
-      }
-    }
+    openSettingsInShell(payload);
     hidePill();
-  });
-
-  ipcMain.handle('settings:close', () => {
-    mainLogger.info('main.settings:close');
-    closeSettingsWindow();
   });
 
   // ---------------------------------------------------------------------------
@@ -1583,10 +1575,7 @@ function buildApplicationMenu(): void {
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             mainLogger.debug('menu.openSettings');
-            if (shellWindow && !shellWindow.isDestroyed()) {
-              shellWindow.webContents.send('open-settings');
-              shellWindow.focus();
-            }
+            openSettingsInShell();
           },
         },
         { type: 'separator' },

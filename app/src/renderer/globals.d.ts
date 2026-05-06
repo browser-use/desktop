@@ -138,7 +138,7 @@ interface ElectronOnAPI {
   sessionBrowserGone: (cb: (id: string) => void) => () => void;
   sessionOutput: (cb: (id: string, event: import('./hub/types').HlEvent) => void) => () => void;
   sessionOutputTerm: (cb: (id: string, bytes: string) => void) => () => void;
-  openSettings?: (cb: () => void) => () => void;
+  openSettings?: (cb: (payload?: { focusBrowserCodeProvider?: string }) => void) => () => void;
   zoomChanged?: (cb: (factor: number) => void) => () => void;
   whatsappQr?: (cb: (dataUrl: string) => void) => () => void;
   channelStatus?: (cb: (channelId: string, status: string, detail?: string) => void) => () => void;
@@ -294,7 +294,6 @@ interface ElectronSettingsAppAPI {
 
 interface ElectronSettingsAPI {
   open?: (payload?: { focusBrowserCodeProvider?: string }) => Promise<void>;
-  onFocusBrowserCodeProvider?: (handler: (providerId: string) => void) => () => void;
   apiKey: ElectronSettingsApiKeyAPI;
   claudeCode?: ElectronSettingsClaudeCodeAPI;
   openaiKey?: ElectronSettingsOpenAiKeyAPI;

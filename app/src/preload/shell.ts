@@ -8,6 +8,17 @@ import {
 } from '../shared/session-schemas';
 import type { AgentSession, HlEvent, TabInfo, BrowserPoolStats } from '../shared/session-schemas';
 
+type SettingsOpenPayload = { focusBrowserCodeProvider?: string };
+
+function normalizeSettingsOpenPayload(raw: unknown): SettingsOpenPayload | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rawProvider = (raw as { focusBrowserCodeProvider?: unknown }).focusBrowserCodeProvider;
+  const providerId = typeof rawProvider === 'string' ? rawProvider.trim() : '';
+  return providerId.length > 0 && providerId.length <= 80
+    ? { focusBrowserCodeProvider: providerId }
+    : undefined;
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
     platform: process.platform,
@@ -50,11 +61,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   settings: {
     open: (payload?: { focusBrowserCodeProvider?: string }): Promise<void> => ipcRenderer.invoke('settings:open', payload),
-    onFocusBrowserCodeProvider: (handler: (providerId: string) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { providerId: string }) => handler(payload.providerId);
-      ipcRenderer.on('settings:browsercode:focus-provider', listener);
-      return () => ipcRenderer.removeListener('settings:browsercode:focus-provider', listener);
-    },
     apiKey: {
       getMasked: (): Promise<{ present: boolean; masked: string | null }> =>
         ipcRenderer.invoke('settings:api-key:get-masked'),
@@ -365,8 +371,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('session-output-term', handler);
       return () => ipcRenderer.removeListener('session-output-term', handler);
     },
-    openSettings: (cb: () => void): (() => void) => {
-      const handler = () => cb();
+    openSettings: (cb: (payload?: SettingsOpenPayload) => void): (() => void) => {
+      const handler = (_event: unknown, rawPayload?: unknown) => cb(normalizeSettingsOpenPayload(rawPayload));
       ipcRenderer.on('open-settings', handler);
       return () => ipcRenderer.removeListener('open-settings', handler);
     },

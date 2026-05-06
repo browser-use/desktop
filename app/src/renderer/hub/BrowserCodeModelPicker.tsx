@@ -61,12 +61,27 @@ function modelLabel(providers: BrowserCodeProvider[], modelId: string | undefine
   return modelId.includes('/') ? modelId.split('/').pop() ?? modelId : modelId;
 }
 
+function BrowserCodeSkeletonRows({ count = 3 }: { count?: number }): React.ReactElement {
+  return (
+    <>
+      {Array.from({ length: count }, (_, index) => (
+        <div key={index} className="browsercode-model-picker__skeleton-item" aria-hidden="true">
+          <span className="browsercode-model-picker__skeleton browsercode-model-picker__skeleton--mark" />
+          <span className="browsercode-model-picker__skeleton browsercode-model-picker__skeleton--label" />
+          <span className="browsercode-model-picker__skeleton browsercode-model-picker__skeleton--badge" />
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function BrowserCodeModelPicker({
   visible,
   compact = false,
   onOpenChange,
 }: BrowserCodeModelPickerProps): React.ReactElement | null {
   const [status, setStatus] = useState<BrowserCodeStatus>({ keys: {}, active: null, providers: [] });
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
   const [drilledProviderId, setDrilledProviderId] = useState<string | null>(null);
   const [savingModel, setSavingModel] = useState<string | null>(null);
@@ -79,7 +94,10 @@ export function BrowserCodeModelPicker({
 
   const refresh = useCallback(async () => {
     const api = window.electronAPI?.settings?.browserCode;
-    if (!api) return;
+    if (!api) {
+      setLoaded(true);
+      return;
+    }
     try {
       const next = await api.getStatus();
       setStatus(next);
@@ -93,6 +111,8 @@ export function BrowserCodeModelPicker({
       const message = (err as Error).message;
       setError(message);
       console.warn('[BrowserCodeModelPicker] status.failed', { error: message });
+    } finally {
+      setLoaded(true);
     }
   }, []);
 
@@ -123,6 +143,7 @@ export function BrowserCodeModelPicker({
   const currentModelLabel = modelLabel(status.providers, currentModel);
   const hasAnyKey = Object.keys(status.keys).length > 0;
   const canSwitchModels = hasAnyKey && status.installed?.installed !== false;
+  const loadingStatus = !loaded && status.providers.length === 0;
 
   const selectModel = useCallback(async (providerId: string, model: string) => {
     const api = window.electronAPI?.settings?.browserCode;
@@ -158,17 +179,31 @@ export function BrowserCodeModelPicker({
         type="button"
         className="browsercode-model-picker__toggle"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        title={hasAnyKey ? `BrowserCode model: ${currentModelLabel}` : 'Set up BrowserCode model'}
+        title={loadingStatus ? 'Loading BrowserCode model' : hasAnyKey ? `BrowserCode model: ${currentModelLabel}` : 'Set up BrowserCode model'}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-busy={loadingStatus}
       >
-        {currentProvider && <ProviderMark providerId={currentProvider.id} />}
-        <span className="browsercode-model-picker__label">{currentModelLabel}</span>
+        {loadingStatus ? (
+          <>
+            <span className="browsercode-model-picker__skeleton browsercode-model-picker__skeleton--mark" aria-hidden="true" />
+            <span className="browsercode-model-picker__skeleton browsercode-model-picker__skeleton--toggle-label" aria-hidden="true" />
+          </>
+        ) : (
+          <>
+            {currentProvider && <ProviderMark providerId={currentProvider.id} />}
+            <span className="browsercode-model-picker__label">{currentModelLabel}</span>
+          </>
+        )}
         <ChevronIcon />
       </button>
       {open && (
         <div className="browsercode-model-picker__menu" role="menu">
-          {!canSwitchModels && (
+          {loadingStatus ? (
+            <div className="browsercode-submenu browsercode-submenu--loading" aria-label="Loading BrowserCode providers">
+              <BrowserCodeSkeletonRows />
+            </div>
+          ) : !canSwitchModels && (
             <button
               type="button"
               className="browsercode-model-picker__setup"
@@ -181,7 +216,7 @@ export function BrowserCodeModelPicker({
               Set up BrowserCode in Settings
             </button>
           )}
-          {drilledProviderId === null
+          {!loadingStatus && (drilledProviderId === null
             ? status.providers.map((provider) => {
                 const isConfigured = !!status.keys[provider.id];
                 const isActiveProvider = status.active === provider.id;
@@ -253,7 +288,7 @@ export function BrowserCodeModelPicker({
                     })}
                   </>
                 );
-              })()}
+              })())}
           {error && <div className="browsercode-model-picker__error">{error}</div>}
         </div>
       )}
@@ -267,19 +302,25 @@ interface BrowserCodeProviderSubmenuProps {
 
 export function BrowserCodeProviderSubmenu({ onSelected }: BrowserCodeProviderSubmenuProps): React.ReactElement {
   const [status, setStatus] = useState<BrowserCodeStatus>({ keys: {}, active: null, providers: [] });
+  const [loaded, setLoaded] = useState(false);
   const [drilledProviderId, setDrilledProviderId] = useState<string | null>(null);
   const [savingModel, setSavingModel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const api = window.electronAPI?.settings?.browserCode;
-    if (!api) return;
+    if (!api) {
+      setLoaded(true);
+      return;
+    }
     try {
       const next = await api.getStatus();
       setStatus(next);
       setError(null);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setLoaded(true);
     }
   }, []);
 
@@ -306,10 +347,12 @@ export function BrowserCodeProviderSubmenu({ onSelected }: BrowserCodeProviderSu
     }
   }, [refresh, status.keys, onSelected]);
 
+  const loadingStatus = !loaded && status.providers.length === 0;
+
   if (drilledProviderId === null) {
     return (
-      <div className="browsercode-submenu" role="menu">
-        {status.providers.map((provider) => {
+      <div className={`browsercode-submenu${loadingStatus ? ' browsercode-submenu--loading' : ''}`} role="menu" aria-busy={loadingStatus}>
+        {loadingStatus ? <BrowserCodeSkeletonRows /> : status.providers.map((provider) => {
           const isConfigured = !!status.keys[provider.id];
           const isActive = status.active === provider.id;
           return (
