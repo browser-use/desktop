@@ -1,13 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 export interface ChromeProfile {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 export interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -23,8 +29,8 @@ const onboardingAPI = {
   detectChromeProfiles: (): Promise<ChromeProfile[]> =>
     ipcRenderer.invoke('chrome-import:detect-profiles'),
 
-  importChromeProfileCookies: (profileDir: string): Promise<CookieImportResult> =>
-    ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+  importChromeProfileCookies: (profileId: string): Promise<CookieImportResult> =>
+    ipcRenderer.invoke('chrome-import:import-cookies', profileId),
 
   listSessionCookies: (): Promise<Array<{
     name: string;

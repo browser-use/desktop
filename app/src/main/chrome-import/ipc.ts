@@ -17,12 +17,12 @@ export function registerChromeImportHandlers(deps: ChromeImportHandlerDeps): voi
     return detectChromeProfiles();
   });
 
-  ipcMain.handle('chrome-import:import-cookies', async (_event, profileDir: string) => {
-    mainLogger.info('chromeImportHandlers.importCookies', { profileDir });
-    const result = await importChromeProfileCookies(profileDir);
+  ipcMain.handle('chrome-import:import-cookies', async (_event, profileId: string) => {
+    mainLogger.info('chromeImportHandlers.importCookies', { profileId });
+    const result = await importChromeProfileCookies(profileId);
     // Persist a sync record so the UI can show "Synced 5m ago" on the next
     // open instead of treating the profile as never-synced.
-    accountStore.recordChromeProfileSync(profileDir, {
+    accountStore.recordChromeProfileSync(result.profileId, {
       imported: result.imported,
       total: result.total,
       domain_count: result.domains.length,

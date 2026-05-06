@@ -24,9 +24,9 @@ export interface AccountData {
    *  onboarding window reopen to where the user left off, instead of
    *  starting from intro. Cleared once onboarding completes. */
   last_onboarding_step?: string;
-  /** Per-Chrome-profile sync history, keyed by profile directory (e.g. "Default",
-   *  "Profile 1"). Lets the cookies UI show "Synced 5m ago" instead of treating
-   *  every reopen as a first-time view. */
+  /** Per-browser-profile sync history, keyed by stable profile id (e.g.
+   *  "google-chrome:Default", "brave:Profile%201"). Lets the cookies UI show
+   *  "Synced 5m ago" instead of treating every reopen as a first-time view. */
   chrome_profile_syncs?: Record<string, ChromeProfileSyncRecord>;
 }
 
@@ -126,10 +126,10 @@ export class AccountStore {
     return this.load()?.chrome_profile_syncs ?? {};
   }
 
-  recordChromeProfileSync(profileDir: string, summary: Omit<ChromeProfileSyncRecord, 'last_synced_at'>): void {
+  recordChromeProfileSync(profileId: string, summary: Omit<ChromeProfileSyncRecord, 'last_synced_at'>): void {
     const existing = this.load() ?? {};
     const syncs = { ...(existing.chrome_profile_syncs ?? {}) };
-    syncs[profileDir] = { ...summary, last_synced_at: new Date().toISOString() };
+    syncs[profileId] = { ...summary, last_synced_at: new Date().toISOString() };
     this.save({ ...existing, chrome_profile_syncs: syncs });
   }
 }

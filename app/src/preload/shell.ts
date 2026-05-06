@@ -297,9 +297,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   chromeImport: {
-    detectProfiles: (): Promise<Array<{ directory: string; name: string; email: string; avatarIcon: string }>> =>
+    detectProfiles: (): Promise<Array<{ id: string; directory: string; browserKey: string; browserName: string; name: string; email: string; avatarIcon: string }>> =>
       ipcRenderer.invoke('chrome-import:detect-profiles'),
-    importCookies: (profileDir: string): Promise<{
+    importCookies: (profileId: string): Promise<{
+      profileId: string;
+      browserName: string;
+      profileDirectory: string;
       total: number;
       imported: number;
       failed: number;
@@ -307,7 +310,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       domains: string[];
       failedDomains: string[];
       errorReasons: Record<string, number>;
-    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileId),
     listCookies: (): Promise<Array<{
       name: string;
       domain: string;

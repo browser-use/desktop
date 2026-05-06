@@ -86,13 +86,19 @@ interface ElectronChannelsAPI {
 }
 
 interface ChromeProfileSummary {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -128,7 +134,7 @@ interface ChromeProfileSyncRecord {
 
 interface ElectronChromeImportAPI {
   detectProfiles: () => Promise<ChromeProfileSummary[]>;
-  importCookies: (profileDir: string) => Promise<CookieImportResult>;
+  importCookies: (profileId: string) => Promise<CookieImportResult>;
   listCookies: () => Promise<SessionCookieSummary[]>;
   getSyncs: () => Promise<Record<string, ChromeProfileSyncRecord>>;
 }
