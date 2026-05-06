@@ -151,6 +151,20 @@ describe('BrowserPool — attach/detach', () => {
     expect(ok).toBe(true);
   });
 
+  it('re-centers an attached view using the current zoom factor after manual zoom changes', () => {
+    pool.create('s1');
+    pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
+
+    const view = pool.getView('s1');
+    expect(view).not.toBeNull();
+
+    (view!.webContents as { getZoomFactor?: () => number }).getZoomFactor = () => 0.5;
+
+    const ok = pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
+    expect(ok).toBe(true);
+    expect(view!.getBounds()).toEqual({ x: 600, y: 0, width: 800, height: 900 });
+  });
+
   it('destroy detaches if currently attached', () => {
     pool.create('s1');
     pool.attachToWindow('s1', win, { x: 0, y: 0, width: 800, height: 600 });
@@ -181,6 +195,32 @@ describe('BrowserPool — getTabs', () => {
   it('returns empty array for unknown session', async () => {
     const tabs = await pool.getTabs('nonexistent');
     expect(tabs).toEqual([]);
+  });
+});
+
+describe('BrowserPool — fitted resize', () => {
+  let pool: BrowserPool;
+  let win: any;
+
+  beforeEach(() => {
+    pool = new BrowserPool(5);
+    win = mockWindow();
+  });
+
+  afterEach(() => { pool.destroyAll(); });
+
+  it('uses the current zoom factor when fitting bounds after a zoom change', () => {
+    pool.create('s1');
+    pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
+
+    const view = pool.getView('s1');
+    expect(view).not.toBeNull();
+
+    (view!.webContents as { getZoomFactor?: () => number }).getZoomFactor = () => 0.5;
+
+    const fitted = pool.setViewBoundsFitted('s1', { x: 0, y: 0, width: 2000, height: 900 });
+    expect(fitted).toEqual({ x: 600, y: 0, width: 800, height: 900 });
+    expect(view!.getBounds()).toEqual({ x: 600, y: 0, width: 800, height: 900 });
   });
 });
 

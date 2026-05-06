@@ -441,8 +441,11 @@ export class BrowserPool {
   /** Center + shrink the view rect inside the hub box if the emulated
    *  viewport is narrower than the rect (after zoom-to-fit on height).
    *  Otherwise the rect is used as-is. */
-  private fitBoundsToView(emulatedWidth: number, bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
-    const zoom = bounds.height / EMULATED_VIEWPORT_HEIGHT;
+  private fitBoundsToView(
+    emulatedWidth: number,
+    bounds: { x: number; y: number; width: number; height: number },
+    zoom: number,
+  ): { x: number; y: number; width: number; height: number } {
     const renderedWidth = Math.round(emulatedWidth * zoom);
     if (renderedWidth >= bounds.width) return bounds;
     return {
@@ -453,13 +456,28 @@ export class BrowserPool {
     };
   }
 
+  private zoomForBounds(bounds: { height: number }): number {
+    return Math.max(0.25, Math.min(1, bounds.height / EMULATED_VIEWPORT_HEIGHT));
+  }
+
+  private currentZoomForBounds(entry: PoolEntry, bounds: { height: number }): number {
+    try {
+      const zoom = entry.view.webContents.getZoomFactor();
+      if (Number.isFinite(zoom) && zoom > 0) return zoom;
+    } catch (err) {
+      browserLogger.warn('BrowserPool.zoom.getZoomFactor.error', { sessionId: entry.sessionId, error: (err as Error).message });
+    }
+    return this.zoomForBounds(bounds);
+  }
+
   /** Public helper for the resize fast path: applies the same fit/center
    *  logic as attach so the rendered page stays centered as the hub layout
    *  changes. Returns true if the view exists and bounds were applied. */
   setViewBoundsFitted(sessionId: string, bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } | null {
     const entry = this.entries.get(sessionId);
     if (!entry) return null;
-    const fitted = this.fitBoundsToView(entry.emulatedWidth, bounds);
+    const currentZoom = this.currentZoomForBounds(entry, bounds);
+    const fitted = this.fitBoundsToView(entry.emulatedWidth, bounds, currentZoom);
     entry.view.setBounds(fitted);
     return fitted;
   }
@@ -473,7 +491,8 @@ export class BrowserPool {
 
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
-      entry.view.setBounds(this.fitBoundsToView(entry.emulatedWidth, bounds));
+      const currentZoom = this.currentZoomForBounds(entry, bounds);
+      entry.view.setBounds(this.fitBoundsToView(entry.emulatedWidth, bounds, currentZoom));
       // Don't touch zoom here — user's manual zoom (Cmd+=/Cmd+-) should
       // persist across attach cycles.
       return true;
@@ -489,8 +508,9 @@ export class BrowserPool {
     const aspectWidth = Math.round(EMULATED_VIEWPORT_HEIGHT * bounds.width / bounds.height);
     const emulatedWidth = Math.max(MIN_EMULATED_VIEWPORT_WIDTH, Math.min(MAX_EMULATED_VIEWPORT_WIDTH, aspectWidth));
     entry.emulatedWidth = emulatedWidth;
+    const zoom = this.zoomForBounds(bounds);
 
-    const fittedBounds = this.fitBoundsToView(emulatedWidth, bounds);
+    const fittedBounds = this.fitBoundsToView(emulatedWidth, bounds, zoom);
     entry.view.setBounds(fittedBounds);
     window.contentView.addChildView(entry.view);
     entry.attached = true;
@@ -515,9 +535,8 @@ export class BrowserPool {
     // Scale the rendered page so the emulated viewport fills the physical
     // rect. With aspect-matched emulatedWidth, both axes give the same zoom
     // (modulo rounding), so we just use the height axis.
-    const zoom = bounds.height / EMULATED_VIEWPORT_HEIGHT;
     try {
-      entry.view.webContents.setZoomFactor(Math.max(0.25, Math.min(1, zoom)));
+      entry.view.webContents.setZoomFactor(zoom);
     } catch (err) {
       browserLogger.warn('BrowserPool.attach.setZoomFactor.error', { sessionId, zoom, error: (err as Error).message });
     }

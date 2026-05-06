@@ -247,15 +247,17 @@ function normalizeBrowserCodeStore(value: unknown): BrowserCodeStore | null {
     if (!entry || typeof entry !== 'object') continue;
     const e = entry as Partial<BrowserCodeKeyEntry>;
     if (typeof e.apiKey !== 'string') continue;
+    const normalizedProviderId = providerId.trim();
     const apiKey = e.apiKey.trim();
-    if (!providerId.trim() || !apiKey) continue;
-    keys[providerId] = {
+    if (!normalizedProviderId || !apiKey) continue;
+    keys[normalizedProviderId] = {
       apiKey,
       lastModel: typeof e.lastModel === 'string' && e.lastModel.trim() ? e.lastModel.trim() : undefined,
     };
   }
   if (Object.keys(keys).length === 0) return null;
-  let active: string | null = typeof candidate.active === 'string' && keys[candidate.active] ? candidate.active : null;
+  const normalizedActive = typeof candidate.active === 'string' ? candidate.active.trim() : null;
+  let active: string | null = normalizedActive && keys[normalizedActive] ? normalizedActive : null;
   if (!active) active = Object.keys(keys)[0] ?? null;
   return { keys, active };
 }

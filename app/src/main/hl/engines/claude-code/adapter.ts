@@ -72,7 +72,7 @@ const claudeCodeAdapter: EngineAdapter = {
 
   async probeAuthed(): Promise<AuthProbe> {
     const r = await runCliCapture(BIN, ['auth', 'status']);
-    return r.ok ? { authed: true } : { authed: false, error: r.stderr || r.stdout || 'not logged in' };
+    return r.ok ? { authed: true } : { authed: false, error: r.stderr || r.error || r.stdout || 'not logged in' };
   },
 
   async openLoginInTerminal(): Promise<{ opened: boolean; error?: string }> {

@@ -60,6 +60,23 @@ function toolPreview(part: Record<string, unknown>): string {
   catch { return String(output).slice(0, 4000); }
 }
 
+function toolArgs(part: Record<string, unknown>, fallbackName: string): Record<string, unknown> {
+  const input = part.input && typeof part.input === 'object' ? part.input as Record<string, unknown> : {};
+  const preview = typeof input.command === 'string'
+    ? input.command
+    : Object.keys(input).length > 0
+      ? JSON.stringify(input, null, 2)
+      : fallbackName;
+  return { preview, ...input };
+}
+
+function isTerminalToolState(part: Record<string, unknown>): boolean {
+  const state = part.state && typeof part.state === 'object' ? part.state as Record<string, unknown> : {};
+  const status = typeof state.status === 'string' ? state.status : null;
+  if (status && ['completed', 'success', 'done', 'error', 'failed', 'cancelled'].includes(status)) return true;
+  return 'output' in state || 'result' in state || 'error' in state || 'output' in part;
+}
+
 function providerLocalModelId(providerId: string, model: string): string {
   return model.startsWith(`${providerId}/`) ? model.slice(providerId.length + 1) : model;
 }
@@ -219,15 +236,33 @@ const browserCodeAdapter: EngineAdapter = {
       const state = part.state && typeof part.state === 'object' ? part.state as Record<string, unknown> : {};
       const name = typeof part.tool === 'string' ? part.tool : 'tool';
       const id = partId(part);
-      const startedAt = ctx.pendingTools.get(id)?.startedAt ?? Date.now();
-      ctx.pendingTools.delete(id);
-      events.push({
-        type: 'tool_result' as const,
-        name,
-        ok: state.status !== 'error',
-        preview: toolPreview(part),
-        ms: Math.max(0, Date.now() - startedAt),
-      });
+      const match = ctx.pendingTools.get(id);
+      const terminal = isTerminalToolState(part);
+
+      if (!match) {
+        ctx.pendingTools.set(id, { name, startedAt: Date.now(), iter: ctx.iter });
+        if (!terminal) {
+          events.push({
+            type: 'tool_call' as const,
+            name,
+            args: toolArgs(part, name),
+            iteration: ctx.iter,
+          });
+        }
+      }
+
+      if (terminal) {
+        const completedMatch = ctx.pendingTools.get(id);
+        const startedAt = completedMatch?.startedAt ?? Date.now();
+        ctx.pendingTools.delete(id);
+        events.push({
+          type: 'tool_result' as const,
+          name: completedMatch?.name ?? name,
+          ok: state.status !== 'error' && state.status !== 'failed',
+          preview: toolPreview(part),
+          ms: Math.max(0, Date.now() - startedAt),
+        });
+      }
     }
 
     if (e.type === 'error') {

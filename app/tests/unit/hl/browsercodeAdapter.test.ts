@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { EngineAdapter, SpawnContext } from '../../../src/main/hl/engines/types';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { EngineAdapter, ParseContext, SpawnContext } from '../../../src/main/hl/engines/types';
 
 const { get } = await import('../../../src/main/hl/engines/registry');
 await import('../../../src/main/hl/engines/browsercode/adapter');
@@ -24,6 +24,20 @@ function spawnContext(): SpawnContext {
   };
 }
 
+function parseContext(): ParseContext {
+  return {
+    iter: 0,
+    pendingTools: new Map(),
+    harnessHelpersPath: '/tmp/harness/helpers.js',
+    harnessToolsPath: '/tmp/harness/TOOLS.json',
+    harnessSkillPath: '/tmp/harness/skill.md',
+  };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('browsercode adapter stdin payload mode', () => {
   it('reads the wrapped prompt from stdin instead of argv', () => {
     const adapter = browserCodeAdapter();
@@ -45,5 +59,80 @@ describe('browsercode adapter stdin payload mode', () => {
     ]);
     expect(args).not.toContain(wrappedPrompt);
     expect(adapter.getStdinPayload?.(ctx, wrappedPrompt)).toBe(wrappedPrompt);
+  });
+});
+
+describe('browsercode adapter tool parsing', () => {
+  it('tracks tool durations from the first tool_use event through completion', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'));
+
+    const adapter = browserCodeAdapter();
+    const ctx = parseContext();
+
+    adapter.parseLine(JSON.stringify({ type: 'step_start' }), ctx);
+    const started = adapter.parseLine(JSON.stringify({
+      type: 'tool_use',
+      part: {
+        id: 'tool-1',
+        tool: 'Bash',
+        input: { command: 'pwd' },
+        state: { status: 'running' },
+      },
+    }), ctx);
+
+    expect(started.events).toEqual([{
+      type: 'tool_call',
+      name: 'Bash',
+      args: { preview: 'pwd', command: 'pwd' },
+      iteration: 1,
+    }]);
+
+    vi.advanceTimersByTime(250);
+
+    const finished = adapter.parseLine(JSON.stringify({
+      type: 'tool_use',
+      part: {
+        id: 'tool-1',
+        tool: 'Bash',
+        state: { status: 'completed', output: 'ok' },
+      },
+    }), ctx);
+
+    expect(finished.events).toEqual([{
+      type: 'tool_result',
+      name: 'Bash',
+      ok: true,
+      preview: 'ok',
+      ms: 250,
+    }]);
+    expect(ctx.pendingTools.size).toBe(0);
+  });
+
+  it('emits a zero-duration result when BrowserCode only reports the terminal tool event', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'));
+
+    const adapter = browserCodeAdapter();
+    const ctx = parseContext();
+
+    adapter.parseLine(JSON.stringify({ type: 'step_start' }), ctx);
+    const finished = adapter.parseLine(JSON.stringify({
+      type: 'tool_use',
+      part: {
+        id: 'tool-terminal-only',
+        tool: 'Bash',
+        state: { status: 'completed', output: 'ok' },
+      },
+    }), ctx);
+
+    expect(finished.events).toEqual([{
+      type: 'tool_result',
+      name: 'Bash',
+      ok: true,
+      preview: 'ok',
+      ms: 0,
+    }]);
+    expect(ctx.pendingTools.size).toBe(0);
   });
 });
