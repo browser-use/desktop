@@ -229,10 +229,8 @@ interface ElectronSettingsCodexAPI {
 
 interface ElectronSettingsBrowserCodeAPI {
   getStatus: () => Promise<{
-    present: boolean;
-    providerId?: string;
-    model?: string;
-    masked?: string;
+    keys: Record<string, { masked: string; lastModel?: string }>;
+    active: string | null;
     installed?: { installed: boolean; version?: string; error?: string };
     providers: Array<{
       id: string;
@@ -241,9 +239,10 @@ interface ElectronSettingsBrowserCodeAPI {
       models: Array<{ id: string; label: string }>;
     }>;
   }>;
-  save: (payload: { providerId: string; model: string; apiKey: string }) => Promise<void>;
-  test: (payload: { providerId: string; model: string; apiKey: string }) => Promise<{ success: boolean; error?: string }>;
-  delete: () => Promise<void>;
+  save: (payload: { providerId: string; apiKey: string; lastModel?: string }) => Promise<void>;
+  test: (payload: { providerId: string; apiKey: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
+  delete: (payload?: { providerId?: string }) => Promise<void>;
+  setActive: (payload: { providerId: string }) => Promise<void>;
 }
 
 interface ElectronSettingsAppAPI {
@@ -294,7 +293,8 @@ interface ElectronSettingsAppAPI {
 }
 
 interface ElectronSettingsAPI {
-  open?: () => Promise<void>;
+  open?: (payload?: { focusBrowserCodeProvider?: string }) => Promise<void>;
+  onFocusBrowserCodeProvider?: (handler: (providerId: string) => void) => () => void;
   apiKey: ElectronSettingsApiKeyAPI;
   claudeCode?: ElectronSettingsClaudeCodeAPI;
   openaiKey?: ElectronSettingsOpenAiKeyAPI;

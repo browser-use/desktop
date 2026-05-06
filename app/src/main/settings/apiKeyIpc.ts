@@ -15,9 +15,11 @@ import {
   saveOpenAIKey,
   deleteOpenAIKey,
   getCredentialStatus,
-  saveBrowserCodeConfig,
+  saveBrowserCodeKey,
+  deleteBrowserCodeKey,
   deleteBrowserCodeConfig,
-  loadBrowserCodeConfig,
+  loadBrowserCodeStore,
+  setActiveBrowserCodeProvider,
 } from '../identity/authStore';
 import { probeClaudeAuthStatus } from '../identity/claudeCodeAuth';
 import { spawnCli } from '../hl/engines/cliSpawn';
@@ -46,6 +48,7 @@ const CH_BCODE_GET_STATUS = 'settings:browsercode:get-status';
 const CH_BCODE_SAVE = 'settings:browsercode:save';
 const CH_BCODE_TEST = 'settings:browsercode:test';
 const CH_BCODE_DELETE = 'settings:browsercode:delete';
+const CH_BCODE_SET_ACTIVE = 'settings:browsercode:set-active';
 
 export interface BrowserCodeProviderOption {
   id: string;
@@ -59,7 +62,7 @@ export interface BrowserCodeProviderOption {
 const BROWSER_CODE_PROVIDERS: BrowserCodeProviderOption[] = [
   {
     id: 'moonshotai',
-    name: 'Moonshot / Kimi',
+    name: 'Moonshot AI',
     apiKind: 'openai',
     apiBaseUrl: 'https://api.moonshot.ai/v1',
     defaultModel: 'moonshotai/kimi-k2.6',
@@ -68,18 +71,6 @@ const BROWSER_CODE_PROVIDERS: BrowserCodeProviderOption[] = [
       { id: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking' },
       { id: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5' },
       { id: 'moonshotai/kimi-k2-turbo-preview', label: 'Kimi K2 Turbo Preview' },
-    ],
-  },
-  {
-    id: 'kimi-for-coding',
-    name: 'Kimi for Coding',
-    apiKind: 'anthropic',
-    apiBaseUrl: 'https://api.kimi.com/coding/v1',
-    defaultModel: 'kimi-for-coding/k2p6',
-    models: [
-      { id: 'kimi-for-coding/k2p6', label: 'K2P6' },
-      { id: 'kimi-for-coding/k2p5', label: 'K2P5' },
-      { id: 'kimi-for-coding/kimi-k2-thinking', label: 'Kimi K2 Thinking' },
     ],
   },
   {
@@ -315,10 +306,8 @@ async function handleOpenAiDelete(): Promise<void> {
 }
 
 async function handleBrowserCodeGetStatus(): Promise<{
-  present: boolean;
-  providerId?: string;
-  model?: string;
-  masked?: string;
+  keys: Record<string, { masked: string; lastModel?: string }>;
+  active: string | null;
   installed?: { installed: boolean; version?: string; error?: string };
   providers: BrowserCodeProviderOption[];
 }> {
@@ -331,18 +320,14 @@ async function handleBrowserCodeGetStatus(): Promise<{
     installed = { installed: false, error: (err as Error).message };
   }
   mainLogger.info('apiKeyIpc.browserCode.getStatus', {
-    present: browserCode.present,
-    providerId: browserCode.present ? browserCode.providerId : undefined,
-    model: browserCode.present ? browserCode.model : undefined,
+    connectedProviders: Object.keys(browserCode.keys),
+    active: browserCode.active,
     installed: installed?.installed,
     installedError: installed?.error,
   });
-  if (!browserCode.present) return { present: false, installed, providers: BROWSER_CODE_PROVIDERS };
   return {
-    present: true,
-    providerId: browserCode.providerId,
-    model: browserCode.model,
-    masked: browserCode.masked,
+    keys: browserCode.keys,
+    active: browserCode.active,
     installed,
     providers: BROWSER_CODE_PROVIDERS,
   };
@@ -440,15 +425,34 @@ async function testAnthropicCompatibleKey(provider: BrowserCodeProviderOption, k
   }
 }
 
+function mockTestResult(key: string): { success: boolean; error?: string } | null {
+  if (key === 'mock:ok') return { success: true };
+  if (key === 'mock:invalid') return { success: false, error: 'Invalid API key' };
+  if (key === 'mock:credits') return { success: false, error: 'You have run out of credits. Please top up your account.' };
+  if (key === 'mock:rate-limit') return { success: false, error: 'Rate limit exceeded' };
+  if (key === 'mock:network') return { success: false, error: 'Network error: failed to reach provider' };
+  return null;
+}
+
 async function handleBrowserCodeTest(
   _e: Electron.IpcMainInvokeEvent,
-  payload: { providerId: string; model: string; apiKey: string },
+  payload: { providerId: string; apiKey: string; model?: string },
 ): Promise<{ success: boolean; error?: string }> {
   const providerId = assertString(payload?.providerId, 'providerId', 80);
-  const model = assertString(payload?.model, 'model', 160);
-  const key = assertString(payload?.apiKey, 'apiKey', 500);
+  let key = assertString(payload?.apiKey ?? '', 'apiKey', 500);
   const provider = providerFromId(providerId);
+  const model = payload?.model ? assertString(payload.model, 'model', 160) : provider.defaultModel;
   assertProviderModel(provider, model);
+  if (!key) {
+    const store = await loadBrowserCodeStore();
+    key = store?.keys[providerId]?.apiKey ?? '';
+    if (!key) return { success: false, error: 'No API key saved for this provider' };
+  }
+  const mock = mockTestResult(key);
+  if (mock) {
+    mainLogger.info('apiKeyIpc.browserCode.test.mock', { providerId, model, mockKey: key });
+    return mock;
+  }
   mainLogger.info('apiKeyIpc.browserCode.test', { providerId, model, apiKind: provider.apiKind, keyLength: key.length });
   const result = provider.apiKind === 'anthropic'
     ? await testAnthropicCompatibleKey(provider, key, model)
@@ -459,30 +463,52 @@ async function handleBrowserCodeTest(
 
 async function handleBrowserCodeSave(
   _e: Electron.IpcMainInvokeEvent,
-  payload: { providerId: string; model: string; apiKey: string },
+  payload: { providerId: string; apiKey: string; lastModel?: string },
 ): Promise<void> {
   const providerId = assertString(payload?.providerId, 'providerId', 80);
-  const model = assertString(payload?.model, 'model', 160);
   const apiKeyInput = assertString(payload?.apiKey ?? '', 'apiKey', 500).trim();
+  const lastModel = payload?.lastModel ? assertString(payload.lastModel, 'lastModel', 160) : undefined;
   const provider = providerFromId(providerId);
-  assertProviderModel(provider, model);
+  if (lastModel) assertProviderModel(provider, lastModel);
   const { getAdapter } = await import('../hl/engines');
   const installed = await getAdapter('browsercode')?.probeInstalled();
   if (!installed?.installed) {
     throw new Error(installed?.error ?? 'Install BrowserCode before adding a provider API key');
   }
-  const existing = await loadBrowserCodeConfig();
-  const apiKey = apiKeyInput || (existing?.providerId === providerId ? existing.apiKey : '');
+  let apiKey = apiKeyInput;
+  if (!apiKey) {
+    const store = await loadBrowserCodeStore();
+    apiKey = store?.keys[providerId]?.apiKey ?? '';
+  }
   if (!apiKey) throw new Error('API key is required for this provider');
-  mainLogger.info('apiKeyIpc.browserCode.save', { providerId, model, apiKind: provider.apiKind, keyLength: apiKey.length, reusedExistingKey: !apiKeyInput });
-  await saveBrowserCodeConfig({ providerId, model, apiKey });
-  mainLogger.info('apiKeyIpc.browserCode.save.ok', { providerId, model, apiKind: provider.apiKind, reusedExistingKey: !apiKeyInput });
+  mainLogger.info('apiKeyIpc.browserCode.save', { providerId, apiKind: provider.apiKind, keyLength: apiKey.length, reusedExistingKey: !apiKeyInput });
+  await saveBrowserCodeKey(providerId, apiKey, lastModel);
+  mainLogger.info('apiKeyIpc.browserCode.save.ok', { providerId, apiKind: provider.apiKind });
 }
 
-async function handleBrowserCodeDelete(): Promise<void> {
-  mainLogger.info('apiKeyIpc.browserCode.delete');
-  await deleteBrowserCodeConfig();
-  mainLogger.info('apiKeyIpc.browserCode.delete.ok');
+async function handleBrowserCodeDelete(
+  _e: Electron.IpcMainInvokeEvent,
+  payload?: { providerId?: string },
+): Promise<void> {
+  const providerId = payload?.providerId ? assertString(payload.providerId, 'providerId', 80) : null;
+  if (providerId) {
+    mainLogger.info('apiKeyIpc.browserCode.delete', { providerId });
+    await deleteBrowserCodeKey(providerId);
+  } else {
+    mainLogger.info('apiKeyIpc.browserCode.deleteAll');
+    await deleteBrowserCodeConfig();
+  }
+  mainLogger.info('apiKeyIpc.browserCode.delete.ok', { providerId });
+}
+
+async function handleBrowserCodeSetActive(
+  _e: Electron.IpcMainInvokeEvent,
+  payload: { providerId: string },
+): Promise<void> {
+  const providerId = assertString(payload?.providerId, 'providerId', 80);
+  providerFromId(providerId);
+  await setActiveBrowserCodeProvider(providerId);
+  mainLogger.info('apiKeyIpc.browserCode.setActive.ok', { providerId });
 }
 
 /**
@@ -556,5 +582,6 @@ export function registerApiKeyHandlers(): void {
   ipcMain.handle(CH_BCODE_SAVE, handleBrowserCodeSave);
   ipcMain.handle(CH_BCODE_TEST, handleBrowserCodeTest);
   ipcMain.handle(CH_BCODE_DELETE, handleBrowserCodeDelete);
+  ipcMain.handle(CH_BCODE_SET_ACTIVE, handleBrowserCodeSetActive);
   mainLogger.info('apiKeyIpc.register.ok');
 }

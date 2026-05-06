@@ -83,6 +83,7 @@ import type { AgentEvent } from '../shared/types';
 import { AccountStore } from './identity/AccountStore';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers } from './identity/onboardingHandlers';
+import { loadBrowserCodeConfig } from './identity/authStore';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
 import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
@@ -362,6 +363,39 @@ app.whenReady().then(async () => {
       target.webContents.send('whatsapp-qr', dataUrl);
     }
   });
+
+  async function stampConfiguredSessionModel(id: string, engineId: string, source: string): Promise<void> {
+    if (engineId !== 'browsercode') return;
+    try {
+      const cfg = await loadBrowserCodeConfig();
+      const model = cfg?.model?.trim();
+      if (!model) {
+        mainLogger.warn('main.sessionModel.missing', {
+          id,
+          engineId,
+          source,
+          providerId: cfg?.providerId ?? null,
+          hasBrowserCodeConfig: Boolean(cfg),
+        });
+        return;
+      }
+      sessionManager.setSessionModel(id, model);
+      mainLogger.info('main.sessionModel.stamped', {
+        id,
+        engineId,
+        source,
+        providerId: cfg?.providerId ?? null,
+        model,
+      });
+    } catch (err) {
+      mainLogger.warn('main.sessionModel.stampFailed', {
+        id,
+        engineId,
+        source,
+        error: (err as Error).message,
+      });
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Pill IPC handlers
@@ -674,6 +708,7 @@ app.whenReady().then(async () => {
     try {
       const engineId = await assertSessionEngineReady(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'enginePreflight', ms: Date.now() - t0, engineId });
+      await stampConfiguredSessionModel(id, engineId, 'start');
 
       const abortController = sessionManager.startSession(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'startSession', ms: Date.now() - t0 });
@@ -822,19 +857,21 @@ app.whenReady().then(async () => {
       return { error: 'Browser session expired — start a new session' };
     }
 
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, 'resume');
     const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
     if (resumeAttachments.length > 0) {
       mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length });
     }
     captureEvent('session_resumed', {
-      engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
+      engine: engineId,
       prompt_length: validatedPrompt.length,
       attachments_count: resumeAttachments.length,
     });
 
     steerQueues.set(validatedId, []);
     runEngine({
-      engineId: sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID,
+      engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: validatedPrompt,
@@ -879,9 +916,11 @@ app.whenReady().then(async () => {
 
     browserPool.destroy(validatedId, shellWindow ?? undefined);
 
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, 'rerun');
     const abortController = sessionManager.rerunSession(validatedId);
     captureEvent('session_rerun', {
-      engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
+      engine: engineId,
     });
 
     const view = browserPool.create(validatedId, t0);
@@ -908,7 +947,7 @@ app.whenReady().then(async () => {
     }
     steerQueues.set(validatedId, []);
     runEngine({
-      engineId: sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID,
+      engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: session.prompt,
@@ -1206,7 +1245,22 @@ app.whenReady().then(async () => {
     if (!shellWindow) return;
     const view = browserPool.getView(id);
     if (!view) return;
-    view.setBounds(bounds);
+    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
+    try {
+      const winContentBounds = shellWindow.getContentBounds();
+      const winBounds = shellWindow.getBounds();
+      mainLogger.info('main.sessions:view-resize.sizes', {
+        id,
+        physicalRect: bounds,
+        fittedBounds: fitted,
+        shellWindowBounds: winBounds,
+        shellContentBounds: winContentBounds,
+        zoomFactor: view.webContents.getZoomFactor(),
+        rectAspect: bounds.width / bounds.height,
+      });
+    } catch (err) {
+      mainLogger.warn('main.sessions:view-resize.sizes.error', { id, error: (err as Error).message });
+    }
     // (Intentionally no setZoomFactor here — previously we recomputed zoom
     // on every resize to fit the emulated viewport, but that clobbered any
     // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser
@@ -1216,8 +1270,10 @@ app.whenReady().then(async () => {
       shellWindow.contentView.addChildView(view);
     }
     // Keep takeover overlay tracking the browser rect and sitting above it.
+    // Use the fitted (centered) rect so the overlay aligns with the visible
+    // view, not the wider hub box.
     if (takeoverOverlay.hasOverlay(id)) {
-      takeoverOverlay.updateBounds(id, bounds);
+      takeoverOverlay.updateBounds(id, fitted);
       takeoverOverlay.reraise(id, shellWindow);
     }
   });
@@ -1301,9 +1357,21 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   // Settings window IPC
   // ---------------------------------------------------------------------------
-  ipcMain.handle('settings:open', () => {
-    mainLogger.info('main.settings:open');
-    openSettingsWindow();
+  ipcMain.handle('settings:open', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+    mainLogger.info('main.settings:open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
+    if (shellWindow && !shellWindow.isDestroyed()) {
+      shellWindow.show();
+      shellWindow.focus();
+      shellWindow.webContents.send('open-settings');
+      if (payload?.focusBrowserCodeProvider) {
+        const providerId = payload.focusBrowserCodeProvider;
+        setTimeout(() => {
+          if (shellWindow && !shellWindow.isDestroyed()) {
+            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
+          }
+        }, 150);
+      }
+    }
   });
 
   ipcMain.handle('settings:app:get-info', () => {
@@ -1348,12 +1416,20 @@ app.whenReady().then(async () => {
     hidePill();
   });
 
-  ipcMain.handle('pill:open-settings', () => {
-    mainLogger.info('main.pill:open-settings');
+  ipcMain.handle('pill:open-settings', (_e, payload?: { focusBrowserCodeProvider?: string }) => {
+    mainLogger.info('main.pill:open-settings', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
     if (shellWindow && !shellWindow.isDestroyed()) {
       shellWindow.show();
       shellWindow.focus();
       shellWindow.webContents.send('open-settings');
+      if (payload?.focusBrowserCodeProvider) {
+        const providerId = payload.focusBrowserCodeProvider;
+        setTimeout(() => {
+          if (shellWindow && !shellWindow.isDestroyed()) {
+            shellWindow.webContents.send('settings:browsercode:focus-provider', { providerId });
+          }
+        }, 150);
+      }
     }
     hidePill();
   });

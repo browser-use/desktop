@@ -1,7 +1,6 @@
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import { INPUT_PLACEHOLDER } from './constants';
 import { EnginePicker } from './EnginePicker';
-import { BrowserCodeModelPicker } from './BrowserCodeModelPicker';
 import {
   classifyAttachmentMime,
   maxBytesForAttachmentMime,
@@ -227,7 +226,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             <PaperclipIcon />
           </button>
           <EnginePicker value={engine} onChange={onEngineChange} />
-          <BrowserCodeModelPicker visible={engine === 'browsercode'} />
           <input
             ref={fileInputRef}
             type="file"

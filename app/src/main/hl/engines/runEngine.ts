@@ -205,6 +205,13 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     catch (err) { engineLogger.warn('engines.run.onAuthResolved.threw', { error: (err as Error).message }); }
   }
   if (model && opts.onModelResolved) {
+    engineLogger.info('session.model.resolved', {
+      sessionId: opts.sessionId,
+      engineId: adapter.id,
+      model,
+      source: 'config',
+      providerId,
+    });
     try { opts.onModelResolved({ model, source: 'config' }); }
     catch (err) { engineLogger.warn('engines.run.onModelResolved.threw', { source: 'config', error: (err as Error).message }); }
   }
@@ -304,10 +311,28 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       if (nextHash === undefined || nextHash === file.hash) continue;
       const prevHash = file.hash;
       file.hash = nextHash;
+      const action = prevHash === null && nextHash !== null ? 'write' : 'patch';
+      let bytes: number | null = null;
+      try {
+        bytes = fs.statSync(file.path).size;
+      } catch {
+        bytes = null;
+      }
+      engineLogger.info('engines.run.harnessEdited.detected', {
+        sessionId: opts.sessionId,
+        engineId: adapter.id,
+        target: file.target,
+        action,
+        path: file.path,
+        relPath: path.relative(opts.harnessDir, file.path),
+        previousHash: prevHash ? prevHash.slice(0, 12) : null,
+        nextHash: nextHash ? nextHash.slice(0, 12) : null,
+        bytes,
+      });
       opts.onEvent({
         type: 'harness_edited',
         target: file.target,
-        action: prevHash === null && nextHash !== null ? 'write' : 'patch',
+        action,
         path: file.path,
       });
     }
@@ -449,6 +474,13 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
         }
         if (parseCtx.currentModel && parseCtx.currentModel !== lastResolvedModel && opts.onModelResolved) {
           lastResolvedModel = parseCtx.currentModel;
+          engineLogger.info('session.model.resolved', {
+            sessionId: opts.sessionId,
+            engineId: adapter.id,
+            model: parseCtx.currentModel,
+            source: 'engine',
+            providerId,
+          });
           try { opts.onModelResolved({ model: parseCtx.currentModel, source: 'engine' }); }
           catch (err) { engineLogger.warn('engines.run.onModelResolved.threw', { source: 'engine', error: (err as Error).message }); }
         }

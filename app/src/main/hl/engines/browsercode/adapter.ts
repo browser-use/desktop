@@ -25,15 +25,15 @@ const BIN = 'bcode';
 const DEFAULT_MODEL = 'moonshotai/kimi-k2.6';
 
 const CUSTOM_PROVIDER_CONFIG: Record<string, { name: string; npm: string; baseURL: string }> = {
+  moonshotai: {
+    name: 'Moonshot AI',
+    npm: '@ai-sdk/openai-compatible',
+    baseURL: 'https://api.moonshot.ai/v1',
+  },
   alibaba: {
     name: 'Qwen / Alibaba',
     npm: '@ai-sdk/openai-compatible',
     baseURL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-  },
-  'kimi-for-coding': {
-    name: 'Kimi for Coding',
-    npm: '@ai-sdk/anthropic',
-    baseURL: 'https://api.kimi.com/coding/v1',
   },
   minimax: {
     name: 'MiniMax',
@@ -77,7 +77,7 @@ const browserCodeAdapter: EngineAdapter = {
 
   async probeAuthed(): Promise<AuthProbe> {
     const cfg = await loadBrowserCodeConfig();
-    if (cfg?.apiKey && cfg.providerId && cfg.model) return { authed: true };
+    if (cfg?.apiKey && cfg.providerId) return { authed: true };
     return { authed: false, error: 'Add a BrowserCode provider API key in Settings.' };
   },
 
@@ -143,6 +143,7 @@ const browserCodeAdapter: EngineAdapter = {
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
       'Do not use BrowserCode browser_execute. Read `./AGENTS.md` and use `./helpers.js` from this working directory for browser actions.',
       'Always read `./helpers.js` before writing scripts. Edit it only if a helper is missing.',
+      'For terminal commands, use BrowserCode/OpenCode\'s Bash tool and write commands for the current OS/shell it reports.',
       'When producing files, save them to `./outputs/' + ctx.sessionId + '/` and mention the filename in the final answer.',
       ...attachmentLines,
       '',

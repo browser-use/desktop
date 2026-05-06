@@ -230,6 +230,17 @@ export class SessionManager extends EventEmitter {
     const seq = session.output.length - 1;
     this.db.appendEvent(id, seq, event);
 
+    if (event.type !== 'thinking') {
+      mainLogger.info('SessionManager.appendOutput.event', {
+        id,
+        seq,
+        type: event.type,
+        engine: session.engine ?? this.getSessionEngine(id),
+        model: session.model ?? null,
+        detail: this.describeEventForLog(event),
+      });
+    }
+
     // turn_usage is telemetry — roll up into cumulative totals on the session
     // row so the UI can show a single number without scanning every event.
     // 'exact' beats 'estimated' if the session has a mix (shouldn't happen
@@ -575,7 +586,16 @@ export class SessionManager extends EventEmitter {
       if (session && session.status === 'running') {
         session.status = 'stuck';
         this.db.updateSessionStatus(id, 'stuck');
-        mainLogger.warn('SessionManager.stuckDetected', { id, timeoutMs: STUCK_TIMEOUT_MS });
+        const lastEvent = session.output.at(-1);
+        mainLogger.warn('SessionManager.stuckDetected', {
+          id,
+          timeoutMs: STUCK_TIMEOUT_MS,
+          engine: session.engine ?? this.getSessionEngine(id),
+          model: session.model ?? null,
+          outputLines: session.output.length,
+          lastEventType: lastEvent?.type ?? null,
+          lastActivityAt: session.lastActivityAt ?? null,
+        });
         this.emitEvent('session-updated', { ...session });
       }
     }, STUCK_TIMEOUT_MS);
@@ -588,6 +608,42 @@ export class SessionManager extends EventEmitter {
     if (timer) {
       clearTimeout(timer);
       this.stuckTimers.delete(id);
+    }
+  }
+
+  private describeEventForLog(event: HlEvent): Record<string, unknown> {
+    switch (event.type) {
+      case 'tool_call':
+        return { name: event.name, iteration: event.iteration };
+      case 'tool_result':
+        return { name: event.name, ok: event.ok, ms: event.ms, previewLength: event.preview.length };
+      case 'harness_edited':
+        return { target: event.target, action: event.action, path: event.path };
+      case 'skill_written':
+        return { domain: event.domain, topic: event.topic, action: event.action, path: event.path };
+      case 'skill_used':
+        return { domain: event.domain ?? null, topic: event.topic, path: event.path };
+      case 'file_output':
+        return { name: event.name, path: event.path, size: event.size, mime: event.mime };
+      case 'turn_usage':
+        return {
+          model: event.model ?? null,
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          cachedInputTokens: event.cachedInputTokens,
+          costUsd: event.costUsd,
+          source: event.source,
+        };
+      case 'done':
+        return { iterations: event.iterations, summaryLength: event.summary.length };
+      case 'error':
+        return { message: event.message.slice(0, 400) };
+      case 'notify':
+        return { level: event.level, messageLength: event.message.length };
+      case 'user_input':
+        return { textLength: event.text.length };
+      case 'thinking':
+        return { textLength: event.text.length };
     }
   }
 

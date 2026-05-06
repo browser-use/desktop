@@ -7,7 +7,6 @@ import {
 } from '../../shared/attachments';
 import { fallbackShortcutPlatform, formatShortcutForPlatform } from '../../shared/hotkeys';
 import { EnginePicker } from '../hub/EnginePicker';
-import { BrowserCodeModelPicker } from '../hub/BrowserCodeModelPicker';
 import {
   RESULT_ROW_HEIGHT,
   MAX_RESULTS,
@@ -337,11 +336,10 @@ export function Pill(): React.ReactElement {
     const chipsRows = attachments.length > 0 ? Math.ceil(attachments.length / 3) : 0;
     const chipsHeight = chipsRows * CHIP_ROW_HEIGHT;
     const errorHeight = attachError ? ERROR_ROW_HEIGHT : 0;
-    const dropdownHeight = engineMenuOpen || modelMenuOpen ? 220 : 0;
-    const total = searchHeight + resultHeight + dashboardHeight + chipsHeight + errorHeight + FOOTER_HEIGHT + dropdownHeight;
-    console.log('[Pill.resize]', { taHeight, searchHeight, resultHeight, dashboardHeight, chipsHeight, errorHeight, dropdownHeight, total });
+    const total = searchHeight + resultHeight + dashboardHeight + chipsHeight + errorHeight + FOOTER_HEIGHT;
+    console.log('[Pill.resize]', { taHeight, searchHeight, resultHeight, dashboardHeight, chipsHeight, errorHeight, total });
     window.pillAPI.setExpanded(total);
-  }, [hasResults, results.length, value, attachments.length, attachError, showDashboard, hasRecents, recents.length, engineMenuOpen, modelMenuOpen]);
+  }, [hasResults, results.length, value, attachments.length, attachError, showDashboard, hasRecents, recents.length]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     setAttachError(null);
@@ -503,7 +501,6 @@ export function Pill(): React.ReactElement {
             />
             <div className="cmdbar__engine-picker">
               <EnginePicker value={engine} onChange={handleEngineChange} onOpenChange={setEngineMenuOpen} />
-              <BrowserCodeModelPicker visible={engine === 'browsercode'} compact onOpenChange={setModelMenuOpen} />
             </div>
             <button
               className="cmdbar__send"

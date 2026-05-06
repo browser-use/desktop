@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import claudeLogoSrc from './claude-logo.svg?raw';
 import openaiLogoSrc from './openai-logo.svg?raw';
 import opencodeLogoSrc from './opencode-logo-dark.svg?raw';
+import { BrowserCodeProviderSubmenu } from './BrowserCodeModelPicker';
 
 export interface EngineInfo {
   id: string;
@@ -57,6 +58,7 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
   const [open, setOpen] = useState(false);
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [browserCodeFlyoutOpen, setBrowserCodeFlyoutOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
@@ -241,27 +243,46 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
             const needsSetup = !installed || !authed;
             const setupLabel = e.id === 'browsercode' ? 'Set up' : 'Log in';
             const installLabel = installing === e.id ? 'Installing…' : 'Install';
+            const isBrowserCode = e.id === 'browsercode';
+            const showSubmenu = isBrowserCode && installed && authed && browserCodeFlyoutOpen;
             return (
-              <button
+              <div
                 key={e.id}
-                type="button"
-                className={`engine-picker__item${e.id === value ? ' engine-picker__item--active' : ''}`}
-                onClick={() => onItemClick(e.id, installed, authed)}
-                title={!installed ? st?.installed?.error ?? `Install ${e.displayName}` : !authed ? st?.authed?.error ?? 'Start setup' : `Use ${e.displayName}`}
-                role="menuitem"
+                className="engine-picker__item-wrap"
+                onMouseEnter={() => { if (isBrowserCode && installed && authed) setBrowserCodeFlyoutOpen(true); else setBrowserCodeFlyoutOpen(false); }}
               >
-                <EngineLogo id={e.id} />
-                <span className="engine-picker__item-name">{e.displayName}</span>
-                {e.id === value && <span className="engine-picker__check">✓</span>}
-                {needsSetup && installed && (
-                  <span className="engine-picker__item-login">
-                    {loggingIn === e.id ? 'Waiting…' : setupLabel}
-                  </span>
+                <button
+                  type="button"
+                  className={`engine-picker__item${e.id === value ? ' engine-picker__item--active' : ''}`}
+                  onClick={() => onItemClick(e.id, installed, authed)}
+                  title={!installed ? st?.installed?.error ?? `Install ${e.displayName}` : !authed ? st?.authed?.error ?? 'Start setup' : `Use ${e.displayName}`}
+                  role="menuitem"
+                >
+                  <EngineLogo id={e.id} />
+                  <span className="engine-picker__item-name">{e.displayName}</span>
+                  {e.id === value && <span className="engine-picker__check">✓</span>}
+                  {needsSetup && installed && (
+                    <span className="engine-picker__item-login">
+                      {loggingIn === e.id ? 'Waiting…' : setupLabel}
+                    </span>
+                  )}
+                  {!installed && (
+                    <span className="engine-picker__item-login">{installLabel}</span>
+                  )}
+                  {isBrowserCode && installed && authed && (
+                    <span className="engine-picker__chevron-right" aria-hidden="true">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M4 2.5L6.5 5L4 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  )}
+                </button>
+                {showSubmenu && (
+                  <div className="engine-picker__flyout">
+                    <BrowserCodeProviderSubmenu onSelected={() => { onChange('browsercode'); setOpen(false); setBrowserCodeFlyoutOpen(false); }} />
+                  </div>
                 )}
-                {!installed && (
-                  <span className="engine-picker__item-login">{installLabel}</span>
-                )}
-              </button>
+              </div>
             );
           })}
         </div>

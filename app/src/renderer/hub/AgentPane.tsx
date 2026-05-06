@@ -38,6 +38,9 @@ function isApiKeyError(raw: string): boolean {
 
 function friendlyError(raw: string): string {
   const lower = raw.toLowerCase();
+  if (lower.includes('browsercode') || lower.includes('moonshot') || lower.includes('minimax') || lower.includes('qwen') || lower.includes('alibaba')) {
+    if (isApiKeyError(raw)) return 'BrowserCode provider API key is missing or invalid. Update it in Settings.';
+  }
   if (lower.includes('credit balance is too low') || lower.includes('insufficient_quota')) return 'API credits exhausted. Please add credits to your Anthropic account.';
   if (isApiKeyError(raw)) return 'Anthropic API key is missing or invalid. Update it in Settings.';
   if (lower.includes('rate_limit') || lower.includes('rate limit')) return 'Rate limited. Too many requests — try again in a moment.';
@@ -1038,7 +1041,7 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
           {session.engine === 'claude-code' && (
             <img className="pane__engine-icon" src={claudeCodeLogo} alt="Claude Code" title="Claude Code" />
           )}
-          {session.model && (
+          {session.model && session.engine === 'browsercode' && (
             <span className="pane__model-badge" title={`Model: ${session.model}`}>
               {session.model.includes('/') ? session.model.split('/').pop() : session.model}
             </span>
