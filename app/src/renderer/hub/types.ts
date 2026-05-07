@@ -100,7 +100,7 @@ export function hlEventToOutputEntry(event: HlEvent, timestamp: number): OutputE
     case 'harness_edited':
       return {
         id, type: 'harness_edited', timestamp,
-        content: event.target === 'helpers' ? 'helpers.js' : 'TOOLS.json',
+        content: event.target === 'helpers' ? 'helpers.js' : 'AGENTS.md',
         tool: event.path,
         harnessTarget: event.target,
         harnessAction: event.action,

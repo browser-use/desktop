@@ -12,7 +12,7 @@ import type { HlEvent } from '../../../shared/session-schemas';
 export interface SpawnContext {
   /** User prompt to feed to the CLI. Adapters may wrap with seed/system text. */
   prompt: string;
-  /** Absolute path to <userData>/harness/ (AGENTS.md + helpers.js live here). */
+  /** Absolute path to <userData>/harness/ (AGENTS.md + browser-harness-js live here). */
   harnessDir: string;
   /** App session id (used for naming uploads/outputs dirs + env injection). */
   sessionId: string;
