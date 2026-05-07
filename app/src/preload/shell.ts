@@ -228,7 +228,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('sessions:engine-status', engineId),
     engineLogin: (engineId: string): Promise<{ opened: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:engine-login', engineId),
-    engineInstall: (engineId: string): Promise<{ opened: boolean; error?: string; command?: string; displayName?: string }> =>
+    engineInstall: (engineId: string): Promise<{
+      opened: boolean;
+      completed?: boolean;
+      exitCode?: number | null;
+      signal?: string | null;
+      error?: string;
+      command?: string;
+      displayName?: string;
+      stdout?: string;
+      stderr?: string;
+      installed?: { installed: boolean; version?: string; error?: string };
+    }> =>
       ipcRenderer.invoke('sessions:engine-install', engineId),
     resume: (
       id: string,

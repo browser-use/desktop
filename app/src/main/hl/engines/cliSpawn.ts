@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
-import { enrichedEnv, resolveCliSpawn } from './pathEnrich';
+import { resolveCliLaunch } from './pathEnrich';
 
 export type CliStdinMode = 'ignore' | 'pipe';
 
@@ -33,13 +33,12 @@ function assertSafeExecutable(value: string, label: string): void {
 
 export function spawnCli(bin: string, args: readonly string[], opts: SpawnCliOptions = {}): ChildProcessWithoutNullStreams {
   assertSafeExecutable(bin, 'executable name');
-  const env = opts.env ?? enrichedEnv();
   const stdio = opts.stdio ?? ['ignore', 'pipe', 'pipe'];
-  const resolved = resolveCliSpawn(bin, args, { env });
+  const resolved = resolveCliLaunch(bin, args, { env: opts.env });
   assertSafeExecutable(resolved.command, 'resolved executable');
   return spawn(resolved.command, resolved.args, {
     cwd: opts.cwd,
-    env,
+    env: resolved.env,
     stdio,
     ...resolved.spawnOptions,
   }) as ChildProcessWithoutNullStreams;

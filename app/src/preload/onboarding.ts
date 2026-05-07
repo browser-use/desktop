@@ -90,6 +90,20 @@ const onboardingAPI = {
   openCodexLoginTerminal: (opts?: { deviceAuth?: boolean }): Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }> =>
     ipcRenderer.invoke('onboarding:open-codex-login-terminal', opts),
 
+  installEngine: (engineId: 'claude-code' | 'codex'): Promise<{
+    opened: boolean;
+    completed?: boolean;
+    exitCode?: number | null;
+    signal?: string | null;
+    error?: string;
+    command?: string;
+    displayName?: string;
+    stdout?: string;
+    stderr?: string;
+    installed?: { installed: boolean; version?: string; error?: string };
+  }> =>
+    ipcRenderer.invoke('sessions:engine-install', engineId),
+
   openExternal: (url: string): Promise<{ opened: boolean }> =>
     ipcRenderer.invoke('onboarding:open-external', url),
 

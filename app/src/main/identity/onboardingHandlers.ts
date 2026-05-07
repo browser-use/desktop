@@ -179,7 +179,19 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       mainLogger.warn('onboardingHandlers.detectCodex.noAdapter');
       return { available: false, installed: false, authed: false, version: null, error: 'codex adapter not registered' };
     }
-    const [install, auth] = await Promise.all([adapter.probeInstalled(), adapter.probeAuthed()]);
+    const install = await adapter.probeInstalled();
+    if (!install.installed) {
+      const result = {
+        available: false,
+        installed: false,
+        authed: false,
+        version: null as string | null,
+        error: install.error ?? 'Codex CLI is not installed',
+      };
+      mainLogger.info('onboardingHandlers.detectCodex.result', result);
+      return result;
+    }
+    const auth = await adapter.probeAuthed();
     mainLogger.info('onboardingHandlers.detectCodex.probes', { install, auth });
     const result = {
       available: install.installed && auth.authed,
@@ -203,6 +215,10 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       mainLogger.warn('onboardingHandlers.openCodexLoginTerminal.noAdapter');
       return { opened: false, error: 'codex adapter not registered' };
     }
+    const installed = await adapter.probeInstalled();
+    if (!installed.installed) {
+      return { opened: false, error: installed.error ?? 'Install Codex CLI before signing in.' };
+    }
     const result = await adapter.openLoginInTerminal(opts);
     mainLogger.info('onboardingHandlers.openCodexLoginTerminal.result', result);
     return result;
@@ -216,6 +232,8 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
   ipcMain.handle('onboarding:use-codex', async () => {
     const adapter = getAdapter('codex');
     if (!adapter) throw new Error('codex adapter not registered');
+    const installed = await adapter.probeInstalled();
+    if (!installed.installed) throw new Error(installed.error ?? 'Install Codex CLI before signing in.');
     const auth = await adapter.probeAuthed();
     if (!auth.authed) throw new Error('Codex CLI is not logged in. Run `codex login` first.');
     mainLogger.info('onboardingHandlers.useCodex.ok');
