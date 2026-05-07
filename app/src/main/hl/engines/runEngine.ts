@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { engineLogger } from '../../logger';
 import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType, loadBrowserCodeConfig } from '../../identity/authStore';
-import { helpersPath, toolsPath, skillPath } from '../harness';
+import { helpersPath, skillPath } from '../harness';
 import { get as getAdapter } from './registry';
 import { spawnCli } from './cliSpawn';
 import type {
@@ -260,12 +260,10 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   const stdinMode: 'pipe' | 'ignore' = stdinPayload != null ? 'pipe' : 'ignore';
 
   const harnessHelpersAbs = path.resolve(helpersPath());
-  const harnessToolsAbs = path.resolve(toolsPath());
   const harnessSkillAbs = path.resolve(skillPath());
 
   const watchedHarnessFiles: HarnessFileWatch[] = [
     { path: harnessHelpersAbs, basename: path.basename(harnessHelpersAbs), target: 'helpers', hash: hashFile(harnessHelpersAbs) ?? null },
-    { path: harnessToolsAbs, basename: path.basename(harnessToolsAbs), target: 'tools', hash: hashFile(harnessToolsAbs) ?? null },
     { path: harnessSkillAbs, basename: path.basename(harnessSkillAbs), target: 'tools', hash: hashFile(harnessSkillAbs) ?? null },
   ];
 
@@ -418,7 +416,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     const extra: HlEvent[] = [];
     if (isWrite) {
       const action = /edit|patch/i.test(e.name) ? 'patch' : 'write';
-      if (resolved !== harnessHelpersAbs && resolved !== harnessToolsAbs && resolved !== harnessSkillAbs) {
+      if (resolved !== harnessHelpersAbs && resolved !== harnessSkillAbs) {
         const m = resolved.match(skillPathRe);
         if (m) extra.push({ type: 'skill_written', path: resolved, domain: m[1], topic: m[2], bytes: 0, action });
       }
@@ -433,7 +431,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     iter: 0,
     pendingTools: new Map(),
     harnessHelpersPath: harnessHelpersAbs,
-    harnessToolsPath: harnessToolsAbs,
+    harnessToolsPath: '',
     harnessSkillPath: harnessSkillAbs,
   };
 

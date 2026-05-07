@@ -470,7 +470,7 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
           </svg>
         </span>
         <span className="step__skill-label">{verb} harness</span>
-        <span className="step__skill-topic">{isHelpers ? 'helpers.js' : `TOOLS.json${diffSummary}`}</span>
+        <span className="step__skill-topic">{isHelpers ? 'helpers.js' : `AGENTS.md${diffSummary}`}</span>
       </div>
     );
   }
