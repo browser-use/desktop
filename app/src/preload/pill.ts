@@ -48,7 +48,7 @@ log.info('preload.pill', { message: 'Pill preload script initializing' });
 // ---------------------------------------------------------------------------
 
 contextBridge.exposeInMainWorld('pillAPI', {
-  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastActivityAt?: number }>> => {
+  listSessions: (): Promise<Array<{ id: string; prompt: string; status: string; createdAt: number; primarySite?: string | null; lastUrl?: string | null; lastActivityAt?: number }>> => {
     return ipcRenderer.invoke('sessions:list');
   },
   /**
@@ -114,7 +114,7 @@ contextBridge.exposeInMainWorld('pillAPI', {
   },
 
   /**
-   * Open the settings window.
+   * Open the settings page in the hub window.
    */
   openSettings: (): void => {
     log.info('preload.pill.openSettings', { message: 'Invoking pill:open-settings' });
@@ -242,8 +242,11 @@ contextBridge.exposeInMainWorld('pillAPI', {
 
 // Minimal `electronAPI.sessions` subset so shared components (EnginePicker)
 // used inside the pill renderer can reach the same engine IPCs the hub uses.
-// Only the three calls EnginePicker needs — don't grow this without a reason.
 contextBridge.exposeInMainWorld('electronAPI', {
+  shell: {
+    platform: process.platform,
+    getPlatform: (): Promise<string> => ipcRenderer.invoke('shell:get-platform'),
+  },
   sessions: {
     listEngines: (): Promise<Array<{ id: string; displayName: string; binaryName: string }>> =>
       ipcRenderer.invoke('sessions:list-engines'),
@@ -255,6 +258,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('sessions:engine-status', engineId),
     engineLogin: (engineId: string): Promise<{ opened: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:engine-login', engineId),
+    engineInstall: (engineId: string): Promise<{ opened: boolean; error?: string; command?: string; displayName?: string }> =>
+      ipcRenderer.invoke('sessions:engine-install', engineId),
+  },
+  settings: {
+    open: (payload?: { focusBrowserCodeProvider?: string }): Promise<void> => {
+      log.info('preload.pill.electronAPI.settings.open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
+      return ipcRenderer.invoke('pill:open-settings', payload);
+    },
+    browserCode: {
+      getStatus: (): Promise<{
+        keys: Record<string, { masked: string; lastModel?: string }>;
+        active: string | null;
+        installed?: { installed: boolean; version?: string; error?: string };
+        providers: Array<{
+          id: string;
+          name: string;
+          defaultModel: string;
+          models: Array<{ id: string; label: string }>;
+        }>;
+      }> => ipcRenderer.invoke('settings:browsercode:get-status'),
+      save: (payload: { providerId: string; apiKey: string; lastModel?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:save', payload),
+      test: (payload: { providerId: string; apiKey: string; model?: string }): Promise<{ success: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:browsercode:test', payload),
+      delete: (payload?: { providerId?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:delete', payload),
+      setActive: (payload: { providerId: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:set-active', payload),
+    },
   },
 });
 

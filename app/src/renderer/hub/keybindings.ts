@@ -17,11 +17,11 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { id: 'nav.down', label: 'Next session', keys: ['j'], category: 'Navigation' },
   { id: 'nav.up', label: 'Previous session', keys: ['k'], category: 'Navigation' },
   { id: 'nav.top', label: 'First session', keys: ['g g'], category: 'Navigation' },
-  { id: 'nav.bottom', label: 'Last session', keys: ['G'], category: 'Navigation' },
+  { id: 'nav.bottom', label: 'Last session', keys: ['G', 'Shift+G'], category: 'Navigation' },
   { id: 'nav.open', label: 'Open session', keys: ['Enter'], category: 'Navigation' },
   { id: 'goto.dashboard', label: 'Dashboard', keys: ['g d'], category: 'Views' },
   { id: 'goto.agents', label: 'Grid view', keys: ['g a'], category: 'Views' },
-  { id: 'goto.settings', label: 'Settings', keys: ['Cmd+,'], category: 'Views' },
+  { id: 'goto.settings', label: 'Settings', keys: ['CommandOrControl+,'], category: 'Views' },
   { id: 'search.open', label: 'Search', keys: ['/'], category: 'Actions' },
   { id: 'action.create', label: 'New agent', keys: [], category: 'Actions' },
   { id: 'action.createPane', label: 'New pane', keys: [], category: 'Actions' },
@@ -35,7 +35,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { id: 'meta.escape', label: 'Close overlay', keys: ['Escape'], category: 'Meta' },
 ];
 
-export type ScreenId = 'dashboard' | 'grid';
+export type ScreenId = 'dashboard' | 'grid' | 'settings';
 
 export const SCREEN_COMMANDS: Record<ScreenId, ActionId[]> = {
   dashboard: [
@@ -50,5 +50,12 @@ export const SCREEN_COMMANDS: Record<ScreenId, ActionId[]> = {
     'action.followUp',
     'action.dismiss',
     'goto.dashboard',
+    'goto.settings',
+  ],
+  settings: [
+    'goto.dashboard',
+    'goto.agents',
+    'action.createPane',
+    'goto.settings',
   ],
 };

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import claudeLogoSrc from './claude-logo.svg?raw';
 import openaiLogoSrc from './openai-logo.svg?raw';
+import opencodeLogoSrc from './opencode-logo-dark.svg?raw';
+import { BrowserCodeProviderSubmenu } from './BrowserCodeModelPicker';
 
 export interface EngineInfo {
   id: string;
@@ -21,6 +23,9 @@ function EngineLogo({ id }: { id: string }): React.ReactElement {
   }
   if (id === 'codex') {
     return <span className="engine-logo" dangerouslySetInnerHTML={{ __html: openaiLogoSrc as string }} />;
+  }
+  if (id === 'browsercode') {
+    return <span className="engine-logo" dangerouslySetInnerHTML={{ __html: opencodeLogoSrc as string }} />;
   }
   return (
     <span className="engine-logo">
@@ -52,22 +57,41 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
   const [statuses, setStatuses] = useState<Record<string, EngineStatus>>({});
   const [open, setOpen] = useState(false);
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [browserCodeFlyoutOpen, setBrowserCodeFlyoutOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const loggingInRef = useRef<string | null>(null);
+  const installingRef = useRef<string | null>(null);
 
   useEffect(() => { onOpenChange?.(open); }, [open, onOpenChange]);
 
-  const refreshStatus = useCallback(async (ids: string[]) => {
+  const refreshStatus = useCallback(async (ids: string[]): Promise<EngineStatus[]> => {
+    console.info('[EnginePicker] refreshStatus.request', { ids });
     const updates = await Promise.all(
       ids.map(async (id) => {
         try { return await window.electronAPI?.sessions?.engineStatus?.(id); }
-        catch { return null; }
+        catch (err) {
+          console.warn('[EnginePicker] refreshStatus.failed', { id, error: (err as Error).message });
+          return null;
+        }
       }),
     );
+    console.info('[EnginePicker] refreshStatus.result', {
+      updates: updates.filter(Boolean).map((u) => ({
+        id: u?.id,
+        installed: u?.installed?.installed,
+        installedError: u?.installed?.error,
+        authed: u?.authed?.authed,
+        authError: u?.authed?.error,
+      })),
+    });
+    const validUpdates = updates.filter((u): u is EngineStatus => Boolean(u));
     setStatuses((prev) => {
       const next = { ...prev };
-      for (const u of updates) if (u) next[u.id] = u;
+      for (const u of validUpdates) next[u.id] = u;
       return next;
     });
+    return validUpdates;
   }, []);
 
   // Mount: fetch engine list + initial statuses.
@@ -92,6 +116,14 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
     void refreshStatus(engines.map((e) => e.id));
   }, [open, engines, refreshStatus]);
 
+  useEffect(() => {
+    if (!installing) return;
+    if (statuses[installing]?.installed?.installed) {
+      installingRef.current = null;
+      setInstalling(null);
+    }
+  }, [installing, statuses]);
+
   // Close on outside click.
   useEffect(() => {
     if (!open) return;
@@ -111,10 +143,18 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
     const tick = async () => {
       if (cancelled) return;
       attempts++;
-      await refreshStatus([loggingIn]);
-      const st = statuses[loggingIn];
-      if (st?.authed?.authed) { setLoggingIn(null); return; }
-      if (attempts >= 40) { setLoggingIn(null); return; }
+      const updates = await refreshStatus([loggingIn]);
+      const st = updates.find((u) => u.id === loggingIn) ?? statuses[loggingIn];
+      if (st?.authed?.authed) {
+        loggingInRef.current = null;
+        setLoggingIn(null);
+        return;
+      }
+      if (attempts >= 40) {
+        loggingInRef.current = null;
+        setLoggingIn(null);
+        return;
+      }
       setTimeout(tick, 3000);
     };
     const id = setTimeout(tick, 2000);
@@ -129,18 +169,81 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
   const currentAuthed = currentStatus?.authed?.authed ?? true;
 
   const selectEngine = (id: string) => {
+    console.info('[EnginePicker] selectEngine', { id });
     onChange(id);
     setOpen(false);
   };
 
   const onLoginClick = async (id: string) => {
+    if (loggingInRef.current === id) return;
+    console.info('[EnginePicker] login.request', { id });
+    loggingInRef.current = id;
     setLoggingIn(id);
     try {
-      await window.electronAPI?.sessions?.engineLogin?.(id);
+      const result = await window.electronAPI?.sessions?.engineLogin?.(id);
+      console.info('[EnginePicker] login.result', { id, result });
+      if (!result?.opened) {
+        loggingInRef.current = null;
+        setLoggingIn(null);
+      }
     } catch (err) {
       console.error('[EnginePicker] engineLogin failed', err);
+      loggingInRef.current = null;
       setLoggingIn(null);
     }
+  };
+
+  const openBrowserCodeSetup = async () => {
+    console.info('[EnginePicker] browsercode.setup.openSettings');
+    onChange('browsercode');
+    setOpen(false);
+    try {
+      await window.electronAPI?.settings?.open?.();
+    } catch (err) {
+      console.error('[EnginePicker] browsercode.setup.openSettings.failed', err);
+    }
+  };
+
+  const onInstallClick = async (id: string) => {
+    if (installingRef.current === id) return;
+    console.info('[EnginePicker] install.request', { id });
+    installingRef.current = id;
+    setInstalling(id);
+    try {
+      const result = await window.electronAPI?.sessions?.engineInstall?.(id);
+      console.info('[EnginePicker] install.result', { id, result });
+      if (!result?.opened) {
+        installingRef.current = null;
+        setInstalling(null);
+      }
+      setTimeout(() => { void refreshStatus([id]); }, 3000);
+      setTimeout(() => {
+        if (installingRef.current === id) installingRef.current = null;
+        setInstalling((current) => (current === id ? null : current));
+      }, 120000);
+    } catch (err) {
+      console.error('[EnginePicker] engineInstall failed', err);
+      installingRef.current = null;
+      setInstalling(null);
+    }
+  };
+
+  const onItemClick = (id: string, installed: boolean, authed: boolean) => {
+    console.info('[EnginePicker] item.click', { id, installed, authed });
+    if (installingRef.current === id || loggingInRef.current === id) return;
+    if (!installed) {
+      void onInstallClick(id);
+      return;
+    }
+    if (id === 'browsercode' && !authed) {
+      void openBrowserCodeSetup();
+      return;
+    }
+    if (!authed) {
+      void onLoginClick(id);
+      return;
+    }
+    selectEngine(id);
   };
 
   if (engines.length === 0) return <span className="engine-picker engine-picker--empty" />;
@@ -167,30 +270,48 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
             const installed = st?.installed?.installed ?? true;
             const authed = st?.authed?.authed ?? true;
             const needsSetup = !installed || !authed;
+            const actionPending = installing === e.id || loggingIn === e.id;
+            const setupLabel = e.id === 'browsercode' ? 'Set up' : 'Log in';
+            const installLabel = installing === e.id ? 'Installing…' : 'Install';
+            const isBrowserCode = e.id === 'browsercode';
+            const showSubmenu = isBrowserCode && installed && authed && browserCodeFlyoutOpen;
             return (
-              <div key={e.id} className={`engine-picker__item${e.id === value ? ' engine-picker__item--active' : ''}`}>
+              <div
+                key={e.id}
+                className="engine-picker__item-wrap"
+                onMouseEnter={() => { if (isBrowserCode && installed && authed) setBrowserCodeFlyoutOpen(true); else setBrowserCodeFlyoutOpen(false); }}
+              >
                 <button
                   type="button"
-                  className="engine-picker__item-select"
-                  onClick={() => selectEngine(e.id)}
+                  className={`engine-picker__item${e.id === value ? ' engine-picker__item--active' : ''}${actionPending ? ' engine-picker__item--disabled' : ''}`}
+                  onClick={() => onItemClick(e.id, installed, authed)}
+                  disabled={actionPending}
+                  title={!installed ? st?.installed?.error ?? `Install ${e.displayName}` : !authed ? st?.authed?.error ?? 'Start setup' : `Use ${e.displayName}`}
+                  role="menuitem"
                 >
                   <EngineLogo id={e.id} />
                   <span className="engine-picker__item-name">{e.displayName}</span>
                   {e.id === value && <span className="engine-picker__check">✓</span>}
+                  {needsSetup && installed && (
+                    <span className="engine-picker__item-login">
+                      {loggingIn === e.id ? 'Waiting…' : setupLabel}
+                    </span>
+                  )}
+                  {!installed && (
+                    <span className="engine-picker__item-login">{installLabel}</span>
+                  )}
+                  {isBrowserCode && installed && authed && (
+                    <span className="engine-picker__chevron-right" aria-hidden="true">
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M4 2.5L6.5 5L4 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  )}
                 </button>
-                {needsSetup && installed && (
-                  <button
-                    type="button"
-                    className="engine-picker__item-login"
-                    onClick={() => onLoginClick(e.id)}
-                    disabled={loggingIn === e.id}
-                    title={st?.authed?.error ?? 'Start the login flow'}
-                  >
-                    {loggingIn === e.id ? 'Waiting…' : 'Log in'}
-                  </button>
-                )}
-                {!installed && (
-                  <span className="engine-picker__item-hint" title={st?.installed?.error ?? ''}>Not installed</span>
+                {showSubmenu && (
+                  <div className="engine-picker__flyout">
+                    <BrowserCodeProviderSubmenu onSelected={() => { onChange('browsercode'); setOpen(false); setBrowserCodeFlyoutOpen(false); }} />
+                  </div>
                 )}
               </div>
             );

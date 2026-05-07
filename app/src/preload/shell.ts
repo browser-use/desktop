@@ -8,8 +8,20 @@ import {
 } from '../shared/session-schemas';
 import type { AgentSession, HlEvent, TabInfo, BrowserPoolStats } from '../shared/session-schemas';
 
+type SettingsOpenPayload = { focusBrowserCodeProvider?: string };
+
+function normalizeSettingsOpenPayload(raw: unknown): SettingsOpenPayload | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rawProvider = (raw as { focusBrowserCodeProvider?: unknown }).focusBrowserCodeProvider;
+  const providerId = typeof rawProvider === 'string' ? rawProvider.trim() : '';
+  return providerId.length > 0 && providerId.length <= 80
+    ? { focusBrowserCodeProvider: providerId }
+    : undefined;
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
+    platform: process.platform,
     getPlatform: (): Promise<string> => ipcRenderer.invoke('shell:get-platform'),
     setOverlay: (active: boolean): void => {
       ipcRenderer.send('shell:set-overlay', active);
@@ -48,6 +60,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hide: (sessionId: string): Promise<void> => ipcRenderer.invoke('takeover:hide', sessionId),
   },
   settings: {
+    open: (payload?: { focusBrowserCodeProvider?: string }): Promise<void> => ipcRenderer.invoke('settings:open', payload),
     apiKey: {
       getMasked: (): Promise<{ present: boolean; masked: string | null }> =>
         ipcRenderer.invoke('settings:api-key:get-masked'),
@@ -90,6 +103,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
       logout: (): Promise<{ opened: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:codex:logout'),
     },
+    browserCode: {
+      getStatus: (): Promise<{
+        keys: Record<string, { masked: string; lastModel?: string }>;
+        active: string | null;
+        installed?: { installed: boolean; version?: string; error?: string };
+        providers: Array<{
+          id: string;
+          name: string;
+          defaultModel: string;
+          models: Array<{ id: string; label: string }>;
+        }>;
+      }> => ipcRenderer.invoke('settings:browsercode:get-status'),
+      save: (payload: { providerId: string; apiKey: string; lastModel?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:save', payload),
+      test: (payload: { providerId: string; apiKey: string; model?: string }): Promise<{ success: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:browsercode:test', payload),
+      delete: (payload?: { providerId?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:delete', payload),
+      setActive: (payload: { providerId: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:set-active', payload),
+    },
     privacy: {
       get: (): Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }> =>
         ipcRenderer.invoke('consent:get'),
@@ -97,6 +131,67 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('consent:set-telemetry', optedIn),
       openSystemNotifications: (): Promise<{ ok: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:open-system-notifications'),
+    },
+    app: {
+      getInfo: (): Promise<{
+        version: string;
+        latestVersion: string | null;
+        isLatestVersion: boolean | null;
+        platform: string;
+        packaged: boolean;
+        updateSupported: boolean;
+        canDownloadUpdate: boolean;
+        updateFeedUrl: string;
+      }> => ipcRenderer.invoke('settings:app:get-info'),
+      downloadLatest: (): Promise<{
+        ok: boolean;
+        action: 'started-update-check' | 'unavailable';
+        message: string;
+      }> => ipcRenderer.invoke('settings:app:download-latest'),
+      getUpdateStatus: (): Promise<{
+        status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
+        version?: string;
+        message?: string;
+        error?: string;
+        progress?: {
+          percent: number | null;
+          transferred: number | null;
+          total: number | null;
+          bytesPerSecond: number | null;
+        };
+      }> => ipcRenderer.invoke('settings:app:get-update-status'),
+      installUpdate: (): Promise<{
+        ok: boolean;
+        action: 'install-started' | 'not-ready';
+        message: string;
+      }> => ipcRenderer.invoke('settings:app:install-update'),
+      onUpdateStatus: (cb: (event: {
+        status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
+        version?: string;
+        message?: string;
+        error?: string;
+        progress?: {
+          percent: number | null;
+          transferred: number | null;
+          total: number | null;
+          bytesPerSecond: number | null;
+        };
+      }) => void): (() => void) => {
+        const handler = (_event: unknown, payload: {
+          status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
+          version?: string;
+          message?: string;
+          error?: string;
+          progress?: {
+            percent: number | null;
+            transferred: number | null;
+            total: number | null;
+            bytesPerSecond: number | null;
+          };
+        }) => cb(payload);
+        ipcRenderer.on('settings:app:update-status', handler);
+        return () => ipcRenderer.removeListener('settings:app:update-status', handler);
+      },
     },
   },
   telemetry: {
@@ -133,6 +228,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('sessions:engine-status', engineId),
     engineLogin: (engineId: string): Promise<{ opened: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:engine-login', engineId),
+    engineInstall: (engineId: string): Promise<{ opened: boolean; error?: string; command?: string; displayName?: string }> =>
+      ipcRenderer.invoke('sessions:engine-install', engineId),
     resume: (
       id: string,
       prompt: string,
@@ -200,9 +297,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   chromeImport: {
-    detectProfiles: (): Promise<Array<{ directory: string; name: string; email: string; avatarIcon: string }>> =>
+    detectProfiles: (): Promise<Array<{ id: string; directory: string; browserKey: string; browserName: string; name: string; email: string; avatarIcon: string }>> =>
       ipcRenderer.invoke('chrome-import:detect-profiles'),
-    importCookies: (profileDir: string): Promise<{
+    importCookies: (profileId: string): Promise<{
+      profileId: string;
+      browserName: string;
+      profileDirectory: string;
       total: number;
       imported: number;
       failed: number;
@@ -210,7 +310,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       domains: string[];
       failedDomains: string[];
       errorReasons: Record<string, number>;
-    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileId),
     listCookies: (): Promise<Array<{
       name: string;
       domain: string;
@@ -274,8 +374,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('session-output-term', handler);
       return () => ipcRenderer.removeListener('session-output-term', handler);
     },
-    openSettings: (cb: () => void): (() => void) => {
-      const handler = () => cb();
+    openSettings: (cb: (payload?: SettingsOpenPayload) => void): (() => void) => {
+      const handler = (_event: unknown, rawPayload?: unknown) => cb(normalizeSettingsOpenPayload(rawPayload));
       ipcRenderer.on('open-settings', handler);
       return () => ipcRenderer.removeListener('open-settings', handler);
     },

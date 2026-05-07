@@ -18,10 +18,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
 import { enrichedEnv } from '../pathEnrich';
+import { runCliCapture } from '../cliSpawn';
 import { runCodexDeviceLogin } from '../../../identity/codexLogin';
 import type {
   AuthProbe,
@@ -37,20 +37,7 @@ import { estimateCostUsd } from '../../pricing';
 const ID = 'codex';
 const DISPLAY = 'Codex';
 const BIN = 'codex';
-
-function runCli(args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try { child = spawn(BIN, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() }); }
-    catch { resolve({ ok: false, stdout: '', stderr: 'spawn failed' }); return; }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', () => { clearTimeout(timer); resolve({ ok: false, stdout, stderr }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr }); });
-  });
-}
+const BYPASS_APPROVALS_FLAG = '--dangerously-bypass-approvals-and-sandbox';
 
 function codexAuthFilePath(): string {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -92,8 +79,8 @@ const codexAdapter: EngineAdapter = {
   binaryName: BIN,
 
   async probeInstalled(): Promise<InstallProbe> {
-    const r = await runCli(['--version']);
-    if (!r.ok) return { installed: false, error: r.stderr || 'codex not found on PATH' };
+    const r = await runCliCapture(BIN, ['--version']);
+    if (!r.ok) return { installed: false, error: r.stderr || r.error || 'codex not found on PATH' };
     const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
     return { installed: true, version: m?.[1] };
   },
@@ -138,15 +125,27 @@ const codexAdapter: EngineAdapter = {
     return lines.join('\n');
   },
 
-  buildSpawnArgs(ctx: SpawnContext, wrappedPrompt: string): string[] {
-    // `codex exec resume <id> <prompt>` for continuation; otherwise plain exec.
-    // --yolo skips sandbox + approvals — acceptable because the agent is
-    //   already scoped by env BU_TARGET_ID and cwd. Equivalent to Claude Code's
-    //   --dangerously-skip-permissions.
+  buildSpawnArgs(ctx: SpawnContext): string[] {
+    // `codex exec resume <id> -` for continuation; otherwise plain exec.
+    // The trailing `-` tells codex to read the prompt from stdin — see
+    // getStdinPayload below for why we never pass the prompt via argv.
+    // The bypass flag skips sandbox + approvals, mirroring Claude Code's
+    // --dangerously-skip-permissions for this app-managed harness.
     if (ctx.resumeSessionId) {
-      return ['exec', 'resume', ctx.resumeSessionId, '--json', '--yolo', wrappedPrompt];
+      return ['exec', 'resume', '--json', BYPASS_APPROVALS_FLAG, ctx.resumeSessionId, '-'];
     }
-    return ['exec', '--json', '--yolo', wrappedPrompt];
+    return ['exec', '--json', BYPASS_APPROVALS_FLAG, '-'];
+  },
+
+  getStdinPayload(_ctx: SpawnContext, wrappedPrompt: string): string {
+    // Pass the prompt via stdin to dodge a Windows-specific bug: codex on
+    // Windows installs as `codex.cmd` (an npm batch shim), which we route
+    // through `cmd.exe /d /s /c`. cmd.exe terminates argument parsing at any
+    // raw newline inside a quoted arg, so a multi-line wrappedPrompt gets
+    // truncated and word-split — codex then sees the second word ("are") as
+    // an unexpected positional and exits with a clap parse error. Stdin
+    // sidesteps argv quoting entirely on every platform.
+    return wrappedPrompt;
   },
 
   buildEnv(ctx: SpawnContext, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -172,7 +171,6 @@ const codexAdapter: EngineAdapter = {
     const type = e.type as string | undefined;
     const events: HlEvent[] = [];
     let capturedSessionId: string | undefined;
-    let terminalDone = false;
     let terminalError: string | undefined;
 
     if (type === 'thread.started') {

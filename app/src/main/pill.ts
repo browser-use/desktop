@@ -131,22 +131,26 @@ export function createPillWindow(): BrowserWindow {
 
   requestedPillHeight = PILL_HEIGHT_COLLAPSED;
 
+  // macOS uses `vibrancy: 'hud'` to render the pill body as frosted glass —
+  // it requires `transparent: true` + a fully clear backgroundColor. Windows
+  // has no equivalent that works with `transparent: true` (vibrancy is a
+  // no-op there), so the same options produce a fully see-through window
+  // with no surface. Branch the platform-specific options so Windows gets a
+  // real opaque surface that matches the rest of the dark UI.
+  const isMac = process.platform === 'darwin';
   pillWindow = new BrowserWindow({
     width: PILL_WIDTH,
     height: PILL_HEIGHT_COLLAPSED,
-    transparent: true,
+    transparent: isMac,
     frame: false,
     alwaysOnTop: true,
     hasShadow: true,
     resizable: false,
-    backgroundColor: '#00000000',
+    backgroundColor: isMac ? '#00000000' : '#0b0d10',
     roundedCorners: true,
     skipTaskbar: true,
     show: false,
-    vibrancy: 'hud',
-    visualEffectState: 'active',
-    // Ensure it appears above full-screen apps on macOS
-    type: 'panel',
+    ...(isMac ? { vibrancy: 'hud' as const, visualEffectState: 'active' as const, type: 'panel' as const } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'pill.js'),
       contextIsolation: true,

@@ -1,13 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 export interface ChromeProfile {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 export interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -18,11 +24,13 @@ export interface CookieImportResult {
 }
 
 const onboardingAPI = {
+  platform: process.platform,
+
   detectChromeProfiles: (): Promise<ChromeProfile[]> =>
     ipcRenderer.invoke('chrome-import:detect-profiles'),
 
-  importChromeProfileCookies: (profileDir: string): Promise<CookieImportResult> =>
-    ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+  importChromeProfileCookies: (profileId: string): Promise<CookieImportResult> =>
+    ipcRenderer.invoke('chrome-import:import-cookies', profileId),
 
   listSessionCookies: (): Promise<Array<{
     name: string;
@@ -94,11 +102,16 @@ const onboardingAPI = {
   testOpenAIKey: (key: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('onboarding:test-openai-key', key),
 
+  getPlatform: (): Promise<string> => ipcRenderer.invoke('shell:get-platform'),
+
   listenShortcut: (): Promise<{ ok: boolean; accelerator: string }> =>
     ipcRenderer.invoke('onboarding:listen-shortcut'),
 
   setShortcut: (accelerator: string): Promise<{ ok: boolean; accelerator: string }> =>
     ipcRenderer.invoke('onboarding:set-shortcut', accelerator),
+
+  triggerShortcut: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('onboarding:trigger-shortcut'),
 
   onShortcutActivated: (cb: () => void): (() => void) => {
     const handler = () => cb();

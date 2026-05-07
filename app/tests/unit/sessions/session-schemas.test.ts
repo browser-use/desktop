@@ -124,6 +124,18 @@ describe('AgentSessionSchema', () => {
     expect(session.group).toBe('research');
   });
 
+  it('accepts persisted navigation fields', () => {
+    const session = AgentSessionSchema.parse({
+      ...validSession,
+      primarySite: 'example.com',
+      lastUrl: 'https://example.com/docs?tab=api',
+      canResume: true,
+    });
+    expect(session.primarySite).toBe('example.com');
+    expect(session.lastUrl).toBe('https://example.com/docs?tab=api');
+    expect(session.canResume).toBe(true);
+  });
+
   it('rejects session with invalid status', () => {
     expect(() => AgentSessionSchema.parse({ ...validSession, status: 'paused' })).toThrow();
   });

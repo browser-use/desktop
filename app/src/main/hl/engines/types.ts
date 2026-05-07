@@ -24,6 +24,10 @@ export interface SpawnContext {
   resumeSessionId?: string;
   /** Optional user-supplied API key; adapter decides how to inject. */
   savedApiKey?: string;
+  /** Optional provider id for engines that route through provider/model registries. */
+  providerId?: string;
+  /** Optional model id selected for this run. */
+  model?: string;
   /** List of attachment paths (relative to harnessDir) the adapter may mention in wrappedPrompt. */
   attachmentRefs: Array<{ relPath: string; mime: string; size: number }>;
 }
@@ -100,6 +104,15 @@ export interface EngineAdapter {
   buildEnv(ctx: SpawnContext, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
   /** Build the seed/wrapper prompt the CLI will receive. */
   wrapPrompt(ctx: SpawnContext): string;
+  /** Optional: return a payload to write to the child's stdin instead of
+   *  passing the prompt via argv. Required on Windows for any prompt with
+   *  newlines, because `.cmd` shims routed through `cmd.exe /c` cannot
+   *  carry a literal newline inside a quoted argument — the line break
+   *  truncates the command and the prompt gets word-split. Returning a
+   *  string here makes runEngine open stdin as a pipe, write the payload,
+   *  and close it. Adapters that opt in must omit the prompt from
+   *  `buildSpawnArgs` and tell their CLI to read stdin (e.g. `codex exec -`). */
+  getStdinPayload?(ctx: SpawnContext, wrappedPrompt: string): string | undefined;
   /** Translate one NDJSON line from stdout into HlEvents. */
   parseLine(line: string, ctx: ParseContext): ParseResult;
 }
@@ -118,6 +131,8 @@ export interface RunEngineOptions {
   signal?: AbortSignal;
   onEvent: (e: HlEvent) => void;
   onSessionId?: (id: string) => void;
+  /** Fired when the runner can identify the model that this spawn is using. */
+  onModelResolved?: (info: { model: string; source: 'config' | 'engine' }) => void;
   /** Fired once per run with the resolved auth for this spawn, so the caller
    *  can stamp the session with the mode that actually ran it. */
   onAuthResolved?: (info: { authMode: 'apiKey' | 'subscription' | null; subscriptionType: string | null }) => void;

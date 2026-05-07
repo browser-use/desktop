@@ -5,8 +5,7 @@
  * Security invariant: raw key/token values are NEVER logged.
  */
 
-import { ipcMain } from 'electron';
-import { spawn } from 'node:child_process';
+import { app, ipcMain } from 'electron';
 import { mainLogger } from '../logger';
 import { assertString } from '../ipc-validators';
 import {
@@ -16,9 +15,14 @@ import {
   saveOpenAIKey,
   deleteOpenAIKey,
   getCredentialStatus,
+  saveBrowserCodeKey,
+  deleteBrowserCodeKey,
+  deleteBrowserCodeConfig,
+  loadBrowserCodeStore,
+  setActiveBrowserCodeProvider,
 } from '../identity/authStore';
 import { probeClaudeAuthStatus } from '../identity/claudeCodeAuth';
-import { enrichedEnv } from '../hl/engines/pathEnrich';
+import { spawnCli } from '../hl/engines/cliSpawn';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -40,6 +44,67 @@ const CH_OAI_DELETE = 'settings:openai-key:delete';
 const CH_CODEX_LOGOUT = 'settings:codex:logout';
 const CH_CC_LOGIN = 'settings:claude-code:login';
 const CH_CC_LOGOUT = 'settings:claude-code:logout';
+const CH_BCODE_GET_STATUS = 'settings:browsercode:get-status';
+const CH_BCODE_SAVE = 'settings:browsercode:save';
+const CH_BCODE_TEST = 'settings:browsercode:test';
+const CH_BCODE_DELETE = 'settings:browsercode:delete';
+const CH_BCODE_SET_ACTIVE = 'settings:browsercode:set-active';
+
+export interface BrowserCodeProviderOption {
+  id: string;
+  name: string;
+  apiKind: 'openai' | 'anthropic';
+  apiBaseUrl: string;
+  defaultModel: string;
+  models: Array<{ id: string; label: string }>;
+}
+
+const BROWSER_CODE_PROVIDERS: BrowserCodeProviderOption[] = [
+  {
+    id: 'moonshotai',
+    name: 'Moonshot AI',
+    apiKind: 'openai',
+    apiBaseUrl: 'https://api.moonshot.ai/v1',
+    defaultModel: 'moonshotai/kimi-k2.6',
+    models: [
+      { id: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6' },
+      { id: 'moonshotai/kimi-k2-thinking', label: 'Kimi K2 Thinking' },
+      { id: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5' },
+      { id: 'moonshotai/kimi-k2-turbo-preview', label: 'Kimi K2 Turbo Preview' },
+    ],
+  },
+  {
+    id: 'alibaba',
+    name: 'Qwen / Alibaba',
+    apiKind: 'openai',
+    apiBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    defaultModel: 'alibaba/qwen3-coder-plus',
+    models: [
+      { id: 'alibaba/qwen3-coder-plus', label: 'Qwen3 Coder Plus' },
+      { id: 'alibaba/qwen3.6-plus', label: 'Qwen3.6 Plus' },
+      { id: 'alibaba/qwen3.5-plus', label: 'Qwen3.5 Plus' },
+      { id: 'alibaba/qwen3-coder-flash', label: 'Qwen3 Coder Flash' },
+      { id: 'alibaba/qwen-plus', label: 'Qwen Plus' },
+      { id: 'alibaba/qwen3-max', label: 'Qwen3 Max' },
+      { id: 'alibaba/qwen3-coder-480b-a35b-instruct', label: 'Qwen3 Coder 480B' },
+    ],
+  },
+  {
+    id: 'minimax',
+    name: 'MiniMax',
+    apiKind: 'anthropic',
+    apiBaseUrl: 'https://api.minimax.io/anthropic/v1',
+    defaultModel: 'minimax/MiniMax-M2.7',
+    models: [
+      { id: 'minimax/MiniMax-M2.7', label: 'MiniMax M2.7' },
+      { id: 'minimax/MiniMax-M2.7-highspeed', label: 'MiniMax M2.7 Highspeed' },
+      { id: 'minimax/MiniMax-M2.5', label: 'MiniMax M2.5' },
+      { id: 'minimax/MiniMax-M2.5-highspeed', label: 'MiniMax M2.5 Highspeed' },
+      { id: 'minimax/MiniMax-M2.1', label: 'MiniMax M2.1' },
+      { id: 'minimax/MiniMax-M2', label: 'MiniMax M2' },
+    ],
+  },
+];
 
 export interface AuthStatus {
   type: 'oauth' | 'apiKey' | 'none';
@@ -143,10 +208,7 @@ async function handleClaudeCodeLogin(): Promise<{ ok: boolean; error?: string }>
     };
     let child;
     try {
-      child = spawn('claude', ['auth', 'login', '--claudeai'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: enrichedEnv(),
-      });
+      child = spawnCli('claude', ['auth', 'login', '--claudeai']);
     } catch (err) {
       finish({ ok: false, error: (err as Error).message });
       return;
@@ -243,6 +305,219 @@ async function handleOpenAiDelete(): Promise<void> {
   await deleteOpenAIKey();
 }
 
+async function handleBrowserCodeGetStatus(): Promise<{
+  keys: Record<string, { masked: string; lastModel?: string }>;
+  active: string | null;
+  installed?: { installed: boolean; version?: string; error?: string };
+  providers: BrowserCodeProviderOption[];
+}> {
+  const { browserCode } = await getCredentialStatus();
+  let installed: { installed: boolean; version?: string; error?: string } | undefined;
+  try {
+    const { getAdapter } = await import('../hl/engines');
+    installed = await getAdapter('browsercode')?.probeInstalled();
+  } catch (err) {
+    installed = { installed: false, error: (err as Error).message };
+  }
+  mainLogger.info('apiKeyIpc.browserCode.getStatus', {
+    connectedProviders: Object.keys(browserCode.keys),
+    active: browserCode.active,
+    installed: installed?.installed,
+    installedError: installed?.error,
+  });
+  return {
+    keys: browserCode.keys,
+    active: browserCode.active,
+    installed,
+    providers: BROWSER_CODE_PROVIDERS,
+  };
+}
+
+function providerFromId(providerId: string): BrowserCodeProviderOption {
+  const provider = BROWSER_CODE_PROVIDERS.find((p) => p.id === providerId);
+  if (!provider) throw new Error(`Unsupported BrowserCode provider: ${providerId}`);
+  return provider;
+}
+
+function providerLocalModelId(provider: BrowserCodeProviderOption, model: string): string {
+  return model.startsWith(`${provider.id}/`) ? model.slice(provider.id.length + 1) : model;
+}
+
+function assertProviderModel(provider: BrowserCodeProviderOption, model: string): void {
+  if (!provider.models.some((m) => m.id === model)) {
+    throw new Error(`Unsupported BrowserCode model for ${provider.name}: ${model}`);
+  }
+}
+
+async function testOpenAiCompatibleKey(provider: BrowserCodeProviderOption, key: string, model: string): Promise<{ success: boolean; error?: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${provider.apiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: providerLocalModelId(provider, model),
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    clearTimeout(timeoutId);
+    if (response.ok) return { success: true };
+    let errorMsg = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { error?: { message?: string }; message?: string };
+      if (body?.error?.message) errorMsg = body.error.message;
+      else if (body?.message) errorMsg = body.message;
+    } catch { /* ignore */ }
+    mainLogger.warn('apiKeyIpc.browserCode.test.failed', { providerId: provider.id, status: response.status, error: errorMsg });
+    return { success: false, error: errorMsg };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const msg = (err as Error).message ?? 'Network error';
+    mainLogger.warn('apiKeyIpc.browserCode.test.exception', { providerId: provider.id, error: msg });
+    return { success: false, error: msg };
+  }
+}
+
+async function testAnthropicCompatibleKey(provider: BrowserCodeProviderOption, key: string, model: string): Promise<{ success: boolean; error?: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${provider.apiBaseUrl}/messages`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+      body: JSON.stringify({
+        model: providerLocalModelId(provider, model),
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    clearTimeout(timeoutId);
+    if (response.ok) return { success: true };
+    let errorMsg = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { error?: { message?: string }; message?: string };
+      if (body?.error?.message) errorMsg = body.error.message;
+      else if (body?.message) errorMsg = body.message;
+    } catch { /* ignore */ }
+    mainLogger.warn('apiKeyIpc.browserCode.test.failed', {
+      providerId: provider.id,
+      apiKind: provider.apiKind,
+      status: response.status,
+      error: errorMsg,
+    });
+    return { success: false, error: errorMsg };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const msg = (err as Error).message ?? 'Network error';
+    mainLogger.warn('apiKeyIpc.browserCode.test.exception', { providerId: provider.id, apiKind: provider.apiKind, error: msg });
+    return { success: false, error: msg };
+  }
+}
+
+export function allowMockBrowserCodeTests(): boolean {
+  if (!app.isPackaged) return true;
+  if (process.env.NODE_ENV && process.env.NODE_ENV !== 'production') return true;
+  return false;
+}
+
+export function mockTestResult(key: string): { success: boolean; error?: string } | null {
+  if (!allowMockBrowserCodeTests()) return null;
+  if (key === 'mock:ok') return { success: true };
+  if (key === 'mock:invalid') return { success: false, error: 'Invalid API key' };
+  if (key === 'mock:credits') return { success: false, error: 'You have run out of credits. Please top up your account.' };
+  if (key === 'mock:rate-limit') return { success: false, error: 'Rate limit exceeded' };
+  if (key === 'mock:network') return { success: false, error: 'Network error: failed to reach provider' };
+  return null;
+}
+
+async function handleBrowserCodeTest(
+  _e: Electron.IpcMainInvokeEvent,
+  payload: { providerId: string; apiKey: string; model?: string },
+): Promise<{ success: boolean; error?: string }> {
+  const providerId = assertString(payload?.providerId, 'providerId', 80);
+  let key = assertString(payload?.apiKey ?? '', 'apiKey', 500);
+  const provider = providerFromId(providerId);
+  const model = payload?.model ? assertString(payload.model, 'model', 160) : provider.defaultModel;
+  assertProviderModel(provider, model);
+  if (!key) {
+    const store = await loadBrowserCodeStore();
+    key = store?.keys[providerId]?.apiKey ?? '';
+    if (!key) return { success: false, error: 'No API key saved for this provider' };
+  }
+  const mock = mockTestResult(key);
+  if (mock) {
+    mainLogger.info('apiKeyIpc.browserCode.test.mock', { providerId, model, mockKey: key });
+    return mock;
+  }
+  mainLogger.info('apiKeyIpc.browserCode.test', { providerId, model, apiKind: provider.apiKind, keyLength: key.length });
+  const result = provider.apiKind === 'anthropic'
+    ? await testAnthropicCompatibleKey(provider, key, model)
+    : await testOpenAiCompatibleKey(provider, key, model);
+  mainLogger.info('apiKeyIpc.browserCode.test.result', { providerId, model, apiKind: provider.apiKind, success: result.success, error: result.error });
+  return result;
+}
+
+async function handleBrowserCodeSave(
+  _e: Electron.IpcMainInvokeEvent,
+  payload: { providerId: string; apiKey: string; lastModel?: string },
+): Promise<void> {
+  const providerId = assertString(payload?.providerId, 'providerId', 80);
+  const apiKeyInput = assertString(payload?.apiKey ?? '', 'apiKey', 500).trim();
+  const lastModel = payload?.lastModel ? assertString(payload.lastModel, 'lastModel', 160) : undefined;
+  const provider = providerFromId(providerId);
+  if (lastModel) assertProviderModel(provider, lastModel);
+  const { getAdapter } = await import('../hl/engines');
+  const installed = await getAdapter('browsercode')?.probeInstalled();
+  if (!installed?.installed) {
+    throw new Error(installed?.error ?? 'Install BrowserCode before adding a provider API key');
+  }
+  let apiKey = apiKeyInput;
+  if (!apiKey) {
+    const store = await loadBrowserCodeStore();
+    apiKey = store?.keys[providerId]?.apiKey ?? '';
+  }
+  if (!apiKey) throw new Error('API key is required for this provider');
+  mainLogger.info('apiKeyIpc.browserCode.save', { providerId, apiKind: provider.apiKind, keyLength: apiKey.length, reusedExistingKey: !apiKeyInput });
+  await saveBrowserCodeKey(providerId, apiKey, lastModel);
+  mainLogger.info('apiKeyIpc.browserCode.save.ok', { providerId, apiKind: provider.apiKind });
+}
+
+async function handleBrowserCodeDelete(
+  _e: Electron.IpcMainInvokeEvent,
+  payload?: { providerId?: string },
+): Promise<void> {
+  const providerId = payload?.providerId ? assertString(payload.providerId, 'providerId', 80) : null;
+  if (providerId) {
+    mainLogger.info('apiKeyIpc.browserCode.delete', { providerId });
+    await deleteBrowserCodeKey(providerId);
+  } else {
+    mainLogger.info('apiKeyIpc.browserCode.deleteAll');
+    await deleteBrowserCodeConfig();
+  }
+  mainLogger.info('apiKeyIpc.browserCode.delete.ok', { providerId });
+}
+
+async function handleBrowserCodeSetActive(
+  _e: Electron.IpcMainInvokeEvent,
+  payload: { providerId: string },
+): Promise<void> {
+  const providerId = assertString(payload?.providerId, 'providerId', 80);
+  providerFromId(providerId);
+  await setActiveBrowserCodeProvider(providerId);
+  mainLogger.info('apiKeyIpc.browserCode.setActive.ok', { providerId });
+}
+
 /**
  * Run a logout CLI non-interactively. Logout is never a TTY flow — it just
  * deletes credentials and exits — so plain child_process.spawn works on
@@ -252,7 +527,7 @@ function runLogoutCommand(bin: string, args: string[]): Promise<{ opened: boolea
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+      child = spawnCli(bin, args);
     } catch (err) {
       resolve({ opened: false, error: `spawn failed: ${(err as Error).message}` });
       return;
@@ -310,6 +585,10 @@ export function registerApiKeyHandlers(): void {
   ipcMain.handle(CH_CODEX_LOGOUT, handleCodexLogout);
   ipcMain.handle(CH_CC_LOGIN, handleClaudeCodeLogin);
   ipcMain.handle(CH_CC_LOGOUT, handleClaudeCodeLogout);
+  ipcMain.handle(CH_BCODE_GET_STATUS, handleBrowserCodeGetStatus);
+  ipcMain.handle(CH_BCODE_SAVE, handleBrowserCodeSave);
+  ipcMain.handle(CH_BCODE_TEST, handleBrowserCodeTest);
+  ipcMain.handle(CH_BCODE_DELETE, handleBrowserCodeDelete);
+  ipcMain.handle(CH_BCODE_SET_ACTIVE, handleBrowserCodeSetActive);
   mainLogger.info('apiKeyIpc.register.ok');
 }
-

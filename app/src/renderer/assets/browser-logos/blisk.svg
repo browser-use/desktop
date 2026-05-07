@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 502.3 502.3">
+  <g data-name="Body layer">
+    <path d="m208.1 498-192-109.6A32 32 0 0 1 0 360.6V141.7A32 32 0 0 1 16.1 114l192-109.7a32 32 0 0 1 31.8 0l192 109.7a32 32 0 0 1 16.1 27.8v218.9a32 32 0 0 1-16.1 27.8L239.9 498a32 32 0 0 1-31.8 0Z" style="fill:#3eb5f1"/>
+    <path data-name="Overlay for Blue" d="m208.1 498-192-109.6A32 32 0 0 1 0 360.6V141.7A32 32 0 0 1 16.1 114l192-109.7a32 32 0 0 1 31.8 0l192 109.7a32 32 0 0 1 16.1 27.8v218.9a32 32 0 0 1-16.1 27.8L239.9 498a32 32 0 0 1-31.8 0Z" style="fill:#662e9b;fill-opacity:.2"/>
+    <path style="fill:#fff" d="M224 417.4 80 334.3V168l144-83.1L368 168v166.3l-144 83.1z"/>
+    <path style="fill:#3b4167" d="M224 398.9 96 325V177.2l128-73.9 128 73.9V325l-128 73.9z" data-name="Dark blue"/>
+    <path style="fill:#662e9b;opacity:.2" d="M224 398.9 96 325V177.2l128-73.9 128 73.9V325l-128 73.9z" data-name="Overlay for Dark Blue"/>
+  </g>
+  <path d="M224 502.3V0a32 32 0 0 1 15.9 4.2l192 109.7a32 32 0 0 1 16.1 27.8v218.9a32 32 0 0 1-16.1 27.8L239.9 498a31.7 31.7 0 0 1-15.9 4.2Z" style="fill:#3b4167;opacity:.4" data-name="Shadow layer"/>
+  <g data-name="White circle layer">
+    <circle data-name="White circle" cx="224" cy="251.1" r="64" style="fill:#fff"/>
+  </g>
+</svg>

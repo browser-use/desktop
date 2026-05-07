@@ -39,6 +39,7 @@ COPY . .
 
 WORKDIR /workspace/app
 RUN yarn run make -- --platform=linux --arch=x64
+RUN test -f "/workspace/app/out/Browser Use-linux-x64/resources/app-update.yml"
 RUN node ../scripts/build-linux-appimage.mjs \
     --package-dir "/workspace/app/out/Browser Use-linux-x64" \
     --output-dir /workspace/app/out/make/appimage/x64 \

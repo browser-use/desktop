@@ -113,6 +113,38 @@ instead.
   directory and surfaces each new file in the UI with a button to open it.
   Mention the filename in your final answer.
 
+## Local app diagnostics
+
+You run from `<userData>/harness/`. If the user explicitly asks you to debug
+this desktop app, your local app state is one directory up.
+
+- Runtime root: `..` (the Electron `userData` directory).
+- Session database: `../sessions.db`. Useful tables are `sessions`,
+  `session_events`, and `session_attachments`. Prefer read-only `sqlite3`
+  queries while the app is running.
+- Logs: `../logs/main.log`, `../logs/browser.log`, `../logs/renderer.log`,
+  and `../logs/engine.log`. These are JSONL files.
+- Task transcript: persisted in `session_events.payload` for the session id.
+- Account state: `../account.json`. This is onboarding state, not API keys.
+- Local task control: `../local-task-server.json`. It contains a loopback URL
+  and bearer token for submitting new app tasks. Use it only when the user
+  explicitly asks you to start another Browser Use task, and do not print the
+  token.
+- Agent files: `./uploads/<session_id>/` for attachments and
+  `./outputs/<session_id>/` for files you create.
+
+Credentials are sensitive. Do not print raw keys, tokens, or keychain blobs.
+Use status checks and masked values unless the user explicitly asks to change
+auth.
+
+- App-managed Anthropic/OpenAI API keys are in the OS credential store via
+  keytar: service `com.browser-use.desktop.credentials`, account `default`.
+- Claude Code subscription auth belongs to the Claude CLI. Prefer
+  `claude auth status --json`; raw OAuth entries, if present, are under the
+  OS credential service `Claude Code-credentials`.
+- Codex subscription auth belongs to Codex. Check for
+  `${CODEX_HOME:-~/.codex}/auth.json` presence only; do not dump it.
+
 ## Done
 
 Say what you accomplished when the user's task is complete. Short,

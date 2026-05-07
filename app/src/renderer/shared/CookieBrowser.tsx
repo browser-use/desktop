@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from './domain-utils';
+import { BrowserLogoAvatar } from './BrowserLogoAvatar';
 import './CookieBrowser.css';
 
 const MAX_VISIBLE_DOMAINS = 2000;
@@ -7,7 +8,10 @@ const SEARCH_DEBOUNCE_MS = 80;
 const REFRESH_AFTER_SYNC_MS = 250;
 
 export interface CookieBrowserProfile {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
@@ -24,6 +28,9 @@ export interface CookieBrowserCookie {
 }
 
 export interface CookieBrowserImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -44,7 +51,7 @@ export interface CookieBrowserSyncRecord {
 
 export interface CookieBrowserApi {
   detectProfiles: () => Promise<CookieBrowserProfile[]>;
-  importCookies: (profileDir: string) => Promise<CookieBrowserImportResult>;
+  importCookies: (profileId: string) => Promise<CookieBrowserImportResult>;
   listCookies: () => Promise<CookieBrowserCookie[]>;
   getSyncs: () => Promise<Record<string, CookieBrowserSyncRecord>>;
 }
@@ -53,19 +60,6 @@ interface Props {
   api: CookieBrowserApi;
   /** Hide the title block when the host page already has one. */
   hideHeader?: boolean;
-}
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function avatarHueFor(seed: string): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return h % 360;
 }
 
 function fuzzyMatch(query: string, candidate: string): boolean {
@@ -151,10 +145,10 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
       setProfiles(list);
       setHasLoadedProfiles(true);
       if (list.length === 0) {
-        setProfilesError('No Chrome profiles detected. Sign in to Chrome first, then refresh.');
+        setProfilesError('No Chromium browser profiles detected. Sign in to a supported browser first, then refresh.');
       }
     } catch (err) {
-      setProfilesError((err as Error).message ?? 'Failed to read Chrome profiles');
+      setProfilesError((err as Error).message ?? 'Failed to read browser profiles');
     } finally {
       setProfilesLoading(false);
     }
@@ -170,7 +164,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
   }, [api]);
 
   // Initial load: cookies, profiles, and persisted sync history. Auto-running
-  // detectProfiles avoids the "no Chrome profile registered" empty state on
+  // detectProfiles avoids the "no browser profile registered" empty state on
   // every reopen — the user shouldn't have to click Detect every time.
   useEffect(() => {
     void refreshCookies();
@@ -178,11 +172,11 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
     void refreshSyncs();
   }, [refreshCookies, refreshProfiles, refreshSyncs]);
 
-  const handleSync = useCallback(async (profileDir: string) => {
-    setSyncingProfile(profileDir);
+  const handleSync = useCallback(async (profileId: string) => {
+    setSyncingProfile(profileId);
     setSyncError(null);
     try {
-      await api.importCookies(profileDir);
+      await api.importCookies(profileId);
       // Slight delay so the writes have flushed before we re-list.
       setTimeout(() => { void refreshCookies(); }, REFRESH_AFTER_SYNC_MS);
       // Pull the freshly-persisted record (timestamp + counts) from main.
@@ -222,14 +216,14 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
         <div className="cb-header">
           <span className="cb-title">Browser cookies</span>
           <p className="cb-subtitle">
-            Sync cookies from a local Chrome profile so signed-in sites (Gmail, GitHub, internal tools) work in agent sessions without re-logging-in. Re-run anytime your local Chrome session changes.
+            Sync cookies from a local Chromium browser profile so signed-in sites (Gmail, GitHub, internal tools) work in agent sessions without re-logging-in. Re-run anytime your local browser session changes.
           </p>
         </div>
       )}
 
       <div className="cb-section">
         <div className="cb-section-head">
-          <span className="cb-section-title">Chrome profiles</span>
+          <span className="cb-section-title">Browser profiles</span>
           <button
             type="button"
             className="cb-btn cb-btn--ghost"
@@ -245,23 +239,20 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
         {profiles.length > 0 && (
           <ul className="cb-profile-list">
             {profiles.map((p) => {
-              const isSyncing = syncingProfile === p.directory;
-              const record = syncRecords[p.directory];
-              const hue = avatarHueFor(p.email || p.name || p.directory);
+              const profileId = p.id ?? p.directory;
+              const isSyncing = syncingProfile === profileId;
+              const record = syncRecords[profileId] ?? syncRecords[p.directory];
+              const subtitle = p.email ? `${p.browserName} · ${p.email}` : p.browserName;
               return (
-                <li key={p.directory} className="cb-profile">
-                  <span
-                    className="cb-avatar"
-                    style={{
-                      background: `linear-gradient(135deg, hsl(${hue}deg 70% 45%), hsl(${(hue + 40) % 360}deg 70% 35%))`,
-                    }}
-                    aria-hidden="true"
-                  >
-                    {initialsFor(p.name || p.email || p.directory)}
-                  </span>
+                <li key={profileId} className="cb-profile">
+                  <BrowserLogoAvatar
+                    browserKey={p.browserKey}
+                    fallbackLabel={p.browserName || p.name || p.directory}
+                    className="cb-browser-logo"
+                  />
                   <div className="cb-profile-meta">
                     <span className="cb-profile-name">{p.name || p.directory}</span>
-                    {p.email && <span className="cb-profile-email">{p.email}</span>}
+                    {subtitle && <span className="cb-profile-email">{subtitle}</span>}
                     {record && (
                       <span className="cb-profile-result" title={new Date(record.last_synced_at).toLocaleString()}>
                         Synced {relativeTime(record.last_synced_at)} · {record.domain_count.toLocaleString()} domains
@@ -274,7 +265,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
                   <button
                     type="button"
                     className="cb-btn cb-btn--primary"
-                    onClick={() => handleSync(p.directory)}
+                    onClick={() => handleSync(profileId)}
                     disabled={isSyncing || syncingProfile !== null}
                   >
                     {isSyncing ? 'Syncing…' : record ? 'Re-sync' : 'Sync'}
@@ -331,7 +322,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
           ) : visibleDomains.length === 0 ? (
             <div className="cb-empty">
               {cookies.length === 0
-                ? 'No cookies yet. Sync a Chrome profile to import them.'
+                ? 'No cookies yet. Sync a browser profile to import them.'
                 : 'No domains match your filter.'}
             </div>
           ) : (

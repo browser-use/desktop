@@ -25,7 +25,12 @@ class FakeAutoUpdater {
   public logger: unknown = null;
   public feedURL: unknown = null;
   public checkCount = 0;
+  public quitAndInstallCount = 0;
   public quitAndInstallCalled = false;
+  public onQuitAndInstall: (() => void) | null = null;
+  public downloadedUpdateHelper = {
+    clear: vi.fn(async () => {}),
+  };
   private readonly listeners = new Map<string, Listener[]>();
 
   setFeedURL(opts: unknown): void {
@@ -43,12 +48,14 @@ class FakeAutoUpdater {
     for (const l of this.listeners.get(event) ?? []) l(...args);
   }
 
-  async checkForUpdatesAndNotify(): Promise<null> {
+  async checkForUpdates(): Promise<null> {
     this.checkCount += 1;
     return null;
   }
 
   quitAndInstall(): void {
+    this.onQuitAndInstall?.();
+    this.quitAndInstallCount += 1;
     this.quitAndInstallCalled = true;
   }
 
@@ -60,13 +67,17 @@ class FakeAutoUpdater {
 class FakeWindowsAutoUpdater {
   public feedURL: unknown = null;
   public checkCount = 0;
+  public quitAndInstallCount = 0;
   public quitAndInstallCalled = false;
+  public onQuitAndInstall: (() => void) | null = null;
   private listeners = new Map<string, Listener[]>();
 
   reset(): void {
     this.feedURL = null;
     this.checkCount = 0;
+    this.quitAndInstallCount = 0;
     this.quitAndInstallCalled = false;
+    this.onQuitAndInstall = null;
     this.listeners = new Map<string, Listener[]>();
   }
 
@@ -90,6 +101,8 @@ class FakeWindowsAutoUpdater {
   }
 
   quitAndInstall(): void {
+    this.onQuitAndInstall?.();
+    this.quitAndInstallCount += 1;
     this.quitAndInstallCalled = true;
   }
 
@@ -113,6 +126,14 @@ vi.mock('electron-updater', () => ({
 // ---------------------------------------------------------------------------
 type UpdaterModule = typeof import('../../../src/main/updater');
 type ElectronModule = typeof import('electron');
+type MockUpdateDialogWindow = {
+  id: number;
+  isDestroyed: () => boolean;
+  isVisible: () => boolean;
+  webContents: {
+    getURL: () => string;
+  };
+};
 
 async function loadUpdaterFresh(
   packaged: boolean,
@@ -130,7 +151,10 @@ async function loadUpdaterFresh(
   fakeAutoUpdater.logger = null;
   fakeAutoUpdater.feedURL = null;
   fakeAutoUpdater.checkCount = 0;
+  fakeAutoUpdater.quitAndInstallCount = 0;
   fakeAutoUpdater.quitAndInstallCalled = false;
+  fakeAutoUpdater.onQuitAndInstall = null;
+  fakeAutoUpdater.downloadedUpdateHelper.clear.mockClear();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (fakeAutoUpdater as any).listeners = new Map<string, Listener[]>();
   fakeWindowsAutoUpdater.reset();
@@ -176,6 +200,7 @@ describe('updater (Issue #202)', () => {
       configurable: true,
     });
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   describe('shouldSkipUpdates', () => {
@@ -223,14 +248,14 @@ describe('updater (Issue #202)', () => {
       process.env.NODE_ENV = 'production';
     });
 
-    it('configures the GitHub release-asset feed for browser-use/desktop-app', async () => {
+    it('configures the GitHub release-asset feed for browser-use/desktop', async () => {
       const { updater } = await loadUpdaterFresh(true);
 
       await updater.initUpdater();
 
       expect(fakeAutoUpdater.feedURL).toEqual({
         provider: 'generic',
-        url: 'https://github.com/browser-use/desktop-app/releases/latest/download',
+        url: 'https://github.com/browser-use/desktop/releases/latest/download',
       });
 
       updater.stopUpdater();
@@ -242,7 +267,7 @@ describe('updater (Issue #202)', () => {
       await updater.initUpdater();
 
       expect(fakeWindowsAutoUpdater.feedURL).toEqual({
-        url: 'https://github.com/browser-use/desktop-app/releases/latest/download',
+        url: 'https://github.com/browser-use/desktop/releases/latest/download',
       });
       expect(fakeWindowsAutoUpdater.checkCount).toBe(1);
       expect(fakeWindowsAutoUpdater.hasListener('update-downloaded')).toBe(true);
@@ -267,7 +292,7 @@ describe('updater (Issue #202)', () => {
 
       expect(fakeAutoUpdater.feedURL).toEqual({
         provider: 'generic',
-        url: 'https://github.com/browser-use/desktop-app/releases/latest/download',
+        url: 'https://github.com/browser-use/desktop/releases/latest/download',
       });
       expect(fakeAutoUpdater.checkCount).toBe(1);
 
@@ -286,7 +311,7 @@ describe('updater (Issue #202)', () => {
       updater.stopUpdater();
     });
 
-    it('performs an initial checkForUpdatesAndNotify', async () => {
+    it('performs an initial checkForUpdates on startup', async () => {
       const { updater } = await loadUpdaterFresh(true);
 
       await updater.initUpdater();
@@ -319,6 +344,209 @@ describe('updater (Issue #202)', () => {
 
       updater.stopUpdater();
     });
+  });
+
+  describe('manual update download', () => {
+    it('reports when the running app version matches the latest release tag', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ tag_name: 'v0.1.0-test' }),
+      })));
+      const { updater } = await loadUpdaterFresh(false);
+
+      const info = await updater.getUpdateRuntimeInfo();
+
+      expect(info.version).toBe('0.1.0-test');
+      expect(info.latestVersion).toBe('0.1.0-test');
+      expect(info.isLatestVersion).toBe(true);
+      expect(info.canDownloadUpdate).toBe(false);
+    });
+
+    it('reports when a newer release is available', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ tag_name: 'v9.9.9' }),
+      })));
+      const { updater } = await loadUpdaterFresh(false);
+
+      const info = await updater.getUpdateRuntimeInfo();
+
+      expect(info.latestVersion).toBe('9.9.9');
+      expect(info.isLatestVersion).toBe(false);
+    });
+
+    it('does not open a browser URL when updater cannot run in the current build', async () => {
+      const { updater, electron } = await loadUpdaterFresh(false);
+      const openExternal = vi.spyOn(electron.shell, 'openExternal');
+
+      const result = await updater.downloadLatestVersion();
+
+      expect(result.ok).toBe(false);
+      expect(result.action).toBe('unavailable');
+      expect(updater.getUpdateStatus()).toMatchObject({
+        status: 'unavailable',
+      });
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(fakeAutoUpdater.checkCount).toBe(0);
+    });
+
+    it('starts an updater check when packaged updates are supported', async () => {
+      const { updater } = await loadUpdaterFresh(true);
+
+      const result = await updater.downloadLatestVersion();
+
+      expect(result.action).toBe('started-update-check');
+      expect(fakeAutoUpdater.feedURL).toEqual({
+        provider: 'generic',
+        url: 'https://github.com/browser-use/desktop/releases/latest/download',
+      });
+      expect(fakeAutoUpdater.checkCount).toBeGreaterThanOrEqual(2);
+
+      updater.stopUpdater();
+    });
+
+    it('shows the update-ready dialog for a mocked 0.0.27 update and installs once ready', async () => {
+      const { updater, electron } = await loadUpdaterFresh(true);
+      const showMessageBox = vi.spyOn(electron.dialog, 'showMessageBox').mockResolvedValue({
+        response: 1,
+        checkboxChecked: false,
+      });
+      const statuses: string[] = [];
+      const unsubscribe = updater.onUpdateStatusChanged((event) => {
+        statuses.push(event.status);
+      });
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('update-available', { version: '0.0.27' });
+      fakeAutoUpdater.emit('download-progress', {
+        percent: 42,
+        transferred: 42,
+        total: 100,
+        bytesPerSecond: 1000,
+      });
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+
+      expect(statuses).toContain('downloading');
+      expect(updater.getUpdateStatus()).toMatchObject({
+        status: 'ready',
+        version: '0.0.27',
+        message: 'Version 0.0.27 is ready to install.',
+      });
+      expect(showMessageBox).toHaveBeenCalledWith({
+        type: 'info',
+        title: 'Update Ready',
+        message: 'Version 0.0.27 is ready to install.',
+        detail: 'Restart now to apply the update, or it will install automatically on next quit.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      });
+      expect(fakeAutoUpdater.quitAndInstallCalled).toBe(false);
+
+      const result = updater.installDownloadedUpdate();
+
+      expect(result.action).toBe('install-started');
+      expect(fakeAutoUpdater.quitAndInstallCalled).toBe(true);
+
+      unsubscribe();
+      updater.stopUpdater();
+    });
+
+    it('signals the app quit path before calling quitAndInstall', async () => {
+      const { updater, electron } = await loadUpdaterFresh(true);
+      vi.spyOn(electron.dialog, 'showMessageBox').mockResolvedValue({
+        response: 1,
+        checkboxChecked: false,
+      });
+      const order: string[] = [];
+      const unsubscribe = updater.onBeforeQuitForUpdate(() => {
+        order.push('before-quit-for-update');
+      });
+      fakeAutoUpdater.onQuitAndInstall = () => {
+        order.push('quit-and-install');
+      };
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+      updater.installDownloadedUpdate();
+
+      expect(order).toEqual(['before-quit-for-update', 'quit-and-install']);
+
+      unsubscribe();
+      updater.stopUpdater();
+    });
+
+    it('anchors update dialogs to the app window instead of focused utility windows', async () => {
+      const { updater, electron } = await loadUpdaterFresh(true);
+      const logsWindow: MockUpdateDialogWindow = {
+        id: 2,
+        isDestroyed: () => false,
+        isVisible: () => true,
+        webContents: {
+          getURL: () => 'http://localhost:5176/src/renderer/logs/logs.html',
+        },
+      };
+      const shellWindow: MockUpdateDialogWindow = {
+        id: 1,
+        isDestroyed: () => false,
+        isVisible: () => true,
+        webContents: {
+          getURL: () => 'http://localhost:5173/src/renderer/hub/hub.html',
+        },
+      };
+      vi.spyOn(electron.BrowserWindow, 'getFocusedWindow').mockReturnValue(logsWindow as never);
+      vi.spyOn(electron.BrowserWindow, 'getAllWindows').mockReturnValue([logsWindow, shellWindow] as never);
+      const showMessageBox = vi.spyOn(electron.dialog, 'showMessageBox').mockResolvedValue({
+        response: 1,
+        checkboxChecked: false,
+      });
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+
+      expect(showMessageBox).toHaveBeenCalledWith(shellWindow, {
+        type: 'info',
+        title: 'Update Ready',
+        message: 'Version 0.0.27 is ready to install.',
+        detail: 'Restart now to apply the update, or it will install automatically on next quit.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      });
+
+      updater.stopUpdater();
+    });
+
+    it('collapses repeated install clicks into one quitAndInstall call until an updater error resets the guard', async () => {
+      const { updater } = await loadUpdaterFresh(true);
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+
+      updater.installDownloadedUpdate();
+      updater.installDownloadedUpdate();
+      updater.installDownloadedUpdate();
+
+      expect(fakeAutoUpdater.quitAndInstallCount).toBe(1);
+
+      fakeAutoUpdater.emit('error', new Error('squirrel failed'));
+      fakeAutoUpdater.emit('update-downloaded', { version: '0.0.27' });
+      updater.installDownloadedUpdate();
+
+      expect(fakeAutoUpdater.quitAndInstallCount).toBe(2);
+
+      updater.stopUpdater();
+    });
+
+    it('clears the cached electron-updater download helper on generic updater errors', async () => {
+      const { updater } = await loadUpdaterFresh(true);
+
+      await updater.initUpdater();
+      fakeAutoUpdater.emit('error', new Error('cached update failed'));
+
+      expect(fakeAutoUpdater.downloadedUpdateHelper.clear).toHaveBeenCalledTimes(1);
+
+      updater.stopUpdater();
+    });
+
   });
 
   describe('stopUpdater', () => {

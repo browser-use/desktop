@@ -36,6 +36,25 @@ const SHOULD_SIGN = IS_MAC && !SKIP_SIGNING && SIGNING_IDENTITY !== '';
 const WINDOWS_ICON_PATH = path.resolve(__dirname, 'assets/icon.ico');
 const LINUX_ICON_PATH = path.resolve(__dirname, 'assets/icon.png');
 
+const findNpmCli = (): string | null => {
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(nodeDir, '..', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+};
+
+const runNpm = (args: string[], cwd: string): void => {
+  const npmCli = findNpmCli();
+  if (npmCli) {
+    execFileSync(process.execPath, [npmCli, ...args], { cwd, stdio: 'inherit' });
+    return;
+  }
+  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { cwd, stdio: 'inherit' });
+};
+
 // ---------------------------------------------------------------------------
 // Forge configuration
 // ---------------------------------------------------------------------------
@@ -104,6 +123,9 @@ const config: ForgeConfig = {
     appBundleId: 'com.browser-use.desktop',
     appCategoryType: 'public.app-category.productivity',
     icon: 'assets/icon',   // Forge appends .icns on macOS automatically
+    // electron-updater still reads process.resourcesPath/app-update.yml during
+    // the download/install phase even when setFeedURL supplies the feed URL.
+    extraResource: ['app-update.yml'],
   },
 
   rebuildConfig: {},
@@ -119,11 +141,7 @@ const config: ForgeConfig = {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       const prodDeps = Object.keys(pkg.dependencies ?? {});
       if (prodDeps.length === 0) return;
-      execFileSync(
-        'npm',
-        ['install', '--omit=dev', '--no-package-lock', '--no-save', '--legacy-peer-deps', ...prodDeps],
-        { cwd: buildPath, stdio: 'inherit' },
-      );
+      runNpm(['install', '--omit=dev', '--no-package-lock', '--no-save', '--legacy-peer-deps', ...prodDeps], buildPath);
       // npm install just built native modules against the host Node ABI.
       // Electron uses a different NODE_MODULE_VERSION, so rebuild them
       // against Electron's headers before asar packaging.
@@ -190,7 +208,7 @@ const config: ForgeConfig = {
         section: 'utils',
         priority: 'optional',
         maintainer: 'Browser Use <support@browser-use.com>',
-        homepage: 'https://github.com/browser-use/desktop-app',
+        homepage: 'https://github.com/browser-use/desktop',
         icon: LINUX_ICON_PATH,
         categories: ['Utility', 'Network'],
       },
@@ -204,7 +222,7 @@ const config: ForgeConfig = {
         productDescription: 'Browser Use is a desktop agent hub for Claude Code and Codex.',
         license: 'MIT',
         group: 'Applications/Internet',
-        homepage: 'https://github.com/browser-use/desktop-app',
+        homepage: 'https://github.com/browser-use/desktop',
         icon: LINUX_ICON_PATH,
         categories: ['Utility', 'Network'],
       },

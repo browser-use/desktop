@@ -1,12 +1,199 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ConnectionsPane } from './ConnectionsPane';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ConnectionsPane, type SettingsProviderFocusRequest } from './ConnectionsPane';
 import type { ActionId, KeyBinding } from './keybindings';
+import { fallbackShortcutPlatform, keyboardEventToShortcut } from '../../shared/hotkeys';
 
 type ElectronPrivacyAPI = {
   get: () => Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }>;
   setTelemetry: (optedIn: boolean) => Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }>;
   openSystemNotifications: () => Promise<{ ok: boolean; error?: string }>;
 };
+
+type ElectronAppAPI = {
+  getUpdateStatus: () => Promise<UpdateStatusEvent>;
+  getInfo: () => Promise<{
+    version: string;
+    latestVersion: string | null;
+    isLatestVersion: boolean | null;
+    platform: string;
+    packaged: boolean;
+    updateSupported: boolean;
+    canDownloadUpdate: boolean;
+    updateFeedUrl: string;
+  }>;
+  downloadLatest: () => Promise<{
+    ok: boolean;
+    action: 'started-update-check' | 'unavailable';
+    message: string;
+  }>;
+  installUpdate: () => Promise<{
+    ok: boolean;
+    action: 'install-started' | 'not-ready';
+    message: string;
+  }>;
+  onUpdateStatus: (cb: (event: UpdateStatusEvent) => void) => () => void;
+};
+
+type UpdateStatusEvent = {
+  status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
+  version?: string;
+  message?: string;
+  error?: string;
+  progress?: {
+    percent: number | null;
+    transferred: number | null;
+    total: number | null;
+    bytesPerSecond: number | null;
+  };
+};
+
+function AppSection(): React.ReactElement {
+  const [info, setInfo] = useState<Awaited<ReturnType<ElectronAppAPI['getInfo']>> | null>(null);
+  const [updateStatusEvent, setUpdateStatusEvent] = useState<UpdateStatusEvent>({ status: 'idle' });
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const api = window.electronAPI?.settings?.app;
+  const onLatest = info?.isLatestVersion === true;
+  const canDownloadUpdate = info?.canDownloadUpdate === true;
+  const updateReady = updateStatusEvent.status === 'ready';
+  const updateBusy = updateStatusEvent.status === 'checking' || updateStatusEvent.status === 'downloading';
+  const updateActionDisabled = !api || !info || installing || (
+    !updateReady && (checking || updateBusy || onLatest || !canDownloadUpdate)
+  );
+  const downloadProgress = updateStatusEvent.progress?.percent;
+  const progressWidth = typeof downloadProgress === 'number'
+    ? `${Math.max(2, Math.min(100, downloadProgress))}%`
+    : updateStatusEvent.status === 'downloading'
+      ? '18%'
+      : '0%';
+  const updateStatus = updateStatusEvent.message ?? (
+    !info
+      ? 'Checking latest version...'
+      : updateReady
+        ? 'Update is ready to install.'
+        : updateBusy
+          ? 'Checking for updates...'
+          : onLatest
+            ? 'You are on the latest version.'
+            : info.latestVersion
+              ? `Latest version is ${info.latestVersion}.`
+              : canDownloadUpdate
+                ? 'Checks on startup and every hour.'
+                : 'In-app updates are available in packaged release builds.'
+  );
+  const buttonLabel = !info || checking
+    ? 'Checking...'
+    : installing
+      ? 'Restarting...'
+      : updateReady
+        ? 'Restart to install'
+        : onLatest
+          ? 'On latest'
+          : canDownloadUpdate
+            ? 'Download update'
+            : 'Unavailable';
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      api?.getInfo() ?? Promise.resolve(null),
+      api?.getUpdateStatus() ?? Promise.resolve<UpdateStatusEvent>({ status: 'idle' }),
+    ])
+      .then(([nextInfo, nextStatus]) => {
+        if (cancelled) return;
+        setInfo(nextInfo);
+        setUpdateStatusEvent(nextStatus);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInfo(null);
+        setUpdateStatusEvent({ status: 'error', message: 'Could not read update status.' });
+      });
+
+    const unsubscribe = api?.onUpdateStatus((nextStatus) => {
+      setUpdateStatusEvent(nextStatus);
+      if (nextStatus.status !== 'ready') setInstalling(false);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [api]);
+
+  const handleDownloadLatest = useCallback(async () => {
+    if (!api || checking || installing || onLatest || updateBusy || updateReady || !canDownloadUpdate) return;
+    setChecking(true);
+    setUpdateStatusEvent({ status: 'checking', message: 'Checking for updates...' });
+    try {
+      const result = await api.downloadLatest();
+      setUpdateStatusEvent((current) => (
+        current.status === 'checking' ? { status: result.ok ? 'checking' : 'unavailable', message: result.message } : current
+      ));
+      const next = await api.getInfo();
+      setInfo(next);
+    } catch {
+      setUpdateStatusEvent({ status: 'error', message: 'Could not start the in-app update check. Please try again later.' });
+    } finally {
+      setChecking(false);
+    }
+  }, [api, canDownloadUpdate, checking, installing, onLatest, updateBusy, updateReady]);
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (!api || installing || !updateReady) return;
+    setInstalling(true);
+    try {
+      const result = await api.installUpdate();
+      setUpdateStatusEvent((current) => ({
+        ...current,
+        message: result.message,
+      }));
+      if (!result.ok) setInstalling(false);
+    } catch {
+      setUpdateStatusEvent({ status: 'error', message: 'Could not restart to install the update.' });
+      setInstalling(false);
+    }
+  }, [api, installing, updateReady]);
+
+  const handleUpdateClick = updateReady ? handleInstallUpdate : handleDownloadLatest;
+
+  return (
+    <div className="settings-card">
+      <div className="settings-pane__row">
+        <div>
+          <div className="settings-pane__label">Version</div>
+          <div className="settings-pane__sublabel">
+            {info ? `Browser Use ${info.version}` : 'Detecting version...'}
+          </div>
+        </div>
+        {info && <span className="settings-pane__value">v{info.version}</span>}
+      </div>
+      <div className="settings-pane__row">
+        <div>
+          <div className="settings-pane__label">Updates</div>
+          <div className="settings-pane__sublabel">
+            {updateStatus}
+          </div>
+          {(updateStatusEvent.status === 'downloading' || updateStatusEvent.status === 'ready') && (
+            <div className="settings-pane__progress" aria-hidden="true">
+              <span
+                className="settings-pane__progress-fill"
+                style={{ width: updateStatusEvent.status === 'ready' ? '100%' : progressWidth }}
+              />
+            </div>
+          )}
+        </div>
+        <button
+          className="conn-card__btn conn-card__btn--secondary"
+          onClick={handleUpdateClick}
+          disabled={updateActionDisabled}
+        >
+          {buttonLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function PrivacySection(): React.ReactElement {
   const [telemetry, setTelemetry] = useState<boolean | null>(null);
@@ -37,12 +224,7 @@ function PrivacySection(): React.ReactElement {
   }, [telemetry, saving, api]);
 
   return (
-    <div className="settings-pane__section">
-      <span className="settings-pane__section-title">Privacy</span>
-      <p className="settings-pane__hint">
-        Control what leaves your machine. No prompts, credentials, or file contents are ever collected.
-      </p>
-
+    <div className="settings-card">
       <div className="settings-pane__row">
         <div>
           <div className="settings-pane__label">Allow telemetry to help us make this app better</div>
@@ -76,80 +258,111 @@ function PrivacySection(): React.ReactElement {
   );
 }
 
-interface SettingsPaneProps {
-  open: boolean;
-  onClose: () => void;
-  keybindings: KeyBinding[];
-  overrides: Record<string, string[]>;
-  onUpdateBinding: (id: ActionId, keys: string[]) => void;
-  onResetBinding: (id: ActionId) => void;
-  onResetAll: () => void;
+export type SettingsSectionId =
+  | 'settings-model-providers'
+  | 'settings-connections'
+  | 'settings-browser-sync'
+  | 'settings-shortcuts'
+  | 'settings-privacy'
+  | 'settings-application';
+
+export interface SettingsOpenIntent {
+  requestId: number;
+  sectionId?: SettingsSectionId;
+  focusBrowserCodeProvider?: string;
 }
 
-function captureKeyCombo(e: KeyboardEvent): string | null {
-  if (e.key === 'Escape' || e.key === 'Tab') return null;
-  if (['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) return null;
+const SETTINGS_TABS: Array<{ id: SettingsSectionId; label: string }> = [
+  { id: 'settings-application', label: 'Application' },
+  { id: 'settings-model-providers', label: 'Model providers' },
+  { id: 'settings-connections', label: 'Connections' },
+  { id: 'settings-browser-sync', label: 'Browser Sync' },
+  { id: 'settings-shortcuts', label: 'Shortcuts' },
+  { id: 'settings-privacy', label: 'Privacy' },
+];
 
-  const parts: string[] = [];
-  if (e.metaKey) parts.push('Cmd');
-  if (e.ctrlKey) parts.push('Ctrl');
-  if (e.altKey) parts.push('Alt');
-  if (e.shiftKey && e.key.length > 1) parts.push('Shift');
-
-  const key = e.key === ' ' ? 'Space' : e.key;
-  parts.push(key);
-  return parts.join('+');
+interface SettingsPaneProps {
+  intent?: SettingsOpenIntent | null;
+  keybindings: KeyBinding[];
+  overrides: Record<string, string[]>;
+  onUpdateBinding: (id: ActionId, keys: string[]) => Promise<boolean>;
+  onResetBinding: (id: ActionId) => void;
+  onResetAll: () => void;
+  formatShortcut: (shortcut: string) => string;
 }
 
 interface KeybindRowProps {
   kb: KeyBinding;
   isOverridden: boolean;
-  onUpdate: (id: ActionId, keys: string[]) => void;
+  onUpdate: (id: ActionId, keys: string[]) => Promise<boolean>;
   onReset: (id: ActionId) => void;
+  platform: string;
+  formatShortcut: (shortcut: string) => string;
 }
 
-function KeybindRow({ kb, isOverridden, onUpdate, onReset }: KeybindRowProps): React.ReactElement {
+function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShortcut }: KeybindRowProps): React.ReactElement {
   const [recording, setRecording] = useState(false);
   const [firstKey, setFirstKey] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const isGlobalShortcut = kb.id === 'action.createPane';
+
+  const finishRecording = useCallback(async (keys: string[]) => {
+    setRecording(false);
+    setFirstKey(null);
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    const ok = await onUpdate(kb.id, keys);
+    setRecordingError(ok ? null : 'That shortcut is unavailable. Choose another one.');
+  }, [kb.id, onUpdate]);
 
   useEffect(() => {
     if (!recording) return;
     const timer = setTimeout(() => {
       if (firstKey) {
-        onUpdate(kb.id, [firstKey]);
+        void finishRecording([firstKey]);
+      } else {
         setRecording(false);
-        setFirstKey(null);
+        setRecordingError('No shortcut was detected. Choose another combination.');
       }
-    }, 700);
+    }, firstKey ? 700 : 8000);
 
-    const handler = (e: KeyboardEvent) => {
+    const handler = async (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
       if (e.key === 'Escape') {
         setRecording(false);
         setFirstKey(null);
+        setRecordingError(null);
         return;
       }
 
-      const combo = captureKeyCombo(e);
+      if (e.key === 'Unidentified') {
+        clearTimeout(timer);
+        setRecording(false);
+        setFirstKey(null);
+        setRecordingError('That shortcut is unavailable. Choose another one.');
+        return;
+      }
+
+      const combo = keyboardEventToShortcut(e, platform);
       if (!combo) return;
+
+      if (isGlobalShortcut && !e.metaKey && !e.ctrlKey && !e.altKey) return;
 
       if (firstKey) {
         clearTimeout(timer);
-        onUpdate(kb.id, [`${firstKey} ${combo}`]);
-        setRecording(false);
-        setFirstKey(null);
+        await finishRecording([`${firstKey} ${combo}`]);
         return;
       }
 
       // If modifier present, commit immediately. Else wait briefly for possible chord.
       if (e.metaKey || e.ctrlKey || e.altKey) {
-        onUpdate(kb.id, [combo]);
-        setRecording(false);
+        clearTimeout(timer);
+        await finishRecording([combo]);
         return;
       }
 
+      setRecordingError(null);
       setFirstKey(combo);
     };
     window.addEventListener('keydown', handler, true);
@@ -157,26 +370,30 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset }: KeybindRowProps): R
       clearTimeout(timer);
       window.removeEventListener('keydown', handler, true);
     };
-  }, [recording, firstKey, kb.id, onUpdate]);
+  }, [finishRecording, firstKey, isGlobalShortcut, platform, recording]);
 
   return (
     <div className={`settings-pane__row${isOverridden ? ' settings-pane__row--modified' : ''}`}>
-      <span className="settings-pane__label">{kb.label}</span>
+      <div className="settings-pane__label-block">
+        <span className="settings-pane__label">{kb.label}</span>
+        <span className="settings-pane__sublabel">{kb.category}</span>
+      </div>
       <div className="settings-pane__row-right">
         <button
           className={`settings-pane__key-btn${recording ? ' settings-pane__key-btn--recording' : ''}`}
           onClick={() => {
+            setRecordingError(null);
             setRecording(true);
             setFirstKey(null);
           }}
         >
           {recording ? (
             <span className="settings-pane__recording">
-              {firstKey ? `${firstKey} + ...` : 'Press key...'}
+              {firstKey ? `${formatShortcut(firstKey)} + ...` : 'Press key...'}
             </span>
           ) : (
             kb.keys.map((k, i) => (
-              <kbd key={i} className="settings-pane__kbd">{k}</kbd>
+              <kbd key={i} className="settings-pane__kbd">{formatShortcut(k)}</kbd>
             ))
           )}
         </button>
@@ -192,48 +409,120 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset }: KeybindRowProps): R
           </svg>
         </button>
       </div>
+      {recordingError && <span className="settings-pane__key-error">{recordingError}</span>}
     </div>
   );
 }
 
-export function SettingsPane({ open, onClose, keybindings, overrides, onUpdateBinding, onResetBinding, onResetAll }: SettingsPaneProps): React.ReactElement | null {
-  if (!open) return null;
+export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, onResetBinding, onResetAll, formatShortcut }: SettingsPaneProps): React.ReactElement {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('settings-application');
+  const platform = window.electronAPI?.shell?.platform ?? fallbackShortcutPlatform();
+
+  const scrollToSection = useCallback((id: SettingsSectionId, behavior: ScrollBehavior = 'smooth') => {
+    const scroller = scrollerRef.current;
+    const target = scroller?.querySelector<HTMLElement>(`#${id}`);
+    if (!scroller || !target) return;
+    const tabOffset = 96;
+    scroller.scrollTo({
+      top: Math.max(0, target.offsetTop - tabOffset),
+      behavior,
+    });
+    setActiveSection(id);
+  }, []);
+
+  const updateActiveFromScroll = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    let next = SETTINGS_TABS[0].id;
+    const threshold = scroller.scrollTop + 112;
+    for (const tab of SETTINGS_TABS) {
+      const section = scroller.querySelector<HTMLElement>(`#${tab.id}`);
+      if (section && section.offsetTop <= threshold) next = tab.id;
+    }
+    setActiveSection(next);
+  }, []);
+
+  useEffect(() => {
+    const sectionId = intent?.sectionId ?? (
+      intent?.focusBrowserCodeProvider ? 'settings-model-providers' : undefined
+    );
+    if (!sectionId) return;
+    requestAnimationFrame(() => scrollToSection(sectionId, 'auto'));
+  }, [intent?.requestId, intent?.sectionId, intent?.focusBrowserCodeProvider, scrollToSection]);
+
+  const providerFocus: SettingsProviderFocusRequest | null = intent?.focusBrowserCodeProvider
+    ? { providerId: intent.focusBrowserCodeProvider, requestId: intent.requestId }
+    : null;
 
   return (
-    <div className="settings-pane__scrim" onClick={onClose}>
-      <div className="settings-pane" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-pane__header">
-          <span className="settings-pane__title">Settings</span>
-          <button className="settings-pane__close" onClick={onClose}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="settings-pane__body">
-          <div className="settings-pane__section">
-            <span className="settings-pane__section-title">Connections</span>
-            <ConnectionsPane embedded />
-          </div>
-          <PrivacySection />
-          <div className="settings-pane__section">
-            <div className="settings-pane__section-header">
-              <span className="settings-pane__section-title">Keybindings</span>
+    <div className="settings-page">
+      <div className="settings-page__scroller" ref={scrollerRef} onScroll={updateActiveFromScroll}>
+        <div className="settings-page__content">
+          <header className="settings-page__header">
+            <div>
+              <span className="settings-page__eyebrow">Browser Use</span>
+              <h1 className="settings-page__title">Settings</h1>
+            </div>
+          </header>
+
+          <nav className="settings-page__tabs" aria-label="Settings sections">
+            {SETTINGS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`settings-page__tab${activeSection === tab.id ? ' settings-page__tab--active' : ''}`}
+                onClick={() => scrollToSection(tab.id)}
+                data-settings-tab={tab.id}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <section id="settings-application" className="settings-page__section">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Application</h2>
+            </div>
+            <AppSection />
+          </section>
+
+          <ConnectionsPane
+            embedded
+            providerSectionId="settings-model-providers"
+            connectionsSectionId="settings-connections"
+            browserSyncSectionId="settings-browser-sync"
+            focusBrowserCodeProvider={providerFocus}
+          />
+
+          <section id="settings-shortcuts" className="settings-page__section">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Shortcuts</h2>
               {Object.keys(overrides).length > 0 && (
                 <button className="settings-pane__reset-all" onClick={onResetAll}>Reset all</button>
               )}
             </div>
-            <p className="settings-pane__hint">Click a binding to record a new key. Press Esc to cancel.</p>
-            {keybindings.map((kb) => (
-              <KeybindRow
-                key={kb.id}
-                kb={kb}
-                isOverridden={kb.id in overrides}
-                onUpdate={onUpdateBinding}
-                onReset={onResetBinding}
-              />
-            ))}
-          </div>
+            <div className="settings-card settings-card--shortcuts">
+              {keybindings.map((kb) => (
+                <KeybindRow
+                  key={kb.id}
+                  kb={kb}
+                  isOverridden={kb.id in overrides}
+                  onUpdate={onUpdateBinding}
+                  onReset={onResetBinding}
+                  platform={platform}
+                  formatShortcut={formatShortcut}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section id="settings-privacy" className="settings-page__section settings-page__section--last">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Privacy</h2>
+            </div>
+            <PrivacySection />
+          </section>
         </div>
       </div>
     </div>

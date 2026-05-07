@@ -1,18 +1,31 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { OnboardingCookieList } from './OnboardingCookieList';
 import introImage from './intro.png';
-import chromeLogo from './chrome-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import codexLogo from './codex-logo.svg';
+import { BrowserLogoAvatar } from '../shared/BrowserLogoAvatar';
+import {
+  acceleratorToDisplayParts,
+  defaultGlobalCmdbarAccelerator,
+  keyboardEventToShortcut,
+  normalizeShortcutPlatform,
+  rendererToAccelerator,
+} from '../../shared/hotkeys';
 
 interface ChromeProfile {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -26,7 +39,7 @@ declare global {
   interface Window {
     onboardingAPI: {
       detectChromeProfiles: () => Promise<ChromeProfile[]>;
-      importChromeProfileCookies: (profileDir: string) => Promise<CookieImportResult>;
+      importChromeProfileCookies: (profileId: string) => Promise<CookieImportResult>;
       listSessionCookies: () => Promise<Array<{
         name: string;
         domain: string;
@@ -74,8 +87,11 @@ declare global {
       openCodexLoginTerminal: (opts?: { deviceAuth?: boolean }) => Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }>;
       openExternal: (url: string) => Promise<{ opened: boolean }>;
       requestNotifications: () => Promise<{ supported: boolean }>;
+      platform: string;
+      getPlatform: () => Promise<string>;
       listenShortcut: () => Promise<{ ok: boolean; accelerator: string }>;
       setShortcut: (accelerator: string) => Promise<{ ok: boolean; accelerator: string }>;
+      triggerShortcut: () => Promise<{ ok: boolean }>;
       onShortcutActivated: (cb: () => void) => () => void;
       onTaskSubmitted: (cb: () => void) => () => void;
       onPillShown: (cb: () => void) => () => void;
@@ -99,32 +115,14 @@ declare global {
 
 type Step = 'intro' | 'profile' | 'apikey' | 'notifications' | 'shortcut';
 
-const DEFAULT_ACCELERATOR = 'CommandOrControl+Shift+Space';
-
-function formatAccelerator(accel: string): string {
-  return accel
-    .replace('CommandOrControl', '\u2318')
-    .replace('Command', '\u2318')
-    .replace('Control', 'Ctrl')
-    .replace('Shift', '\u21E7')
-    .replace('Alt', '\u2325')
-    .replace(/\+/g, ' ');
+function buildAccelerator(e: KeyboardEvent, platform: string): string | null {
+  const shortcut = keyboardEventToShortcut(e, platform);
+  if (!shortcut || (!e.metaKey && !e.ctrlKey && !e.altKey)) return null;
+  return rendererToAccelerator(shortcut, platform);
 }
 
-function buildAccelerator(e: KeyboardEvent): string | null {
-  const mods: string[] = [];
-  if (e.metaKey) mods.push('CommandOrControl');
-  else if (e.ctrlKey) mods.push('CommandOrControl');
-  if (e.shiftKey) mods.push('Shift');
-  if (e.altKey) mods.push('Alt');
-
-  let key = e.key;
-  if (['Meta', 'Control', 'Shift', 'Alt'].includes(key)) return null;
-  if (key === ' ') key = 'Space';
-  else if (key.length === 1) key = key.toUpperCase();
-
-  if (mods.length === 0) return null;
-  return [...mods, key].join('+');
+function acceleratorsMatch(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 function PreferencesStep({
@@ -492,11 +490,23 @@ export function OnboardingApp() {
     window.onboardingAPI.openExternal?.('https://docs.anthropic.com/en/docs/claude-code/overview');
   }, []);
 
-  const [accelerator, setAccelerator] = useState<string>(DEFAULT_ACCELERATOR);
+  const [accelerator, setAccelerator] = useState<string>(() => defaultGlobalCmdbarAccelerator(window.onboardingAPI.platform));
   const [recording, setRecording] = useState(false);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [shortcutActivated, setShortcutActivated] = useState(false);
   const [pillOpen, setPillOpen] = useState(false);
+  const [platform, setPlatform] = useState(() => normalizeShortcutPlatform(window.onboardingAPI.platform));
+  const suppressRecordingClickUntilRef = useRef(0);
 
+  useEffect(() => {
+    let cancelled = false;
+    window.onboardingAPI.getPlatform?.().then((detectedPlatform) => {
+      if (!cancelled) setPlatform(normalizeShortcutPlatform(detectedPlatform));
+    }).catch(() => {
+      if (!cancelled) setPlatform(normalizeShortcutPlatform(window.onboardingAPI.platform));
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     window.onboardingAPI.detectChromeProfiles().then((p) => {
@@ -508,15 +518,15 @@ export function OnboardingApp() {
     });
   }, []);
 
-  const handleImportProfile = useCallback(async (profileDir: string) => {
-    setImporting(profileDir);
+  const handleImportProfile = useCallback(async (profileId: string) => {
+    setImporting(profileId);
     setImportError(null);
     setImportResult(null);
     setImportedProfile(null);
     try {
-      const result = await window.onboardingAPI.importChromeProfileCookies(profileDir);
+      const result = await window.onboardingAPI.importChromeProfileCookies(profileId);
       setImportResult(result);
-      setImportedProfile(profiles.find((p) => p.directory === profileDir) ?? null);
+      setImportedProfile(profiles.find((p) => p.id === profileId || p.directory === profileId) ?? null);
     } catch (err) {
       setImportError((err as Error).message);
     } finally {
@@ -646,13 +656,15 @@ export function OnboardingApp() {
     }
   }, []);
 
-  // Shortcut step: register default, listen for activation + task submission
+  // Shortcut step: register the current shortcut, listen for activation + task submission
   useEffect(() => {
     if (step !== 'shortcut') return;
     window.onboardingAPI.listenShortcut().then((res) => {
       if (res.accelerator) setAccelerator(res.accelerator);
+      setShortcutError(res.ok ? null : 'That shortcut is unavailable. Choose another one.');
     });
     const unsubActivated = window.onboardingAPI.onShortcutActivated(() => {
+      setRecording(false);
       setShortcutActivated(true);
     });
     const unsubShown = window.onboardingAPI.onPillShown(() => {
@@ -674,27 +686,67 @@ export function OnboardingApp() {
   }, [step]);
 
   // Key recording
-  const recordingRef = useRef(recording);
-  recordingRef.current = recording;
+  const shouldIgnoreRecordingClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    return e.detail === 0 || Date.now() < suppressRecordingClickUntilRef.current;
+  }, []);
+
+  const startRecording = useCallback(() => {
+    setShortcutError(null);
+    setRecording(true);
+  }, []);
 
   useEffect(() => {
     if (!recording) return;
+    const timeout = window.setTimeout(() => {
+      setRecording(false);
+      setShortcutError('No shortcut was detected. Choose another combination.');
+    }, 8000);
     const handler = async (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const accel = buildAccelerator(e);
+      if (e.key === 'Unidentified') {
+        window.clearTimeout(timeout);
+        setRecording(false);
+        setShortcutError('That shortcut is unavailable. Choose another one.');
+        return;
+      }
+      const accel = buildAccelerator(e, platform);
       if (!accel) return;
+      window.clearTimeout(timeout);
+      suppressRecordingClickUntilRef.current = Date.now() + 700;
+      (document.activeElement as HTMLElement | null)?.blur?.();
       setRecording(false);
       try {
         const res = await window.onboardingAPI.setShortcut(accel);
         setAccelerator(res.accelerator);
+        setShortcutError(res.ok ? null : 'That shortcut is unavailable. Choose another one.');
+        (document.activeElement as HTMLElement | null)?.blur?.();
       } catch (err) {
         console.error('[onboarding] setShortcut failed', err);
+        setShortcutError('Shortcut setup failed. Choose another one.');
       }
     };
     window.addEventListener('keydown', handler, true);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener('keydown', handler, true);
+    };
+  }, [recording, platform]);
+
+  useEffect(() => {
+    if (step !== 'shortcut' || recording || pillOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      const accel = buildAccelerator(e, platform);
+      if (!accel || !acceleratorsMatch(accel, accelerator)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void window.onboardingAPI.triggerShortcut().catch((err) => {
+        console.error('[onboarding] triggerShortcut failed', err);
+      });
+    };
+    window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [recording]);
+  }, [accelerator, pillOpen, platform, recording, step]);
 
   return (
     <div className="onboarding-container">
@@ -737,20 +789,19 @@ export function OnboardingApp() {
         {step === 'profile' && (
           <div className="step-panel">
             <div className="step-title-row">
-              <img className="step-title-icon" src={chromeLogo} alt="" />
-              <h1 className="step-title">Import Chrome Profile</h1>
+              <h1 className="step-title">Import Browser Profile</h1>
             </div>
             <p className="step-subtitle">
               Import your cookies so agents can browse as you, or start fresh.
             </p>
 
             {loadingProfiles && (
-              <div className="profile-loading">Detecting Chrome profiles...</div>
+              <div className="profile-loading">Detecting browser profiles...</div>
             )}
 
             {!loadingProfiles && profiles.length === 0 && (
               <div className="profile-empty">
-                <p>No Chrome profiles found.</p>
+                <p>No Chromium browser profiles found.</p>
                 <button className="btn btn-primary" onClick={handleSkipProfile}>
                   Continue without import
                 </button>
@@ -759,26 +810,34 @@ export function OnboardingApp() {
 
             {!loadingProfiles && profiles.length > 0 && (
               <div className="profile-list">
-                {(importResult ? [] : profiles).map((p) => (
+                {(importResult ? [] : profiles).map((p) => {
+                  const profileId = p.id ?? p.directory;
+                  const label = p.name || p.browserName || p.directory;
+                  return (
                     <button
-                      key={p.directory}
+                      key={profileId}
                       className="profile-card"
-                      onClick={() => handleImportProfile(p.directory)}
+                      onClick={() => handleImportProfile(profileId)}
                       disabled={importing !== null}
                     >
-                      <div className="profile-avatar">
-                        {p.name.charAt(0).toUpperCase()}
-                      </div>
+                      <BrowserLogoAvatar
+                        browserKey={p.browserKey}
+                        fallbackLabel={p.browserName || label}
+                        className="profile-browser-logo"
+                      />
                       <div className="profile-info">
-                        <div className="profile-name">{p.name}</div>
-                        {p.email && <div className="profile-email">{p.email}</div>}
+                        <div className="profile-name">{label}</div>
+                        <div className="profile-email">
+                          {p.email ? `${p.browserName} · ${p.email}` : p.browserName}
+                        </div>
                         <div className="profile-dir">{p.directory}</div>
                       </div>
-                      {importing === p.directory && (
+                      {importing === profileId && (
                         <div className="profile-spinner" />
                       )}
                     </button>
-                  ))}
+                  );
+                })}
 
                 {!importResult && (
                   <button
@@ -809,14 +868,18 @@ export function OnboardingApp() {
 
                 {importedProfile && (
                   <div className="import-summary-card">
-                    <div className="profile-avatar">
-                      {importedProfile.name.charAt(0).toUpperCase()}
-                    </div>
+                    <BrowserLogoAvatar
+                      browserKey={importedProfile.browserKey}
+                      fallbackLabel={importedProfile.browserName || importedProfile.name || importedProfile.directory}
+                      className="profile-browser-logo profile-browser-logo-summary"
+                    />
                     <div className="profile-info">
                       <div className="profile-name">{importedProfile.name}</div>
-                      {importedProfile.email && (
-                        <div className="profile-email">{importedProfile.email}</div>
-                      )}
+                      <div className="profile-email">
+                        {importedProfile.email
+                          ? `${importedProfile.browserName} · ${importedProfile.email}`
+                          : importedProfile.browserName}
+                      </div>
                       <div className="import-summary-meta">
                         {importResult.imported.toLocaleString()} cookies · {importResult.domains.length} domains
                       </div>
@@ -1142,7 +1205,10 @@ export function OnboardingApp() {
                 <button
                   type="button"
                   className="shortcut-recording shortcut-clickable"
-                  onClick={() => setRecording(false)}
+                  onClick={(e) => {
+                    if (shouldIgnoreRecordingClick(e)) return;
+                    setRecording(false);
+                  }}
                   title="Click to cancel"
                 >
                   <div className="shortcut-recording-dot" />
@@ -1152,10 +1218,13 @@ export function OnboardingApp() {
                 <button
                   type="button"
                   className="shortcut-keys shortcut-clickable"
-                  onClick={() => setRecording(true)}
+                  onClick={(e) => {
+                    if (shouldIgnoreRecordingClick(e)) return;
+                    startRecording();
+                  }}
                   title="Click to change shortcut"
                 >
-                  {formatAccelerator(accelerator).split(' ').map((key, i, arr) => (
+                  {acceleratorToDisplayParts(accelerator, platform).map((key, i, arr) => (
                     <React.Fragment key={i}>
                       <kbd className="kbd">{key}</kbd>
                       {i < arr.length - 1 && <span className="kbd-plus">+</span>}
@@ -1165,14 +1234,21 @@ export function OnboardingApp() {
               )}
             </div>
 
-            <p className="shortcut-hint">
-              Press the shortcut to try it.
+            <p className={`shortcut-hint ${shortcutError ? 'shortcut-hint-error' : ''}`}>
+              {shortcutError ?? 'Press the shortcut to try it.'}
             </p>
 
             <div className="apikey-actions">
               <button
                 className="btn btn-secondary"
-                onClick={() => setRecording((r) => !r)}
+                onClick={(e) => {
+                  if (shouldIgnoreRecordingClick(e)) return;
+                  if (recording) {
+                    setRecording(false);
+                  } else {
+                    startRecording();
+                  }
+                }}
               >
                 {recording ? 'Cancel' : 'Change shortcut'}
               </button>

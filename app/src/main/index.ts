@@ -4,7 +4,7 @@
  * Browser modules (tabs, bookmarks, history, downloads, extensions,
  * permissions, profiles, etc.) have been removed in the nuclear pivot.
  * Only the core infrastructure remains: shell window, pill, HL engine,
- * OAuth/identity, settings window, updater, hotkeys.
+ * OAuth/identity, settings page routing, updater, hotkeys.
  */
 
 import { config as loadDotEnv } from 'dotenv';
@@ -17,6 +17,14 @@ import path from 'node:path';
 loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
+import { mergeChromiumFeature } from './startup/chromiumFeatures';
+
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch(
+    'enable-features',
+    mergeChromiumFeature(app.commandLine.getSwitchValue('enable-features'), 'GlobalShortcutsPortal'),
+  );
+}
 
 app.setName('Browser Use');
 
@@ -33,23 +41,12 @@ crashReporter.start({
   compress: true,
 });
 
-// Enforce a single running instance. Launching a second copy would race on
-// the sessions SQLite db, the .vite dev cache, and the user-data dir — and
-// most commonly just confuses the user. When the second instance tries to
-// start, surface the existing window instead.
+// Enforce a single running instance. The lock loser exits, while the primary
+// process handles `second-instance` by focusing or recreating its main window.
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
-  throw new Error('another instance is already running');
+  app.exit(0);
 }
-app.on('second-instance', () => {
-  const windows = BrowserWindow.getAllWindows();
-  const main = windows.find((w) => !w.isDestroyed() && !w.isMinimized()) ?? windows[0];
-  if (main) {
-    if (main.isMinimized()) main.restore();
-    main.show();
-    main.focus();
-  }
-});
+app.on('second-instance', handleSecondInstanceLaunch);
 
 // Populate the native About dialog (macOS + Linux) instead of showing the
 // default Electron panel with no branding.
@@ -57,7 +54,7 @@ app.setAboutPanelOptions({
   applicationName: 'Browser Use',
   applicationVersion: app.getVersion(),
   copyright: '© 2026 Browser Use',
-  website: 'https://github.com/browser-use/desktop-app',
+  website: 'https://github.com/browser-use/desktop',
 });
 
 import started from 'electron-squirrel-startup';
@@ -75,12 +72,14 @@ import type { AgentEvent } from '../shared/types';
 import { AccountStore } from './identity/AccountStore';
 import { createOnboardingWindow } from './identity/onboardingWindow';
 import { registerOnboardingHandlers } from './identity/onboardingHandlers';
+import { loadBrowserCodeConfig } from './identity/authStore';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
 import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
+import { createLocalTaskServer } from './localTaskServer';
 import {
   resolveUserDataDir,
   resolveCdpPort,
@@ -97,14 +96,21 @@ import { forwardAgentEvent } from './pill';
 // Session management
 import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
-// Settings window (no browser-feature IPC handlers)
-import { openSettingsWindow, closeSettingsWindow, getSettingsWindow } from './settings/SettingsWindow';
 // Channels (WhatsApp)
 import { WhatsAppAdapter } from './channels/WhatsAppAdapter';
 import { ChannelRouter } from './channels/ChannelRouter';
 import { registerChannelHandlers, unregisterChannelHandlers } from './channels/ipc';
 // Auto-updater
-import { initUpdater, stopUpdater } from './updater';
+import {
+  downloadLatestVersion,
+  getUpdateRuntimeInfo,
+  getUpdateStatus,
+  initUpdater,
+  installDownloadedUpdate,
+  onBeforeQuitForUpdate,
+  onUpdateStatusChanged,
+  stopUpdater,
+} from './updater';
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -176,15 +182,84 @@ browserPool.setOnGone((sessionId) => {
   // to 'stopped' so the UI stops showing "Idle" and renders the end state.
   sessionManager.markBrowserEnded(sessionId);
 });
-// Keep each session's primarySite in sync with the actual page — the
-// browser is the source of truth. Covers agent-driven navigation and
+// Keep each session's primarySite + lastUrl in sync with the actual page —
+// the browser is the source of truth. Covers agent-driven navigation and
 // any clicks the user makes inside the attached view.
 browserPool.setOnNavigate((sessionId, url) => {
-  sessionManager.updatePrimarySiteFromUrl(sessionId, url);
+  sessionManager.updateNavigationFromUrl(sessionId, url);
 });
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
 const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
+
+type SettingsOpenPayload = {
+  focusBrowserCodeProvider?: string;
+};
+
+function normalizeSettingsOpenPayload(payload: unknown): SettingsOpenPayload | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const rawProvider = (payload as { focusBrowserCodeProvider?: unknown }).focusBrowserCodeProvider;
+  if (typeof rawProvider !== 'string') return undefined;
+  const providerId = rawProvider.trim();
+  if (!providerId || providerId.length > 80) return undefined;
+  return { focusBrowserCodeProvider: providerId };
+}
+
+function openSettingsInShell(payload?: SettingsOpenPayload): void {
+  if (!shellWindow || shellWindow.isDestroyed()) return;
+  shellWindow.show();
+  shellWindow.focus();
+  shellWindow.webContents.send('open-settings', payload);
+}
+
+function restorableResumeUrl(lastUrl: string | null | undefined): string {
+  if (!lastUrl) return 'about:blank';
+  try {
+    const parsed = new URL(lastUrl);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:') {
+      return lastUrl;
+    }
+  } catch {
+    // Fall through to the blank page fallback.
+  }
+  return 'about:blank';
+}
+
+// ---------------------------------------------------------------------------
+// Single-instance focus
+// ---------------------------------------------------------------------------
+function handleSecondInstanceLaunch(): void {
+  mainLogger.info('main.singleInstance.focusExisting', {
+    currentVersion: app.getVersion(),
+  });
+  showAndFocusPrimaryWindow();
+}
+
+function showAndFocusPrimaryWindow(): void {
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+  const preferred = [shellWindow, onboardingWindow, BrowserWindow.getFocusedWindow(), ...windows]
+    .find((win): win is BrowserWindow => Boolean(win && !win.isDestroyed()));
+
+  if (preferred) {
+    if (preferred.isMinimized()) preferred.restore();
+    preferred.show();
+    preferred.focus();
+    return;
+  }
+
+  setTimeout(() => {
+    if (BrowserWindow.getAllWindows().some((win) => !win.isDestroyed())) return;
+    if (accountStore.isOnboardingComplete()) {
+      openShellAndWire();
+      return;
+    }
+    onboardingWindow = createOnboardingWindow();
+    onboardingWindow.on('closed', () => {
+      mainLogger.info('main.onboardingWindow.closed');
+      onboardingWindow = null;
+    });
+  }, 100);
+}
 
 // ---------------------------------------------------------------------------
 // Shell window factory
@@ -218,8 +293,6 @@ function openShellAndWire(): BrowserWindow {
   }
 
   registerApiKeyHandlers();
-  registerConsentHandlers();
-  registerTelemetryHandlers();
   captureEvent('app_launched');
 
   ipcMain.handle('hotkeys:get-global', () => getGlobalCmdbarAccelerator());
@@ -332,6 +405,8 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   // Channel IPC handlers (registered early so onboarding can use them too)
   // ---------------------------------------------------------------------------
+  registerConsentHandlers();
+  registerTelemetryHandlers();
   registerChannelHandlers(channelRouter, whatsAppAdapter);
   whatsAppAdapter.onStatusChange((status, detail) => {
     const target = shellWindow ?? onboardingWindow;
@@ -345,6 +420,39 @@ app.whenReady().then(async () => {
       target.webContents.send('whatsapp-qr', dataUrl);
     }
   });
+
+  async function stampConfiguredSessionModel(id: string, engineId: string, source: string): Promise<void> {
+    if (engineId !== 'browsercode') return;
+    try {
+      const cfg = await loadBrowserCodeConfig();
+      const model = cfg?.model?.trim();
+      if (!model) {
+        mainLogger.warn('main.sessionModel.missing', {
+          id,
+          engineId,
+          source,
+          providerId: cfg?.providerId ?? null,
+          hasBrowserCodeConfig: Boolean(cfg),
+        });
+        return;
+      }
+      sessionManager.setSessionModel(id, model);
+      mainLogger.info('main.sessionModel.stamped', {
+        id,
+        engineId,
+        source,
+        providerId: cfg?.providerId ?? null,
+        model,
+      });
+    } catch (err) {
+      mainLogger.warn('main.sessionModel.stampFailed', {
+        id,
+        engineId,
+        source,
+        error: (err as Error).message,
+      });
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Pill IPC handlers
@@ -474,20 +582,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('logs:show', (_evt, sessionId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     mainLogger.info('main.logs:show', { sessionId, anchor });
     showLogs(sessionId, anchor ?? null);
-    // Only take OS-level focus when the SHELL window itself is already
-    // focused (user actively interacting with the hub). The previous gate
-    // checked BrowserWindow.getFocusedWindow() !== null which was true
-    // even when the user had the global-shortcut PILL focused — pill is
-    // also one of our windows. Focusing logs in that path then activated
-    // the entire app on macOS, yanking the user back to Browser Use.
-    // AgentPane auto-fires logs.show() when it mounts for a new session,
-    // so this happened on every pill-submitted task.
-    const logsWin = getLogsWindow();
-    if (
-      logsWin && !logsWin.isDestroyed() &&
-      shellWindow && !shellWindow.isDestroyed() &&
-      shellWindow.isFocused()
-    ) logsWin.focus();
     return true;
   });
   ipcMain.handle('logs:close', () => {
@@ -623,6 +717,16 @@ app.whenReady().then(async () => {
     if (!adapter) throw new Error(`unknown engine: ${engineId}`);
 
     const [installed, authed] = await Promise.all([adapter.probeInstalled(), adapter.probeAuthed()]);
+    mainLogger.info('main.session.engine.preflight', {
+      id,
+      engineId,
+      displayName: adapter.displayName,
+      installed: installed.installed,
+      installedVersion: installed.version ?? null,
+      installedError: installed.error ?? null,
+      authed: authed.authed,
+      authError: authed.error ?? null,
+    });
     if (!installed.installed) {
       throw new Error(`${adapter.displayName} is not installed. Install ${adapter.displayName} and try again.`);
     }
@@ -647,6 +751,7 @@ app.whenReady().then(async () => {
     try {
       const engineId = await assertSessionEngineReady(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'enginePreflight', ms: Date.now() - t0, engineId });
+      await stampConfiguredSessionModel(id, engineId, 'start');
 
       const abortController = sessionManager.startSession(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'startSession', ms: Date.now() - t0 });
@@ -687,7 +792,8 @@ app.whenReady().then(async () => {
         webContents: view.webContents,
         cdpPort: resolvedCdp.port,
         signal: abortController.signal,
-        onSessionId: (sid) => sessionManager.setClaudeSessionId(id, sid),
+        onSessionId: (sid) => sessionManager.setEngineSessionId(id, sid),
+        onModelResolved: ({ model }) => sessionManager.setSessionModel(id, model),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
         onEvent: (event) => {
           if (event.type === 'done') {
@@ -724,6 +830,42 @@ app.whenReady().then(async () => {
   }
 
   channelRouter.setStartSession(startSessionWithAgent);
+
+  const localTaskServer = await createLocalTaskServer({
+    userDataPath: app.getPath('userData'),
+    log: mainLogger,
+    submitTask: async (payload) => {
+      const validatedPrompt = assertString(payload.prompt, 'prompt', 10000);
+      const engineId = payload.engine == null ? DEFAULT_ENGINE_ID : assertString(payload.engine, 'engine', 50);
+      mainLogger.info('main.localTask.submit', {
+        promptLength: validatedPrompt.length,
+        engineId,
+      });
+
+      const id = sessionManager.createSession(validatedPrompt);
+      sessionManager.setSessionEngine(id, engineId);
+      captureEvent('session_created', {
+        source: 'local-task-server',
+        engine: engineId,
+        prompt_length: validatedPrompt.length,
+        attachments_count: 0,
+      });
+
+      try {
+        await startSessionWithAgent(id);
+        return { id, started: true, engine: engineId };
+      } catch (err) {
+        const error = (err as Error).message || 'Session start failed';
+        mainLogger.warn('main.localTask.startFailed', { id, error });
+        return { id, started: false, engine: engineId, error };
+      }
+    },
+  });
+  app.once('before-quit', () => {
+    void localTaskServer.close().catch((err) => {
+      mainLogger.warn('main.localTaskServer.closeFailed', { error: (err as Error).message });
+    });
+  });
 
   ipcMain.handle('sessions:create', (_event, payload: unknown) => {
     let promptRaw: unknown;
@@ -780,6 +922,12 @@ app.whenReady().then(async () => {
       attachmentMeta: resumeAttachments.map((a) => ({ name: a.name, mime: a.mime, size: a.bytes.byteLength })),
     });
 
+    const currentSession = sessionManager.getSession(validatedId);
+    if (!currentSession) return { error: 'Session not found' };
+    if (currentSession.status !== 'idle' && currentSession.status !== 'stopped') {
+      return { error: `Session ${validatedId} is ${currentSession.status}, expected idle or stopped` };
+    }
+
     if (resumeAttachments.length > 0) {
       const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
       for (const a of resumeAttachments) {
@@ -788,25 +936,52 @@ app.whenReady().then(async () => {
       mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length });
     }
 
-    const webContents = browserPool.getWebContents(validatedId);
+    let webContents = browserPool.getWebContents(validatedId);
     if (!webContents) {
-      mainLogger.warn('main.sessions:resume.noBrowser', { id: validatedId });
-      return { error: 'Browser session expired — start a new session' };
+      const restoreUrl = restorableResumeUrl(currentSession.lastUrl);
+      mainLogger.info('main.sessions:resume.recreateBrowser', {
+        id: validatedId,
+        hasLastUrl: Boolean(currentSession.lastUrl),
+        restoreUrl,
+      });
+      const view = browserPool.create(validatedId, Date.now());
+      if (!view) {
+        mainLogger.warn('main.sessions:resume.poolFull', { id: validatedId, stats: browserPool.getStats() });
+        return { error: 'Browser pool full' };
+      }
+      if (shellWindow && !shellWindow.isDestroyed()) {
+        browserPool.detachAll(shellWindow);
+        mainLogger.info('main.sessions:resume.detachedAwaitingRenderer', { id: validatedId });
+      }
+      try {
+        await view.webContents.loadURL(restoreUrl);
+      } catch (err) {
+        mainLogger.warn('main.sessions:resume.restoreUrl.failed', {
+          id: validatedId,
+          restoreUrl,
+          error: (err as Error).message,
+        });
+        try { await view.webContents.loadURL('about:blank'); }
+        catch { /* keep going; runEngine will surface target failures */ }
+      }
+      webContents = view.webContents;
     }
 
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, 'resume');
     const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
     if (resumeAttachments.length > 0) {
       mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length });
     }
     captureEvent('session_resumed', {
-      engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
+      engine: engineId,
       prompt_length: validatedPrompt.length,
       attachments_count: resumeAttachments.length,
     });
 
     steerQueues.set(validatedId, []);
     runEngine({
-      engineId: sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID,
+      engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: validatedPrompt,
@@ -814,8 +989,9 @@ app.whenReady().then(async () => {
       webContents,
       cdpPort: resolvedCdp.port,
       signal: abortController.signal,
-      resumeSessionId: sessionManager.getClaudeSessionId(validatedId),
-      onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      resumeSessionId: sessionManager.getEngineSessionId(validatedId),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
+      onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
         if (event.type === 'done') {
@@ -850,9 +1026,11 @@ app.whenReady().then(async () => {
 
     browserPool.destroy(validatedId, shellWindow ?? undefined);
 
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, 'rerun');
     const abortController = sessionManager.rerunSession(validatedId);
     captureEvent('session_rerun', {
-      engine: sessionManager.getSessionEngine(validatedId) ?? 'unknown',
+      engine: engineId,
     });
 
     const view = browserPool.create(validatedId, t0);
@@ -879,7 +1057,7 @@ app.whenReady().then(async () => {
     }
     steerQueues.set(validatedId, []);
     runEngine({
-      engineId: sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID,
+      engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: session.prompt,
@@ -889,7 +1067,8 @@ app.whenReady().then(async () => {
       signal: abortController.signal,
       // Rerun intentionally starts a fresh conversation; SessionManager.rerunSession
       // already cleared any stored resume id.
-      onSessionId: (sid) => sessionManager.setClaudeSessionId(validatedId, sid),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
+      onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
       onEvent: (event) => {
         if (event.type === 'done') {
@@ -993,19 +1172,53 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('sessions:engine-status', async (_event, engineId: string) => {
     const validated = assertString(engineId, 'engineId', 50);
+    mainLogger.info('sessions.engine-status.request', { engineId: validated });
     const { getAdapter } = await import('./hl/engines');
     const adapter = getAdapter(validated);
     if (!adapter) throw new Error(`unknown engine: ${validated}`);
     const [installed, authed] = await Promise.all([adapter.probeInstalled(), adapter.probeAuthed()]);
+    mainLogger.info('sessions.engine-status.result', {
+      engineId: adapter.id,
+      installed: installed.installed,
+      installedError: installed.error,
+      authed: authed.authed,
+      authError: authed.error,
+    });
     return { id: adapter.id, displayName: adapter.displayName, installed, authed };
   });
 
   ipcMain.handle('sessions:engine-login', async (_event, engineId: string, opts?: { deviceAuth?: boolean }) => {
     const validated = assertString(engineId, 'engineId', 50);
+    mainLogger.info('sessions.engine-login.request', { engineId: validated, deviceAuth: !!opts?.deviceAuth });
     const { getAdapter } = await import('./hl/engines');
     const adapter = getAdapter(validated);
     if (!adapter) throw new Error(`unknown engine: ${validated}`);
-    return adapter.openLoginInTerminal(opts);
+    const result = await adapter.openLoginInTerminal(opts);
+    mainLogger.info('sessions.engine-login.result', {
+      engineId: adapter.id,
+      opened: result.opened,
+      hasError: !!result.error,
+      hasVerificationUrl: !!result.verificationUrl,
+      hasDeviceCode: !!result.deviceCode,
+    });
+    return result;
+  });
+
+  ipcMain.handle('sessions:engine-install', async (_event, engineId: string) => {
+    const validated = assertString(engineId, 'engineId', 50);
+    mainLogger.info('sessions.engine-install.request', { engineId: validated });
+    const { getAdapter } = await import('./hl/engines');
+    const adapter = getAdapter(validated);
+    if (!adapter) throw new Error(`unknown engine: ${validated}`);
+    const { openEngineInstallTerminal } = await import('./hl/engines/installer');
+    const result = openEngineInstallTerminal(adapter.id);
+    mainLogger.info('sessions.engine-install.result', {
+      engineId: adapter.id,
+      opened: result.opened,
+      hasError: !!result.error,
+      command: result.command,
+    });
+    return result;
   });
 
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {
@@ -1142,7 +1355,7 @@ app.whenReady().then(async () => {
     if (!shellWindow) return;
     const view = browserPool.getView(id);
     if (!view) return;
-    view.setBounds(bounds);
+    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
     // (Intentionally no setZoomFactor here — previously we recomputed zoom
     // on every resize to fit the emulated viewport, but that clobbered any
     // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser
@@ -1152,8 +1365,10 @@ app.whenReady().then(async () => {
       shellWindow.contentView.addChildView(view);
     }
     // Keep takeover overlay tracking the browser rect and sitting above it.
+    // Use the fitted (centered) rect so the overlay aligns with the visible
+    // view, not the wider hub box.
     if (takeoverOverlay.hasOverlay(id)) {
-      takeoverOverlay.updateBounds(id, bounds);
+      takeoverOverlay.updateBounds(id, fitted);
       takeoverOverlay.reraise(id, shellWindow);
     }
   });
@@ -1235,12 +1450,46 @@ app.whenReady().then(async () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Settings window IPC
+  // Settings page IPC
   // ---------------------------------------------------------------------------
-  ipcMain.handle('settings:open', () => {
-    mainLogger.info('main.settings:open');
-    openSettingsWindow();
+  ipcMain.handle('settings:open', (_e, rawPayload?: unknown) => {
+    const payload = normalizeSettingsOpenPayload(rawPayload);
+    mainLogger.info('main.settings:open', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
+    openSettingsInShell(payload);
   });
+
+  ipcMain.handle('settings:app:get-info', () => {
+    mainLogger.debug('main.settings:app:get-info');
+    return getUpdateRuntimeInfo();
+  });
+
+  ipcMain.handle('settings:app:download-latest', async () => {
+    mainLogger.info('main.settings:app:download-latest');
+    return downloadLatestVersion();
+  });
+
+  ipcMain.handle('settings:app:get-update-status', () => {
+    mainLogger.debug('main.settings:app:get-update-status');
+    return getUpdateStatus();
+  });
+
+  ipcMain.handle('settings:app:install-update', () => {
+    mainLogger.info('main.settings:app:install-update');
+    return installDownloadedUpdate();
+  });
+
+  const unsubscribeUpdateStatus = onUpdateStatusChanged((event) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('settings:app:update-status', event);
+    }
+  });
+  app.once('will-quit', unsubscribeUpdateStatus);
+
+  const unsubscribeBeforeQuitForUpdate = onBeforeQuitForUpdate(() => {
+    isQuitting = true;
+    mainLogger.info('main.beforeQuitForUpdate', { msg: 'Allowing updater to close windows for install' });
+  });
+  app.once('will-quit', unsubscribeBeforeQuitForUpdate);
 
   ipcMain.handle('pill:open-hub', () => {
     mainLogger.info('main.pill:open-hub');
@@ -1251,19 +1500,11 @@ app.whenReady().then(async () => {
     hidePill();
   });
 
-  ipcMain.handle('pill:open-settings', () => {
-    mainLogger.info('main.pill:open-settings');
-    if (shellWindow && !shellWindow.isDestroyed()) {
-      shellWindow.show();
-      shellWindow.focus();
-      shellWindow.webContents.send('open-settings');
-    }
+  ipcMain.handle('pill:open-settings', (_e, rawPayload?: unknown) => {
+    const payload = normalizeSettingsOpenPayload(rawPayload);
+    mainLogger.info('main.pill:open-settings', { focusBrowserCodeProvider: payload?.focusBrowserCodeProvider });
+    openSettingsInShell(payload);
     hidePill();
-  });
-
-  ipcMain.handle('settings:close', () => {
-    mainLogger.info('main.settings:close');
-    closeSettingsWindow();
   });
 
   // ---------------------------------------------------------------------------
@@ -1388,10 +1629,7 @@ function buildApplicationMenu(): void {
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             mainLogger.debug('menu.openSettings');
-            if (shellWindow && !shellWindow.isDestroyed()) {
-              shellWindow.webContents.send('open-settings');
-              shellWindow.focus();
-            }
+            openSettingsInShell();
           },
         },
         { type: 'separator' },
@@ -1448,7 +1686,7 @@ function buildApplicationMenu(): void {
           label: 'Report an Issue…',
           click: () => {
             mainLogger.debug('menu.reportIssue');
-            shell.openExternal('https://github.com/browser-use/desktop-app/issues');
+            shell.openExternal('https://github.com/browser-use/desktop/issues');
           },
         },
       ],

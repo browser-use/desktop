@@ -14,7 +14,10 @@ interface SessionRow {
   origin_channel: string | null;
   origin_conversation_id: string | null;
   primary_site: string | null;
+  last_url: string | null;
   engine: string | null;
+  engine_session_id: string | null;
+  model: string | null;
   auth_mode: string | null;
   subscription_type: string | null;
   cost_usd: number | null;
@@ -33,7 +36,10 @@ export class SessionDb {
     updatePrompt: Database.Statement;
     updateCreatedAt: Database.Statement;
     updatePrimarySite: Database.Statement;
+    updateNavigation: Database.Statement;
     updateEngine: Database.Statement;
+    updateEngineSessionId: Database.Statement;
+    updateModel: Database.Statement;
     updateAuth: Database.Statement;
     updateUsage: Database.Statement;
     getSession: Database.Statement;
@@ -98,8 +104,17 @@ export class SessionDb {
       updatePrimarySite: this.db.prepare(
         'UPDATE sessions SET primary_site = ?, updated_at = ? WHERE id = ?'
       ),
+      updateNavigation: this.db.prepare(
+        'UPDATE sessions SET primary_site = ?, last_url = ?, updated_at = ? WHERE id = ?'
+      ),
       updateEngine: this.db.prepare(
         'UPDATE sessions SET engine = ?, updated_at = ? WHERE id = ?'
+      ),
+      updateEngineSessionId: this.db.prepare(
+        'UPDATE sessions SET engine_session_id = ?, updated_at = ? WHERE id = ?'
+      ),
+      updateModel: this.db.prepare(
+        'UPDATE sessions SET model = ?, updated_at = ? WHERE id = ?'
       ),
       updateAuth: this.db.prepare(
         'UPDATE sessions SET auth_mode = ?, subscription_type = ?, updated_at = ? WHERE id = ?'
@@ -333,6 +348,33 @@ export class SessionDb {
       mainLogger.info('SessionDb.migration.complete', { version: 10 });
     }
 
+    if (this.getVersion() < 11) {
+      mainLogger.info('SessionDb.migration.running', { from: this.getVersion(), to: 11 });
+      this.db.transaction(() => {
+        const cols = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+        if (!cols.some((c) => c.name === 'model')) {
+          this.db.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
+        }
+        this.setVersion(11);
+      })();
+      mainLogger.info('SessionDb.migration.complete', { version: 11 });
+    }
+
+    if (this.getVersion() < 12) {
+      mainLogger.info('SessionDb.migration.running', { from: this.getVersion(), to: 12 });
+      this.db.transaction(() => {
+        const cols = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+        if (!cols.some((c) => c.name === 'last_url')) {
+          this.db.exec('ALTER TABLE sessions ADD COLUMN last_url TEXT');
+        }
+        if (!cols.some((c) => c.name === 'engine_session_id')) {
+          this.db.exec('ALTER TABLE sessions ADD COLUMN engine_session_id TEXT');
+        }
+        this.setVersion(12);
+      })();
+      mainLogger.info('SessionDb.migration.complete', { version: 12 });
+    }
+
     const final = this.getVersion();
     if (final !== DB_SCHEMA_VERSION) {
       const msg = `SessionDb migration did not reach expected version. Got ${final}, expected ${DB_SCHEMA_VERSION}.`;
@@ -403,6 +445,20 @@ export class SessionDb {
     }
   }
 
+  updateNavigation(id: string, site: string | null, lastUrl: string | null): void {
+    if (this.closed) return;
+    const now = Date.now();
+    try {
+      const result = this.stmts.updateNavigation.run(site, lastUrl, now, id);
+      if (result.changes === 0) {
+        mainLogger.warn('SessionDb.updateNavigation.notFound', { id, site, hasLastUrl: Boolean(lastUrl) });
+      }
+    } catch (err) {
+      mainLogger.error('SessionDb.updateNavigation.failed', { id, site, error: (err as Error).message });
+      throw err;
+    }
+  }
+
   updateEngine(id: string, engine: string | null): void {
     if (this.closed) return;
     const now = Date.now();
@@ -413,6 +469,34 @@ export class SessionDb {
       }
     } catch (err) {
       mainLogger.error('SessionDb.updateEngine.failed', { id, engine, error: (err as Error).message });
+      throw err;
+    }
+  }
+
+  updateEngineSessionId(id: string, engineSessionId: string | null): void {
+    if (this.closed) return;
+    const now = Date.now();
+    try {
+      const result = this.stmts.updateEngineSessionId.run(engineSessionId, now, id);
+      if (result.changes === 0) {
+        mainLogger.warn('SessionDb.updateEngineSessionId.notFound', { id });
+      }
+    } catch (err) {
+      mainLogger.error('SessionDb.updateEngineSessionId.failed', { id, error: (err as Error).message });
+      throw err;
+    }
+  }
+
+  updateModel(id: string, model: string | null): void {
+    if (this.closed) return;
+    const now = Date.now();
+    try {
+      const result = this.stmts.updateModel.run(model, now, id);
+      if (result.changes === 0) {
+        mainLogger.warn('SessionDb.updateModel.notFound', { id, model });
+      }
+    } catch (err) {
+      mainLogger.error('SessionDb.updateModel.failed', { id, model, error: (err as Error).message });
       throw err;
     }
   }

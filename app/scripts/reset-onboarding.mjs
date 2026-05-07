@@ -3,7 +3,8 @@
  * reset-onboarding.mjs
  *
  * Wipes onboarding state from userData so `npm start` re-triggers onboarding.
- * Deletes: account.json, sessions.db (+ WAL/SHM), whatsapp-auth/.
+ * Deletes: account.json, sessions.db (+ WAL/SHM), imported Electron cookies,
+ * and whatsapp-auth/.
  *
  * IMPORTANT: Quit the app first. If the app is running, SQLite holds the
  * sessions.db inode open and unlinking does nothing to the live data.
@@ -61,6 +62,8 @@ const targets = [
   ["sessions.db", join(userData, "sessions.db")],
   ["sessions.db-wal", join(userData, "sessions.db-wal")],
   ["sessions.db-shm", join(userData, "sessions.db-shm")],
+  ["Cookies", join(userData, "Cookies")],
+  ["Cookies-journal", join(userData, "Cookies-journal")],
   ["whatsapp-auth", join(userData, "whatsapp-auth")],
 ];
 

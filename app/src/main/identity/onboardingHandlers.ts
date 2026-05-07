@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, globalShortcut, Notification, shell } from 'electron';
+import { ipcMain, BrowserWindow, Notification, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import { mainLogger } from '../logger';
 import { AccountStore } from './AccountStore';
@@ -6,11 +6,10 @@ import { assertString } from '../ipc-validators';
 import { createPillWindow, togglePill, onPillVisibilityChange } from '../pill';
 import { saveApiKey as authSaveApiKey, setAuthMode as authSetMode, saveOpenAIKey as authSaveOpenAIKey } from './authStore';
 import { getAdapter } from '../hl/engines';
-import { enrichedEnv } from '../hl/engines/pathEnrich';
+import { runCliCapture, spawnCli } from '../hl/engines/cliSpawn';
+import { normalizeAccelerator } from '../../shared/hotkeys';
+import { getGlobalCmdbarAccelerator, registerHotkeys, setGlobalCmdbarAccelerator } from '../hotkeys';
 
-const GLOBAL_SHORTCUT = 'CommandOrControl+Shift+Space';
-
-const ANTHROPIC_SERVICE = 'com.browser-use.desktop.anthropic';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const API_TEST_MODEL = 'claude-haiku-4-5-20251001';
@@ -58,7 +57,7 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       mainLogger.error('onboardingHandlers.saveApiKey.failed', {
         error: (err as Error).message,
       });
-      throw new Error('Failed to save API key to the OS credential store');
+      throw new Error('Failed to save API key to the OS credential store', { cause: err });
     }
   });
 
@@ -100,7 +99,7 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
    * directly without needing Terminal in the common case.
    */
   ipcMain.handle('onboarding:run-claude-login', async () => {
-    const child = spawn('claude', ['auth', 'login', '--claudeai'], { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+    const child = spawnCli('claude', ['auth', 'login', '--claudeai']);
     let stderrBuf = '';
     let stdoutBuf = '';
     child.stdout?.on('data', (d) => { stdoutBuf += String(d); if (stdoutBuf.length > 4096) stdoutBuf = stdoutBuf.slice(-4096); });
@@ -283,7 +282,7 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       await authSaveOpenAIKey(validated);
     } catch (err) {
       mainLogger.error('onboardingHandlers.saveOpenAIKey.failed', { error: (err as Error).message });
-      throw new Error('Failed to save OpenAI key to the OS credential store');
+      throw new Error('Failed to save OpenAI key to the OS credential store', { cause: err });
     }
   });
 
@@ -319,9 +318,15 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
   });
 
   let pillCreated = false;
-  let currentAccelerator = GLOBAL_SHORTCUT;
 
-  const registerOnboardingShortcut = (accelerator: string): boolean => {
+  const fireOnboardingShortcut = (accelerator: string): void => {
+    mainLogger.info('onboardingHandlers.shortcutFired', { accelerator });
+    togglePill();
+    const w = liveOnboardingWindow();
+    if (w) w.webContents.send('shortcut-activated');
+  };
+
+  const ensureOnboardingShortcut = (): boolean => {
     if (!pillCreated) {
       createPillWindow();
       onPillVisibilityChange((visible) => {
@@ -333,28 +338,30 @@ export function registerOnboardingHandlers(deps: OnboardingHandlerDeps): void {
       mainLogger.info('onboardingHandlers.pillCreated');
     }
 
-    globalShortcut.unregister(currentAccelerator);
-    const ok = globalShortcut.register(accelerator, () => {
-      mainLogger.info('onboardingHandlers.shortcutFired', { accelerator });
-      togglePill();
-      const w = liveOnboardingWindow();
-      if (w) w.webContents.send('shortcut-activated');
-    });
-    if (ok) currentAccelerator = accelerator;
-    return ok;
+    return registerHotkeys(() => fireOnboardingShortcut(getGlobalCmdbarAccelerator()));
   };
 
   ipcMain.handle('onboarding:listen-shortcut', () => {
-    mainLogger.info('onboardingHandlers.listenShortcut');
-    const ok = registerOnboardingShortcut(GLOBAL_SHORTCUT);
-    return { ok, accelerator: GLOBAL_SHORTCUT };
+    mainLogger.info('onboardingHandlers.listenShortcut', { accelerator: getGlobalCmdbarAccelerator() });
+    const ok = ensureOnboardingShortcut();
+    return { ok, accelerator: getGlobalCmdbarAccelerator() };
   });
 
   ipcMain.handle('onboarding:set-shortcut', (_event, accelerator: string) => {
     const validated = assertString(accelerator, 'accelerator', 100);
-    mainLogger.info('onboardingHandlers.setShortcut', { accelerator: validated });
-    const ok = registerOnboardingShortcut(validated);
-    return { ok, accelerator: ok ? validated : currentAccelerator };
+    const normalized = normalizeAccelerator(validated, process.platform);
+    mainLogger.info('onboardingHandlers.setShortcut', { accelerator: normalized });
+    ensureOnboardingShortcut();
+    const result = setGlobalCmdbarAccelerator(normalized);
+    mainLogger.info('onboardingHandlers.setShortcut.persisted', { ...result });
+    return result;
+  });
+
+  ipcMain.handle('onboarding:trigger-shortcut', () => {
+    const accelerator = getGlobalCmdbarAccelerator();
+    mainLogger.info('onboardingHandlers.triggerShortcut', { accelerator });
+    fireOnboardingShortcut(accelerator);
+    return { ok: true };
   });
 
   ipcMain.handle('onboarding:request-notifications', () => {
@@ -431,6 +438,7 @@ export function unregisterOnboardingHandlers(): void {
   ipcMain.removeHandler('onboarding:open-external');
   ipcMain.removeHandler('onboarding:listen-shortcut');
   ipcMain.removeHandler('onboarding:set-shortcut');
+  ipcMain.removeHandler('onboarding:trigger-shortcut');
   ipcMain.removeHandler('onboarding:request-notifications');
   ipcMain.removeHandler('onboarding:complete');
   mainLogger.info('onboardingHandlers.unregistered');
@@ -469,25 +477,5 @@ function extractVersion(stdout: string): string | undefined {
 }
 
 function runCli(bin: string, args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string; error?: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
-    } catch (err) {
-      resolve({ ok: false, stdout: '', stderr: '', error: (err as Error).message });
-      return;
-    }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ ok: false, stdout, stderr, error: err.message });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, stdout, stderr });
-    });
-  });
+  return runCliCapture(bin, args, timeoutMs);
 }

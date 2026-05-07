@@ -91,10 +91,13 @@ Vim-style by default, all remappable in settings (`s`).
 ## Dev commands
 
 All commands run from the repo root via [Task](https://taskfile.dev).
+For local runtime paths, logs, database inspection, and credential storage
+details, see [`docs/AGENT_LOCAL_RUNBOOK.md`](docs/AGENT_LOCAL_RUNBOOK.md).
 
 | Command | What |
 |---|---|
 | `task up` | Install deps and start the app |
+| `task agent:run PROMPT="..." ENGINE=codex` | Submit a task to a running local app |
 | `task lint` | ESLint |
 | `task typecheck` | tsc --noEmit |
 | `task make` | Build platform installers |
