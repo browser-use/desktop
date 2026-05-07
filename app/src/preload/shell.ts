@@ -270,6 +270,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const raw = await ipcRenderer.invoke('sessions:get-tabs', id);
       return validateTabs(raw);
     },
+    getNavigationState: (id: string): Promise<{
+      url: string;
+      title: string;
+      canGoBack: boolean;
+      canGoForward: boolean;
+      isLoading: boolean;
+    } | null> => ipcRenderer.invoke('sessions:get-navigation-state', id),
+    navigate: (id: string, input: string): Promise<{ ok: boolean; url?: string; error?: string }> =>
+      ipcRenderer.invoke('sessions:navigate', id, input),
+    back: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:back', id),
+    forward: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:forward', id),
+    reload: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:reload', id),
     poolStats: async (): Promise<BrowserPoolStats> => {
       const raw = await ipcRenderer.invoke('sessions:pool-stats');
       return validatePoolStats(raw);
@@ -355,6 +370,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
       ipcRenderer.on('sessions:browser-gone', handler);
       return () => ipcRenderer.removeListener('sessions:browser-gone', handler);
+    },
+    sessionNavigationState: (cb: (id: string, state: {
+      url: string;
+      title: string;
+      canGoBack: boolean;
+      canGoForward: boolean;
+      isLoading: boolean;
+    }) => void): (() => void) => {
+      const handler = (_event: unknown, id: string, state: unknown) => {
+        if (typeof id !== 'string' || !state || typeof state !== 'object') return;
+        const raw = state as {
+          url?: unknown;
+          title?: unknown;
+          canGoBack?: unknown;
+          canGoForward?: unknown;
+          isLoading?: unknown;
+        };
+        if (
+          typeof raw.url === 'string' &&
+          typeof raw.title === 'string' &&
+          typeof raw.canGoBack === 'boolean' &&
+          typeof raw.canGoForward === 'boolean' &&
+          typeof raw.isLoading === 'boolean'
+        ) {
+          cb(id, {
+            url: raw.url,
+            title: raw.title,
+            canGoBack: raw.canGoBack,
+            canGoForward: raw.canGoForward,
+            isLoading: raw.isLoading,
+          });
+        }
+      };
+      ipcRenderer.on('sessions:navigation-state', handler);
+      return () => ipcRenderer.removeListener('sessions:navigation-state', handler);
     },
     sessionOutput: (cb: (id: string, event: HlEvent) => void): (() => void) => {
       const handler = (_event: unknown, id: string, raw: unknown) => {

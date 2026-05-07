@@ -188,6 +188,11 @@ browserPool.setOnGone((sessionId) => {
 browserPool.setOnNavigate((sessionId, url) => {
   sessionManager.updateNavigationFromUrl(sessionId, url);
 });
+browserPool.setOnNavigationState((sessionId, state) => {
+  if (shellWindow && !shellWindow.isDestroyed()) {
+    shellWindow.webContents.send('sessions:navigation-state', sessionId, state);
+  }
+});
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
 const channelRouter = new ChannelRouter(sessionManager, whatsAppAdapter);
@@ -1393,6 +1398,32 @@ app.whenReady().then(async () => {
   ipcMain.handle('sessions:get-tabs', async (_event, id: string) => {
     const validatedId = assertString(id, 'id', 100);
     return browserPool.getTabs(validatedId);
+  });
+
+  ipcMain.handle('sessions:get-navigation-state', (_event, id: string) => {
+    const validatedId = assertString(id, 'id', 100);
+    return browserPool.getNavigationState(validatedId);
+  });
+
+  ipcMain.handle('sessions:navigate', async (_event, id: string, input: string) => {
+    const validatedId = assertString(id, 'id', 100);
+    const validatedInput = assertString(input, 'input', 4096);
+    return browserPool.navigate(validatedId, validatedInput);
+  });
+
+  ipcMain.handle('sessions:back', (_event, id: string) => {
+    const validatedId = assertString(id, 'id', 100);
+    return browserPool.goBack(validatedId);
+  });
+
+  ipcMain.handle('sessions:forward', (_event, id: string) => {
+    const validatedId = assertString(id, 'id', 100);
+    return browserPool.goForward(validatedId);
+  });
+
+  ipcMain.handle('sessions:reload', (_event, id: string) => {
+    const validatedId = assertString(id, 'id', 100);
+    return browserPool.reload(validatedId);
   });
 
   ipcMain.handle('sessions:pool-stats', () => {

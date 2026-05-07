@@ -1,6 +1,7 @@
 import { WebContentsView, type BrowserWindow, type WebContents } from 'electron';
 import { browserLogger } from '../logger';
 import type { TabInfo } from './types';
+import { normalizeBrowserNavigationInput } from '../../shared/browser-navigation';
 
 const DEFAULT_BROWSER_WIDTH = 1280;
 const DEFAULT_BROWSER_HEIGHT = 800;
@@ -28,12 +29,25 @@ interface PoolEntry {
   emulatedWidth: number;
 }
 
+export interface BrowserNavigationState {
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  isLoading: boolean;
+}
+
+export type BrowserNavigationResult =
+  | { ok: true; url?: string }
+  | { ok: false; error: string };
+
 export class BrowserPool {
   private entries: Map<string, PoolEntry> = new Map();
   private maxConcurrent: number;
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
+  private onNavigationState?: (sessionId: string, state: BrowserNavigationState) => void;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT) {
     this.maxConcurrent = maxConcurrent;
@@ -54,6 +68,10 @@ export class BrowserPool {
     this.onNavigate = listener;
   }
 
+  setOnNavigationState(listener: (sessionId: string, state: BrowserNavigationState) => void): void {
+    this.onNavigationState = listener;
+  }
+
   private notifyGone(sessionId: string): void {
     try { this.onGone?.(sessionId); } catch (err) {
       browserLogger.warn('BrowserPool.notifyGone.listenerError', { sessionId, error: (err as Error).message });
@@ -63,6 +81,15 @@ export class BrowserPool {
   private notifyNavigate(sessionId: string, url: string): void {
     try { this.onNavigate?.(sessionId, url); } catch (err) {
       browserLogger.warn('BrowserPool.notifyNavigate.listenerError', { sessionId, error: (err as Error).message });
+    }
+  }
+
+  private notifyNavigationState(sessionId: string): void {
+    try {
+      const state = this.getNavigationState(sessionId);
+      if (state) this.onNavigationState?.(sessionId, state);
+    } catch (err) {
+      browserLogger.warn('BrowserPool.notifyNavigationState.listenerError', { sessionId, error: (err as Error).message });
     }
   }
 
@@ -316,6 +343,7 @@ export class BrowserPool {
         pid: wc.getOSProcessId(),
         wcId: wc.id,
       });
+      this.notifyNavigationState(sessionId);
     });
     wc.on('did-redirect-navigation', (_event, url, isInPlace, isMainFrame, frameProcessId, frameRoutingId) => {
       if (!isMainFrame) return;
@@ -357,6 +385,7 @@ export class BrowserPool {
         wcId: wc.id,
       });
       this.notifyNavigate(sessionId, url);
+      this.notifyNavigationState(sessionId);
     });
     wc.on('did-finish-load', () => {
       if (!currentNavigation) return;
@@ -375,6 +404,7 @@ export class BrowserPool {
         wcId: wc.id,
       });
       currentNavigation = null;
+      this.notifyNavigationState(sessionId);
     });
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame) return;
@@ -395,6 +425,13 @@ export class BrowserPool {
         wcId: wc.id,
       });
       if (errorCode !== -3) currentNavigation = null;
+      this.notifyNavigationState(sessionId);
+    });
+    wc.on('did-stop-loading', () => {
+      this.notifyNavigationState(sessionId);
+    });
+    wc.on('page-title-updated', () => {
+      this.notifyNavigationState(sessionId);
     });
     // SPA/hash navigation — pushState, replaceState, hash changes. Many
     // sites (x.com, linkedin, gmail) never fire did-navigate after the
@@ -414,6 +451,7 @@ export class BrowserPool {
           wcId: wc.id,
         });
         this.notifyNavigate(sessionId, url);
+        this.notifyNavigationState(sessionId);
       }
     });
 
@@ -436,6 +474,72 @@ export class BrowserPool {
   getView(sessionId: string): WebContentsView | null {
     const entry = this.entries.get(sessionId);
     return entry?.view ?? null;
+  }
+
+  getNavigationState(sessionId: string): BrowserNavigationState | null {
+    const wc = this.getWebContents(sessionId);
+    if (!wc) return null;
+
+    const readable = wc as WebContents & {
+      canGoBack?: () => boolean;
+      canGoForward?: () => boolean;
+      isLoadingMainFrame?: () => boolean;
+      isLoading?: () => boolean;
+    };
+    return {
+      url: wc.getURL() || 'about:blank',
+      title: wc.getTitle() || 'New Tab',
+      canGoBack: Boolean(readable.canGoBack?.()),
+      canGoForward: Boolean(readable.canGoForward?.()),
+      isLoading: Boolean(readable.isLoadingMainFrame?.() ?? readable.isLoading?.() ?? false),
+    };
+  }
+
+  async navigate(sessionId: string, input: string): Promise<BrowserNavigationResult> {
+    const wc = this.getWebContents(sessionId);
+    if (!wc) return { ok: false, error: 'Browser is not available.' };
+
+    const normalized = normalizeBrowserNavigationInput(input);
+    if (!normalized.ok) return normalized;
+
+    try {
+      await wc.loadURL(normalized.url);
+      this.notifyNavigationState(sessionId);
+      return { ok: true, url: normalized.url };
+    } catch (err) {
+      const error = (err as Error).message || 'Navigation failed.';
+      browserLogger.warn('BrowserPool.navigate.failed', { sessionId, url: normalized.url, error });
+      this.notifyNavigationState(sessionId);
+      return { ok: false, error };
+    }
+  }
+
+  goBack(sessionId: string): BrowserNavigationResult {
+    const wc = this.getWebContents(sessionId);
+    if (!wc) return { ok: false, error: 'Browser is not available.' };
+    const nav = wc as WebContents & { canGoBack?: () => boolean; goBack?: () => void };
+    if (!nav.canGoBack?.()) return { ok: false, error: 'No page to go back to.' };
+    nav.goBack?.();
+    this.notifyNavigationState(sessionId);
+    return { ok: true };
+  }
+
+  goForward(sessionId: string): BrowserNavigationResult {
+    const wc = this.getWebContents(sessionId);
+    if (!wc) return { ok: false, error: 'Browser is not available.' };
+    const nav = wc as WebContents & { canGoForward?: () => boolean; goForward?: () => void };
+    if (!nav.canGoForward?.()) return { ok: false, error: 'No page to go forward to.' };
+    nav.goForward?.();
+    this.notifyNavigationState(sessionId);
+    return { ok: true };
+  }
+
+  reload(sessionId: string): BrowserNavigationResult {
+    const wc = this.getWebContents(sessionId);
+    if (!wc) return { ok: false, error: 'Browser is not available.' };
+    wc.reload();
+    this.notifyNavigationState(sessionId);
+    return { ok: true };
   }
 
   /** Center + shrink the view rect inside the hub box if the emulated
