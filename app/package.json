@@ -8,6 +8,9 @@
     "type": "git",
     "url": "https://github.com/browser-use/desktop.git"
   },
+  "engines": {
+    "node": "20.x || 22.x"
+  },
   "bugs": {
     "url": "https://github.com/browser-use/desktop/issues"
   },

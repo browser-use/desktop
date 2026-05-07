@@ -40,10 +40,25 @@ tasks:
     cmds:
       - npm run start:reset-sessions
 
+  windows:node:check:
+    desc: "Windows: verify local development is using Node 20.x or 22.x"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        node -e "const version=process.versions.node;
+        const major=Number(version.split('.')[0]);
+        if (major === 20 || major === 22) process.exit(0);
+        console.error('Browser Use Desktop local development requires Node 20.x or 22.x. Current Node is ' + version + '.');
+        console.error('Use Node 22 before running this task, for example: fnm install 22; fnm use 22; task windows:up');
+        console.error('Volta users can run: volta install node@22 yarn');
+        process.exit(1);"
+
   windows:up:
     desc: "Windows: install deps and start the app"
     platforms: [windows]
     dir: "{{.APP_DIR}}"
+    deps: [windows:node:check]
     cmds:
       - yarn install
       - >-
@@ -58,6 +73,7 @@ tasks:
     desc: "Windows: wipe Vite cache then start the app"
     platforms: [windows]
     dir: "{{.APP_DIR}}"
+    deps: [windows:node:check]
     cmds:
       - yarn install
       - >-
@@ -67,6 +83,14 @@ tasks:
         if (existsSync('node_modules/electron/dist/electron.exe') === false) {
         execFileSync(process.execPath, ['node_modules/electron/install.js'], {stdio: 'inherit'});
         }"
+      - npm start
+
+  windows:start:
+    desc: "Windows: start the app without installing dependencies"
+    platforms: [windows]
+    dir: "{{.APP_DIR}}"
+    deps: [windows:node:check]
+    cmds:
       - npm start
 
   windows:reset:onboarding:
