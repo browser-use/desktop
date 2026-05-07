@@ -40,6 +40,267 @@ tasks:
     cmds:
       - npm run start:reset-sessions
 
+  windows:up:
+    desc: "Windows: install deps and start the app"
+    platforms: [windows]
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - yarn install
+      - >-
+        node -e "const {existsSync}=require('node:fs');
+        const {execFileSync}=require('node:child_process');
+        if (existsSync('node_modules/electron/dist/electron.exe') === false) {
+        execFileSync(process.execPath, ['node_modules/electron/install.js'], {stdio: 'inherit'});
+        }"
+      - npm start
+
+  windows:up:clean:
+    desc: "Windows: wipe Vite cache then start the app"
+    platforms: [windows]
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - yarn install
+      - >-
+        node -e "const {existsSync,rmSync}=require('node:fs');
+        const {execFileSync}=require('node:child_process');
+        rmSync('node_modules/.vite', {recursive: true, force: true});
+        if (existsSync('node_modules/electron/dist/electron.exe') === false) {
+        execFileSync(process.execPath, ['node_modules/electron/install.js'], {stdio: 'inherit'});
+        }"
+      - npm start
+
+  windows:reset:onboarding:
+    desc: "Windows: delete onboarding state, sessions, imported cookies, and WhatsApp auth"
+    platforms: [windows]
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run start:reset-onboarding
+
+  windows:reset:sessions:
+    desc: "Windows: delete sessions.db so the next launch shows no sessions"
+    platforms: [windows]
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run start:reset-sessions
+
+  windows:agent:run:
+    desc: "Windows: submit a task to a running local app, e.g. task windows:agent:run PROMPT='open example.com' ENGINE=codex"
+    platforms: [windows]
+    silent: true
+    env:
+      TASK_PROMPT: '{{default "" .PROMPT}}'
+      TASK_ENGINE: '{{default "" .ENGINE}}'
+      TASK_JSON: '{{default "" .JSON}}'
+    cmds:
+      - >-
+        node -e "const {spawnSync}=require('node:child_process');
+        const prompt=(process.env.TASK_PROMPT||'').trim();
+        const engine=(process.env.TASK_ENGINE||'').trim();
+        const json=process.env.TASK_JSON==='1';
+        if (prompt.length === 0) {
+        console.error('Set PROMPT, e.g. task windows:agent:run PROMPT=open-example ENGINE=codex');
+        process.exit(1);
+        }
+        const args=['app/scripts/run-task.mjs'];
+        if (json) args.push('--json');
+        if (engine) args.push('--engine', engine);
+        args.push(prompt);
+        const result=spawnSync(process.execPath, args, {stdio: 'inherit'});
+        process.exit(result.status ?? (result.error ? 1 : 0));"
+
+  windows:logs:all:
+    desc: "Windows: export all local app logs to a single file, e.g. task windows:logs:all OUT=%USERPROFILE%\\Desktop\\browser-use-logs.txt"
+    platforms: [windows]
+    silent: true
+    env:
+      WINDOWS_LOG_EXPORT_OUT: '{{default "" .OUT}}'
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $Files = Get-ChildItem -LiteralPath $LogDir -Filter '*.log' -File -ErrorAction SilentlyContinue | Sort-Object Name;
+        if (-not $Files) { Write-Host ('No logs found in ' + $LogDir); exit 1 };
+        $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss';
+        $Desktop = [Environment]::GetFolderPath('Desktop');
+        if ([string]::IsNullOrWhiteSpace($Desktop)) { $Desktop = if ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'Desktop' } else { (Get-Location).Path } };
+        $OutFile = if ($env:WINDOWS_LOG_EXPORT_OUT) { [Environment]::ExpandEnvironmentVariables($env:WINDOWS_LOG_EXPORT_OUT) } else { Join-Path $Desktop ('browser-use-logs-' + $Stamp + '.txt') };
+        if ($OutFile.StartsWith('~')) { $OutFile = Join-Path $env:USERPROFILE $OutFile.Substring(1).TrimStart('\', '/') };
+        if ((Test-Path -LiteralPath $OutFile -PathType Container)) { $OutFile = Join-Path $OutFile ('browser-use-logs-' + $Stamp + '.txt') };
+        $OutDir = Split-Path -Parent $OutFile;
+        if ($OutDir) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null };
+        Set-Content -LiteralPath $OutFile -Encoding UTF8 -Value @('Browser Use Desktop log export', ('created=' + (Get-Date).ToString('o')), ('source=' + $LogDir), '');
+        foreach ($File in $Files) { Add-Content -LiteralPath $OutFile -Encoding UTF8 -Value ('===== ' + $File.Name + ' ====='); Get-Content -LiteralPath $File.FullName -Encoding UTF8 -ErrorAction Stop | Add-Content -LiteralPath $OutFile -Encoding UTF8; Add-Content -LiteralPath $OutFile -Encoding UTF8 -Value '' };
+        Write-Host ('Exported ' + $Files.Count + ' log file(s) from ' + $LogDir);
+        Write-Host ('Output: ' + $OutFile)"
+
+  windows:logs:tail:all:
+    desc: "Windows: tail all local app logs with colored human-readable formatting"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $Files = Get-ChildItem -LiteralPath $LogDir -Filter '*.log' -File -ErrorAction SilentlyContinue;
+        if (-not $Files) { Write-Host ('No logs found in ' + $LogDir); exit 1 };
+        $Lines = if ($env:LINES) { [int]$env:LINES } else { 200 };
+        if (-not $env:LOG_COLOR) { $env:LOG_COLOR = '1' };
+        Get-Content -LiteralPath $Files.FullName -Tail $Lines -Wait | node app/scripts/pretty-logs.mjs --mode=all"
+
+  windows:logs:service:
+    desc: "Windows: tail one local app log channel with colored formatting, e.g. task windows:logs:service SERVICE=browser"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $Service='{{default "" .SERVICE}}';
+        $SessionId='{{default "" .SESSION_ID}}';
+        $Level='{{default "" .LEVEL}}';
+        if ([string]::IsNullOrWhiteSpace($Service)) { Write-Host 'Set SERVICE, e.g. task windows:logs:service SERVICE=browser'; exit 1 };
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $File = Join-Path $LogDir ($Service + '.log');
+        if (($Service -eq 'app') -and (-not (Test-Path -LiteralPath $File)) -and (Test-Path -LiteralPath (Join-Path $LogDir 'main.log'))) { $File = Join-Path $LogDir 'main.log' };
+        if (($Service -eq 'main') -and (-not (Test-Path -LiteralPath $File)) -and (Test-Path -LiteralPath (Join-Path $LogDir 'app.log'))) { $File = Join-Path $LogDir 'app.log' };
+        if (-not (Test-Path -LiteralPath $File)) { Write-Host ('No log file found: ' + $File); exit 1 };
+        $Lines = if ($env:LINES) { [int]$env:LINES } else { 200 };
+        if (-not $env:LOG_COLOR) { $env:LOG_COLOR = '1' };
+        $PrettyArgs = @('--mode=all');
+        if ($SessionId) { $PrettyArgs += ('--session=' + $SessionId) };
+        if ($Level) { $PrettyArgs += ('--level=' + $Level) };
+        Get-Content -LiteralPath $File -Tail $Lines -Wait | node app/scripts/pretty-logs.mjs @PrettyArgs"
+
+  windows:logs:app:
+    desc: "Windows: tail desktop app lifecycle logs"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - task: windows:logs:service
+        vars: { SERVICE: app }
+
+  windows:logs:main:
+    desc: "Windows: tail desktop app lifecycle logs (legacy alias for windows:logs:app)"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - task: windows:logs:app
+
+  windows:logs:browser:
+    desc: "Windows: tail browser/WebContents logs"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - task: windows:logs:service
+        vars: { SERVICE: browser }
+
+  windows:logs:renderer:
+    desc: "Windows: tail verbose frontend renderer console logs"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - task: windows:logs:service
+        vars: { SERVICE: renderer }
+
+  windows:logs:engine:
+    desc: "Windows: tail engine subprocess lifecycle logs"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - task: windows:logs:service
+        vars:
+          SERVICE: engine
+          SESSION_ID: "{{default \"\" .SESSION_ID}}"
+
+  windows:logs:agent:
+    desc: "Windows: tail agent transcript events, e.g. task windows:logs:agent SESSION_ID=abc123"
+    platforms: [windows]
+    silent: true
+    env:
+      TASK_SESSION_ID: '{{default "" .SESSION_ID}}'
+      TASK_FOLLOW: '{{default "1" .FOLLOW}}'
+      TASK_JSON: '{{default "" .JSON}}'
+      TASK_LINES: '{{default "" .LINES}}'
+    cmds:
+      - >-
+        node -e "const {spawnSync}=require('node:child_process');
+        const args=['app/scripts/agent-logs.mjs'];
+        const session=(process.env.TASK_SESSION_ID||'').trim();
+        const follow=(process.env.TASK_FOLLOW||'1').trim();
+        const json=(process.env.TASK_JSON||'').trim();
+        const lines=(process.env.TASK_LINES||process.env.LINES||'').trim();
+        if (session) args.push('--session', session);
+        if (follow==='0') args.push('--no-follow');
+        if (lines) args.push('--lines', lines);
+        if (json==='1') args.push('--json');
+        const result=spawnSync(process.execPath, args, {stdio: 'inherit'});
+        process.exit(result.status ?? (result.error ? 1 : 0));"
+
+  windows:logs:errors:
+    desc: "Windows: tail warnings and errors across all log files"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $Files = Get-ChildItem -LiteralPath $LogDir -Filter '*.log' -File -ErrorAction SilentlyContinue;
+        if (-not $Files) { Write-Host ('No logs found in ' + $LogDir); exit 1 };
+        $Lines = if ($env:LINES) { [int]$env:LINES } else { 200 };
+        if (-not $env:LOG_COLOR) { $env:LOG_COLOR = '1' };
+        Get-Content -LiteralPath $Files.FullName -Tail $Lines -Wait | node app/scripts/pretty-logs.mjs --mode=all --level=warn"
+
+  windows:logs:startup:
+    desc: "Windows: tail browser startup timing logs with colored human-readable timing"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $File = Join-Path $LogDir 'browser.log';
+        if (-not (Test-Path -LiteralPath $File)) { Write-Host ('No log file found: ' + $File); exit 1 };
+        $Lines = if ($env:LINES) { [int]$env:LINES } else { 200 };
+        if (-not $env:LOG_COLOR) { $env:LOG_COLOR = '1' };
+        Get-Content -LiteralPath $File -Tail $Lines -Wait | node app/scripts/pretty-logs.mjs --mode=startup"
+
+  windows:logs:navigation:
+    desc: "Windows: tail browser URL navigation timing logs with colored human-readable timing"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $File = Join-Path $LogDir 'browser.log';
+        if (-not (Test-Path -LiteralPath $File)) { Write-Host ('No log file found: ' + $File); exit 1 };
+        $Lines = if ($env:LINES) { [int]$env:LINES } else { 200 };
+        if (-not $env:LOG_COLOR) { $env:LOG_COLOR = '1' };
+        Get-Content -LiteralPath $File -Tail $Lines -Wait | node app/scripts/pretty-logs.mjs --mode=navigation"
+
+  windows:logs:session:
+    desc: "Windows: tail app/browser/engine log lines for one session, e.g. task windows:logs:session SESSION_ID=abc123"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - >-
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';
+        $SessionId='{{default "" .SESSION_ID}}';
+        if ([string]::IsNullOrWhiteSpace($SessionId)) { Write-Host 'Set SESSION_ID, e.g. task windows:logs:session SESSION_ID=abc123'; exit 1 };
+        $AppData = if ($env:APPDATA) { $env:APPDATA } elseif ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'AppData\Roaming' } else { throw 'APPDATA and USERPROFILE are not set' };
+        $LogDir = if ($env:AGB_LOG_DIR) { $env:AGB_LOG_DIR } elseif ($env:AGB_USER_DATA_DIR) { Join-Path $env:AGB_USER_DATA_DIR 'logs' } else { Join-Path (Join-Path $AppData 'Browser Use') 'logs' };
+        $Files = Get-ChildItem -LiteralPath $LogDir -Filter '*.log' -File -ErrorAction SilentlyContinue;
+        if (-not $Files) { Write-Host ('No logs found in ' + $LogDir); exit 1 };
+        $Lines = if ($env:LINES) { [int]$env:LINES } else { 200 };
+        if (-not $env:LOG_COLOR) { $env:LOG_COLOR = '1' };
+        $PrettyArgs = @('--mode=all', ('--session=' + $SessionId));
+        Get-Content -LiteralPath $Files.FullName -Tail $Lines -Wait | node app/scripts/pretty-logs.mjs @PrettyArgs"
+
   agent:run:
     desc: Submit a task to a running local app, e.g. task agent:run PROMPT='open example.com' ENGINE=codex
     silent: true
