@@ -30,4 +30,16 @@ describe('pathEnrich', () => {
     expect(parts).toContain('/home/ada/.local/bin');
     expect(parts).toContain('/home/ada/.cargo/bin');
   });
+
+  it('adds bundled Codex.app CLI locations on macOS', () => {
+    const result = enrichedPath('/usr/bin:/bin', {
+      platform: 'darwin',
+      homedir: '/Users/ada',
+      env: {},
+    });
+
+    const parts = result.split(':');
+    expect(parts).toContain('/Applications/Codex.app/Contents/Resources');
+    expect(parts).toContain('/Users/ada/Applications/Codex.app/Contents/Resources');
+  });
 });

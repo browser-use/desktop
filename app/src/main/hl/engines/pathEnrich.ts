@@ -58,6 +58,8 @@ const POSIX_EXTRA_DIRS_FNS: Array<(home: string, platform: Platform, pathMod: ty
   () => '/opt/homebrew/sbin',
   () => '/usr/local/bin',
   () => '/usr/local/sbin',
+  (_home, platform) => platform === 'darwin' ? '/Applications/Codex.app/Contents/Resources' : null,
+  (home, platform, pathMod) => platform === 'darwin' ? pathMod.join(home, 'Applications', 'Codex.app', 'Contents', 'Resources') : null,
   (home, _platform, pathMod) => pathMod.join(home, '.npm-global', 'bin'),
   (home, _platform, pathMod) => pathMod.join(home, '.volta', 'bin'),
   (home, _platform, pathMod) => pathMod.join(home, '.nvm', 'versions', 'node'),
