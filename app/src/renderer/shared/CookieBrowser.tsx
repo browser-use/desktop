@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from './domain-utils';
 import { BrowserLogoAvatar } from './BrowserLogoAvatar';
+import { userFacingIpcError } from './ipcErrors';
 import './CookieBrowser.css';
 
 const MAX_VISIBLE_DOMAINS = 2000;
@@ -148,7 +149,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
         setProfilesError('No Chromium browser profiles detected. Sign in to a supported browser first, then refresh.');
       }
     } catch (err) {
-      setProfilesError((err as Error).message ?? 'Failed to read browser profiles');
+      setProfilesError(userFacingIpcError(err) || 'Failed to read browser profiles');
     } finally {
       setProfilesLoading(false);
     }
@@ -182,7 +183,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
       // Pull the freshly-persisted record (timestamp + counts) from main.
       void refreshSyncs();
     } catch (err) {
-      setSyncError((err as Error).message ?? 'Cookie sync failed');
+      setSyncError(userFacingIpcError(err) || 'Cookie sync failed');
     } finally {
       setSyncingProfile(null);
     }

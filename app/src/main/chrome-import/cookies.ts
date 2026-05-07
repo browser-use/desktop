@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
 import net from 'node:net';
+import { pipeline } from 'node:stream/promises';
 import { session } from 'electron';
 import WebSocket from 'ws';
 import { mainLogger } from '../logger';
@@ -49,6 +50,10 @@ function isReadableFile(filePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+async function copyFileByStream(src: string, dst: string): Promise<void> {
+  await pipeline(fs.createReadStream(src), fs.createWriteStream(dst));
 }
 
 function executableNames(name: string, platform: Platform): string[] {
@@ -153,13 +158,19 @@ function cdpSameSiteToElectron(value?: string): 'unspecified' | 'no_restriction'
 async function copyProfileToTemp(profilePath: string, userDataDir: string): Promise<string> {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'chrome-profile-'));
   const destProfile = path.join(tempDir, 'Default');
+  const copyFailures: Array<{ relativePath: string; code?: string; error: string }> = [];
 
   async function copyDir(src: string, dst: string): Promise<void> {
     await fsp.mkdir(dst, { recursive: true });
     let entries;
     try {
       entries = await fsp.readdir(src, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      mainLogger.debug('chromeImport.copyProfile.readDirFailed', {
+        src,
+        error: (err as Error).message,
+        code: (err as NodeJS.ErrnoException).code,
+      });
       return;
     }
 
@@ -169,10 +180,26 @@ async function copyProfileToTemp(profilePath: string, userDataDir: string): Prom
         await copyDir(path.join(src, entry.name), path.join(dst, entry.name));
       } else {
         if (SKIP_FILES.has(entry.name)) continue;
+        const sourceFile = path.join(src, entry.name);
+        const destFile = path.join(dst, entry.name);
         try {
-          await fsp.copyFile(path.join(src, entry.name), path.join(dst, entry.name));
-        } catch {
-          // skip files we can't read (permission issues, broken symlinks)
+          await copyFileByStream(sourceFile, destFile);
+        } catch (err) {
+          const failure = {
+            relativePath: path.relative(profilePath, sourceFile),
+            code: (err as NodeJS.ErrnoException).code,
+            error: (err as Error).message,
+          };
+          copyFailures.push(failure);
+          if (entry.name === 'Cookies') {
+            mainLogger.warn('chromeImport.copyProfile.cookieCopyFailed', {
+              ...failure,
+              sourceFile,
+              destFile,
+            });
+          } else {
+            mainLogger.debug('chromeImport.copyProfile.copyFileFailed', failure);
+          }
         }
       }
     }
@@ -180,12 +207,23 @@ async function copyProfileToTemp(profilePath: string, userDataDir: string): Prom
 
   await copyDir(profilePath, destProfile);
   try {
-    await fsp.copyFile(path.join(userDataDir, 'Local State'), path.join(tempDir, 'Local State'));
+    await copyFileByStream(path.join(userDataDir, 'Local State'), path.join(tempDir, 'Local State'));
   } catch {
     // Some profile-like directories do not have a Local State file. The
     // browser can still start with the copied profile, so keep this best-effort.
   }
   if (!cookieStorePaths(destProfile).some((cookiePath) => isReadableFile(cookiePath))) {
+    mainLogger.warn('chromeImport.copyProfile.cookieStoreMissingAfterCopy', {
+      profilePath,
+      userDataDir,
+      destProfile,
+      attemptedCookieStores: cookieStorePaths(profilePath).map((cookiePath) => ({
+        path: cookiePath,
+        readable: isReadableFile(cookiePath),
+      })),
+      failedCopies: copyFailures.slice(0, 20),
+      failedCopyCount: copyFailures.length,
+    });
     fsp.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     throw new Error('Could not copy the browser profile cookie store. Close the source browser and check profile file permissions, then try again.');
   }

@@ -4,6 +4,7 @@ import introImage from './intro.png';
 import claudeCodeLogo from './claude-code-logo.svg';
 import codexLogo from './codex-logo.svg';
 import { BrowserLogoAvatar } from '../shared/BrowserLogoAvatar';
+import { userFacingIpcError } from '../shared/ipcErrors';
 import {
   acceleratorToDisplayParts,
   defaultGlobalCmdbarAccelerator,
@@ -528,7 +529,7 @@ export function OnboardingApp() {
       setImportResult(result);
       setImportedProfile(profiles.find((p) => p.id === profileId || p.directory === profileId) ?? null);
     } catch (err) {
-      setImportError((err as Error).message);
+      setImportError(userFacingIpcError(err));
     } finally {
       setImporting(null);
     }
