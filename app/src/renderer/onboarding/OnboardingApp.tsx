@@ -86,6 +86,7 @@ declare global {
       }>;
       useCodex: () => Promise<{ ok: boolean }>;
       openCodexLoginTerminal: (opts?: { deviceAuth?: boolean }) => Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }>;
+      installEngine: (engineId: 'claude-code' | 'codex') => Promise<{ opened: boolean; error?: string; command?: string; displayName?: string }>;
       openExternal: (url: string) => Promise<{ opened: boolean }>;
       requestNotifications: () => Promise<{ supported: boolean }>;
       platform: string;
@@ -322,6 +323,7 @@ export function OnboardingApp() {
   // paste. Populated by handleStartCodexLogin and cleared once auth completes.
   const [codexDeviceCode, setCodexDeviceCode] = useState<string | null>(null);
   const [codexVerificationUrl, setCodexVerificationUrl] = useState<string | null>(null);
+  const [installingEngine, setInstallingEngine] = useState<'claude-code' | 'codex' | null>(null);
 
   const refreshClaudeStatus = useCallback(async () => {
     try {
@@ -392,6 +394,7 @@ export function OnboardingApp() {
   }, [waitingForCodexLogin, refreshCodexStatus]);
 
   const handleUseCodex = useCallback(async () => {
+    if (!codex?.installed) return;
     console.log('[onboarding] handleUseCodex: invoking useCodex');
     try {
       const res = await window.onboardingAPI.useCodex();
@@ -402,9 +405,10 @@ export function OnboardingApp() {
     } catch (err) {
       console.error('[onboarding] handleUseCodex: useCodex threw', err);
     }
-  }, []);
+  }, [codex?.installed]);
 
   const handleStartCodexLogin = useCallback(async (opts?: { deviceAuth?: boolean }) => {
+    if (!codex?.installed) return;
     console.log('[onboarding] handleStartCodexLogin: invoking openCodexLoginTerminal', opts);
     setWaitingForCodexLogin(true);
     setCodexDeviceCode(null);
@@ -423,7 +427,7 @@ export function OnboardingApp() {
       console.error('[onboarding] openCodexLoginTerminal threw', err);
       setWaitingForCodexLogin(false);
     }
-  }, []);
+  }, [codex?.installed]);
 
   // Click handlers for the card + the explicit device-auth fallback link.
   // Keeping these as plain references so React binds identity-stable functions.
@@ -487,9 +491,44 @@ export function OnboardingApp() {
     }
   }, [refreshClaudeStatus]);
 
+  const handleInstallEngine = useCallback(async (engineId: 'claude-code' | 'codex') => {
+    setInstallingEngine(engineId);
+    try {
+      const res = await window.onboardingAPI.installEngine(engineId);
+      if (!res.opened) {
+        console.warn('[onboarding] installEngine failed', engineId, res.error);
+        setInstallingEngine(null);
+        return;
+      }
+      window.setTimeout(() => {
+        if (engineId === 'claude-code') void refreshClaudeStatus();
+        if (engineId === 'codex') void refreshCodexStatus();
+      }, 3000);
+      window.setTimeout(() => {
+        setInstallingEngine((current) => (current === engineId ? null : current));
+      }, 120000);
+    } catch (err) {
+      console.error('[onboarding] installEngine threw', engineId, err);
+      setInstallingEngine(null);
+    }
+  }, [refreshClaudeStatus, refreshCodexStatus]);
+
   const handleInstallClaudeCode = useCallback(() => {
-    window.onboardingAPI.openExternal?.('https://docs.anthropic.com/en/docs/claude-code/overview');
-  }, []);
+    void handleInstallEngine('claude-code');
+  }, [handleInstallEngine]);
+
+  const handleInstallCodex = useCallback(() => {
+    void handleInstallEngine('codex');
+  }, [handleInstallEngine]);
+
+  const claudeCodeReady = Boolean(claudeCode?.installed && claudeCode.authed);
+  const codexReady = Boolean(codex?.installed && codex.authed);
+  const hasUsableAnthropicKey = Boolean(claudeCode?.installed && apiKey.trim());
+  const hasUsableOpenaiKey = Boolean(codex?.installed && openaiKey.trim());
+
+  const canContinueProviderSetup = claudeCodeReady || codexReady || hasUsableAnthropicKey || hasUsableOpenaiKey;
+  const installingClaudeCode = installingEngine === 'claude-code';
+  const installingCodex = installingEngine === 'codex';
 
   const [accelerator, setAccelerator] = useState<string>(() => defaultGlobalCmdbarAccelerator(window.onboardingAPI.platform));
   const [recording, setRecording] = useState(false);
@@ -612,27 +651,27 @@ export function OnboardingApp() {
   // advances. Works alongside the provider-subscription path (usingX), which
   // doesn't need a save step. Verbose logging so we can trace the path taken.
   const [stepSaving, setStepSaving] = useState(false);
-  const stepCanContinue = Boolean(claudeCode?.authed) || Boolean(codex?.authed) || apiKey.trim().length > 0 || openaiKey.trim().length > 0;
   const handleStepSaveAndContinue = useCallback(async () => {
     console.log('[onboarding] handleStepSaveAndContinue', {
-      claudeAuthed: Boolean(claudeCode?.authed),
-      codexAuthed: Boolean(codex?.authed),
+      claudeAuthed: claudeCodeReady,
+      codexAuthed: codexReady,
       hasAnthropicKey: apiKey.trim().length > 0,
       hasOpenaiKey: openaiKey.trim().length > 0,
     });
+    if (!canContinueProviderSetup) return;
     setStepSaving(true);
     try {
       const ops: Promise<unknown>[] = [];
-      if (apiKey.trim()) ops.push(window.onboardingAPI.saveApiKey(apiKey.trim()));
-      if (openaiKey.trim()) ops.push(window.onboardingAPI.saveOpenAIKey(openaiKey.trim()));
+      if (claudeCode?.installed && apiKey.trim()) ops.push(window.onboardingAPI.saveApiKey(apiKey.trim()));
+      if (codex?.installed && openaiKey.trim()) ops.push(window.onboardingAPI.saveOpenAIKey(openaiKey.trim()));
       if (ops.length > 0) {
         console.log('[onboarding] handleStepSaveAndContinue: saving', ops.length, 'key(s)');
         await Promise.all(ops);
       }
-      if (apiKey.trim()) {
+      if (claudeCode?.installed && apiKey.trim()) {
         window.onboardingAPI.capture?.('onboarding_provider_selected', { provider: 'anthropic-key' });
       }
-      if (openaiKey.trim()) {
+      if (codex?.installed && openaiKey.trim()) {
         window.onboardingAPI.capture?.('onboarding_provider_selected', { provider: 'openai-key' });
       }
       console.log('[onboarding] handleStepSaveAndContinue: advancing to notifications step');
@@ -642,7 +681,7 @@ export function OnboardingApp() {
     } finally {
       setStepSaving(false);
     }
-  }, [claudeCode?.authed, codex?.authed, apiKey, openaiKey]);
+  }, [apiKey, canContinueProviderSetup, claudeCode?.installed, claudeCodeReady, codex?.installed, codexReady, openaiKey]);
 
   const handleFinish = useCallback(async () => {
     window.onboardingAPI.capture?.('onboarding_completed');
@@ -933,11 +972,11 @@ export function OnboardingApp() {
           <div className="step-panel">
             <h1 className="step-title">Vendor setup</h1>
             <p className="step-subtitle">
-              Sign in with Claude Code or Codex, or paste an API key. Credentials are stored locally in the system keychain.
+              Install each provider CLI once, then sign in or add that provider&rsquo;s API key. Credentials are stored locally in the system keychain.
             </p>
 
             {/* Installed + authed → selectable card. Click flips to configured state. */}
-            {claudeCode?.installed && claudeCode?.authed && (
+            {claudeCodeReady && (
               <div className="claude-code-card claude-code-card--selected">
                 <div className="claude-code-card__icon">
                   <img src={claudeCodeLogo} alt="" />
@@ -954,28 +993,30 @@ export function OnboardingApp() {
 
             {/* Not authed → one card with two interior options: subscription or API key.
                 Switching once configured happens in Settings. */}
-            {claudeCode && !claudeCode.authed && !usingClaudeCode && (
+            {claudeCode && !claudeCodeReady && !usingClaudeCode && (
               <div className="provider-card">
-                <div className="provider-card__tabs" role="tablist">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={!showAnthropicInput}
-                    className={`provider-card__tab${!showAnthropicInput ? ' is-active' : ''}`}
-                    onClick={() => setShowAnthropicInput(false)}
-                  >
-                    Connect subscription
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={showAnthropicInput}
-                    className={`provider-card__tab${showAnthropicInput ? ' is-active' : ''}`}
-                    onClick={() => setShowAnthropicInput(true)}
-                  >
-                    Use API key
-                  </button>
-                </div>
+                {claudeCode.installed && (
+                  <div className="provider-card__tabs" role="tablist">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={!showAnthropicInput}
+                      className={`provider-card__tab${!showAnthropicInput ? ' is-active' : ''}`}
+                      onClick={() => setShowAnthropicInput(false)}
+                    >
+                      Connect subscription
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={showAnthropicInput}
+                      className={`provider-card__tab${showAnthropicInput ? ' is-active' : ''}`}
+                      onClick={() => setShowAnthropicInput(true)}
+                    >
+                      Use API key
+                    </button>
+                  </div>
+                )}
 
                 <div className="provider-card__body">
                   {!showAnthropicInput && claudeCode.installed && (
@@ -1002,26 +1043,29 @@ export function OnboardingApp() {
                     </button>
                   )}
 
-                  {!showAnthropicInput && !claudeCode.installed && (
+                  {!claudeCode.installed && (
                     <button
                       type="button"
                       className="provider-card__action"
                       onClick={handleInstallClaudeCode}
+                      disabled={installingClaudeCode}
                     >
                       <div className="claude-code-card__icon">
                         <img src={claudeCodeLogo} alt="" />
                       </div>
                       <div className="claude-code-card__text">
-                        <div className="claude-code-card__title">Install Claude Code</div>
+                        <div className="claude-code-card__title">
+                          {installingClaudeCode ? 'Installing Claude Code…' : 'Install Claude Code'}
+                        </div>
                         <div className="claude-code-card__sub">
-                          <code>npm i -g @anthropic-ai/claude-code</code>{' \u00b7 then re-open this step.'}
+                          Opens an installer terminal. Return here when it finishes.
                         </div>
                       </div>
-                      <div className="claude-code-card__chevron">&rsaquo;</div>
+                      <div className="claude-code-card__chevron">{installingClaudeCode ? '\u2026' : '\u203A'}</div>
                     </button>
                   )}
 
-                  {showAnthropicInput && (
+                  {claudeCode.installed && showAnthropicInput && (
                     <div className="provider-card__keyform">
                       <div className="apikey-input-wrap">
                         <input
@@ -1048,7 +1092,7 @@ export function OnboardingApp() {
             )}
 
             {/* Codex — authed → selectable card. Click flips to configured state. */}
-            {codex?.authed && (
+            {codexReady && (
               <div className="claude-code-card claude-code-card--selected">
                 <div className="claude-code-card__icon">
                   <img src={codexLogo} alt="" />
@@ -1064,31 +1108,55 @@ export function OnboardingApp() {
             )}
 
             {/* Codex not authed → same merged card pattern as Claude. */}
-            {codex && !codex.authed && !usingCodex && (
+            {codex && !codexReady && !usingCodex && (
               <div className="provider-card">
-                <div className="provider-card__tabs" role="tablist">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={!showOpenaiInput}
-                    className={`provider-card__tab${!showOpenaiInput ? ' is-active' : ''}`}
-                    onClick={() => setShowOpenaiInput(false)}
-                  >
-                    Connect subscription
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={showOpenaiInput}
-                    className={`provider-card__tab${showOpenaiInput ? ' is-active' : ''}`}
-                    onClick={() => setShowOpenaiInput(true)}
-                  >
-                    Use API key
-                  </button>
-                </div>
+                {codex.installed && (
+                  <div className="provider-card__tabs" role="tablist">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={!showOpenaiInput}
+                      className={`provider-card__tab${!showOpenaiInput ? ' is-active' : ''}`}
+                      onClick={() => setShowOpenaiInput(false)}
+                    >
+                      Connect subscription
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={showOpenaiInput}
+                      className={`provider-card__tab${showOpenaiInput ? ' is-active' : ''}`}
+                      onClick={() => setShowOpenaiInput(true)}
+                    >
+                      Use API key
+                    </button>
+                  </div>
+                )}
 
                 <div className="provider-card__body">
-                  {!showOpenaiInput && (
+                  {!codex.installed && (
+                    <button
+                      type="button"
+                      className="provider-card__action"
+                      onClick={handleInstallCodex}
+                      disabled={installingCodex}
+                    >
+                      <div className="claude-code-card__icon">
+                        <img src={codexLogo} alt="" />
+                      </div>
+                      <div className="claude-code-card__text">
+                        <div className="claude-code-card__title">
+                          {installingCodex ? 'Installing Codex…' : 'Install Codex CLI'}
+                        </div>
+                        <div className="claude-code-card__sub">
+                          <code>npm i -g @openai/codex</code>{' \u00b7 return here when it finishes.'}
+                        </div>
+                      </div>
+                      <div className="claude-code-card__chevron">{installingCodex ? '\u2026' : '\u203A'}</div>
+                    </button>
+                  )}
+
+                  {codex.installed && !showOpenaiInput && (
                     <>
                       <button
                         type="button"
@@ -1107,7 +1175,7 @@ export function OnboardingApp() {
                               ? 'Enter the code shown below, or click to restart.'
                               : waitingForCodexLogin
                                 ? 'Finish the OAuth flow in your browser. Click to restart.'
-                                : 'Opens ChatGPT in your browser — sign in once, we’ll detect it.'}
+                                : 'Starts the Codex CLI login flow in your browser. Sign in once and we’ll detect it.'}
                           </div>
                         </div>
                         <div className="claude-code-card__chevron">{waitingForCodexLogin ? '↻' : '›'}</div>
@@ -1139,7 +1207,7 @@ export function OnboardingApp() {
                     </>
                   )}
 
-                  {showOpenaiInput && (
+                  {codex.installed && showOpenaiInput && (
                     <div className="provider-card__keyform">
                       <div className="apikey-input-wrap">
                         <input
@@ -1170,7 +1238,7 @@ export function OnboardingApp() {
                 type="button"
                 className="btn btn-primary apikey-continue-btn"
                 onClick={handleStepSaveAndContinue}
-                disabled={!stepCanContinue || stepSaving}
+                disabled={!canContinueProviderSetup || stepSaving}
               >
                 {stepSaving ? 'Saving...' : 'Save & Continue'}
               </button>

@@ -18,7 +18,7 @@
 import { shell } from 'electron';
 import * as pty from 'node-pty';
 import { mainLogger } from '../logger';
-import { enrichedEnv } from '../hl/engines/pathEnrich';
+import { resolveCliLaunch } from '../hl/engines/pathEnrich';
 
 const LOGIN_BIN = 'codex';
 const TIMEOUT_MS = 15 * 60 * 1000;   // Device-auth codes expire in 15m; cap plain-OAuth at the same.
@@ -48,6 +48,18 @@ export interface CodexLoginResult {
   verificationUrl?: string;
   /** One-time code the user pastes into the verification page. */
   deviceCode?: string;
+}
+
+export function codexLoginPtySpawnSpec(
+  args: readonly string[],
+  opts: { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform } = {},
+): { command: string; args: string[]; env: { [key: string]: string } } {
+  const resolved = resolveCliLaunch(LOGIN_BIN, args, { env: opts.env, platform: opts.platform });
+  return {
+    command: resolved.command,
+    args: resolved.args,
+    env: resolved.env as { [key: string]: string },
+  };
 }
 
 // Only one login attempt at a time. A second call kills the previous PTY
@@ -86,11 +98,12 @@ export function runCodexDeviceLogin(opts: CodexLoginOptions = {}): Promise<Codex
 
     let child: pty.IPty;
     try {
-      child = pty.spawn(LOGIN_BIN, args, {
+      const spec = codexLoginPtySpawnSpec(args);
+      child = pty.spawn(spec.command, spec.args, {
         name: 'xterm-256color',
         cols: 100,
         rows: 30,
-        env: enrichedEnv() as { [k: string]: string },
+        env: spec.env,
       });
     } catch (err) {
       mainLogger.warn('codexLogin.spawnFailed', { error: (err as Error).message });

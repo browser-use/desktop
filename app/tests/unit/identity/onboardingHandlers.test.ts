@@ -24,6 +24,7 @@ const {
   mockGetGlobalCmdbarAccelerator,
   mockRegisterHotkeys,
   mockSetGlobalCmdbarAccelerator,
+  mockGetAdapter,
   hotkeyState,
 } = vi.hoisted(() => {
   const state = { accelerator: 'CommandOrControl+Shift+Space' };
@@ -44,6 +45,7 @@ const {
       state.accelerator = accelerator;
       return { ok: true, accelerator };
     }),
+    mockGetAdapter: vi.fn(),
   };
 });
 
@@ -81,6 +83,10 @@ vi.mock('../../../src/main/hotkeys', () => ({
   getGlobalCmdbarAccelerator: mockGetGlobalCmdbarAccelerator,
   registerHotkeys: mockRegisterHotkeys,
   setGlobalCmdbarAccelerator: mockSetGlobalCmdbarAccelerator,
+}));
+
+vi.mock('../../../src/main/hl/engines', () => ({
+  getAdapter: mockGetAdapter,
 }));
 
 const mockSetPassword = vi.fn(async () => {});
@@ -144,6 +150,7 @@ describe('onboardingHandlers.ts', () => {
       return { ok: true, accelerator };
     });
     handlers.clear();
+    mockGetAdapter.mockReset();
     accountStore = makeAccountStore();
     onboardingWindow = makeWindow();
     openShellWindow = vi.fn(() => ({ id: 2 }));
@@ -180,6 +187,52 @@ describe('onboardingHandlers.ts', () => {
       expect(handlers.has('onboarding:test-api-key')).toBe(false);
       expect(handlers.has('onboarding:complete')).toBe(false);
       expect(handlers.has('onboarding:trigger-shortcut')).toBe(false);
+    });
+  });
+
+  describe('codex onboarding handlers', () => {
+    it('reports Codex as unauthenticated when the CLI is not installed', async () => {
+      const probeInstalled = vi.fn(async () => ({ installed: false, error: 'codex not found on PATH' }));
+      const probeAuthed = vi.fn(async () => ({ authed: true }));
+      mockGetAdapter.mockReturnValue({
+        probeInstalled,
+        probeAuthed,
+      });
+
+      const result = await invokeHandler('onboarding:detect-codex');
+
+      expect(result).toEqual({
+        available: false,
+        installed: false,
+        authed: false,
+        version: null,
+        error: 'codex not found on PATH',
+      });
+      expect(probeAuthed).not.toHaveBeenCalled();
+    });
+
+    it('does not start Codex login when the CLI is not installed', async () => {
+      const openLoginInTerminal = vi.fn();
+      mockGetAdapter.mockReturnValue({
+        probeInstalled: vi.fn(async () => ({ installed: false, error: 'codex not found on PATH' })),
+        openLoginInTerminal,
+      });
+
+      const result = await invokeHandler('onboarding:open-codex-login-terminal');
+
+      expect(result).toEqual({ opened: false, error: 'codex not found on PATH' });
+      expect(openLoginInTerminal).not.toHaveBeenCalled();
+    });
+
+    it('does not accept Codex as selected when the CLI is not installed', async () => {
+      const probeAuthed = vi.fn(async () => ({ authed: true }));
+      mockGetAdapter.mockReturnValue({
+        probeInstalled: vi.fn(async () => ({ installed: false, error: 'codex not found on PATH' })),
+        probeAuthed,
+      });
+
+      await expect(invokeHandler('onboarding:use-codex')).rejects.toThrow('codex not found on PATH');
+      expect(probeAuthed).not.toHaveBeenCalled();
     });
   });
 

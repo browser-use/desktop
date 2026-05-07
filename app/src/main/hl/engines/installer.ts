@@ -113,11 +113,6 @@ function escapeCmdEcho(value: string): string {
     .replace(/\)/g, '^)');
 }
 
-function quoteCmdToken(value: string): string {
-  if (/[\r\n\0"]/.test(value)) throw new Error('installer command token contains unsupported characters');
-  return `"${value}"`;
-}
-
 function writeWindowsInstallScript(displayName: string, command: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-use-install-'));
   const scriptPath = path.join(dir, 'install.cmd');
@@ -140,15 +135,18 @@ function writeWindowsInstallScript(displayName: string, command: string): string
   return scriptPath;
 }
 
+export function windowsInstallerSpawnSpec(scriptPath: string, env: NodeJS.ProcessEnv = process.env): { command: string; args: string[] } {
+  if (/[\r\n\0]/.test(scriptPath)) throw new Error('installer script path contains unsupported control characters');
+  return {
+    command: env.ComSpec || 'cmd.exe',
+    args: ['/d', '/k', scriptPath],
+  };
+}
+
 function openWindowsTerminal(displayName: string, command: string): EngineInstallResult {
   const scriptPath = writeWindowsInstallScript(displayName, command);
-  const comspec = process.env.ComSpec || 'cmd.exe';
-  const child = spawn(comspec, [
-    '/d',
-    '/s',
-    '/c',
-    `start ${quoteCmdToken(`${displayName} Installer`)} ${quoteCmdToken(comspec)} /k ${quoteCmdToken(scriptPath)}`,
-  ], { detached: true, stdio: 'ignore', windowsHide: false });
+  const spec = windowsInstallerSpawnSpec(scriptPath);
+  const child = spawn(spec.command, spec.args, { detached: true, stdio: 'ignore', windowsHide: false });
   child.unref();
   return { opened: true, command, displayName };
 }
