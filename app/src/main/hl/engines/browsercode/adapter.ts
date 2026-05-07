@@ -3,10 +3,11 @@
  *
  * BrowserCode inherits opencode's provider/model registry. This adapter uses
  * BrowserCode only as the headless model runtime; native `browser_execute` is
- * disabled so agents keep using this app's Electron-scoped helpers.js harness.
+ * disabled so agents use this app's Electron-scoped browser-harness-js runtime.
  */
 
 import { register } from '../registry';
+import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
 import { enrichedEnv } from '../pathEnrich';
 import { runCliCapture } from '../cliSpawn';
 import type {
@@ -154,7 +155,7 @@ const browserCodeAdapter: EngineAdapter = {
         },
       } : {}),
     });
-    return env;
+    return applyBrowserHarnessEnv(ctx, env);
   },
 
   wrapPrompt(ctx: SpawnContext): string {
@@ -169,8 +170,10 @@ const browserCodeAdapter: EngineAdapter = {
       'You are running inside Browser Use Desktop through BrowserCode.',
       'You are driving a specific Chromium browser view on this machine.',
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
-      'Do not use BrowserCode browser_execute. Read `./AGENTS.md` and use `./helpers.js` from this working directory for browser actions.',
-      'Always read `./helpers.js` before writing scripts. Edit it only if a helper is missing.',
+      'Do not use BrowserCode browser_execute. Read `./AGENTS.md` and use Browser Harness JS from this working directory for browser actions.',
+      "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
+      'Do not use old helpers.js convenience APIs for browser control.',
+      'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',
       'For terminal commands, use BrowserCode/OpenCode\'s Bash tool and write commands for the current OS/shell it reports.',
       'When producing files, save them to `./outputs/' + ctx.sessionId + '/` and mention the filename in the final answer.',
       ...attachmentLines,

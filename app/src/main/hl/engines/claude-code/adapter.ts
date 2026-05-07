@@ -12,6 +12,7 @@
 
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
+import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
 import { enrichedEnv } from '../pathEnrich';
 import { runCliCapture, spawnCli } from '../cliSpawn';
 import type {
@@ -118,8 +119,10 @@ const claudeCodeAdapter: EngineAdapter = {
     const lines: string[] = [
       'You are driving a specific Chromium browser view on this machine.',
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
-      'Read `./AGENTS.md` for how to drive the browser in this harness.',
-      'Always read `./helpers.js` before writing scripts — that is where the functions live. Edit it if a helper is missing.',
+      'Read `./AGENTS.md` for how to drive the browser with Browser Harness JS.',
+      "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
+      'Do not use old helpers.js convenience APIs for browser control.',
+      'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',
     ];
     if (ctx.attachmentRefs.length > 0) {
       lines.push('', 'The user attached these files for this task. Read each with your Read tool before acting:');
@@ -160,7 +163,7 @@ const claudeCodeAdapter: EngineAdapter = {
     if (ctx.savedApiKey) env.ANTHROPIC_API_KEY = ctx.savedApiKey;
     env.BU_TARGET_ID = ctx.targetId;
     env.BU_CDP_PORT = String(ctx.cdpPort);
-    return env;
+    return applyBrowserHarnessEnv(ctx, env);
   },
 
   parseLine(line: string, ctx: ParseContext): ParseResult {

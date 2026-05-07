@@ -1,31 +1,27 @@
-# Harness self-edit test
+# Legacy Harness Self-Edit Test
 
-Notes from a run where the agent was asked to modify its own tools.
+Historical notes from the pre-`browser-harness-js` helper/`TOOLS.json` harness.
+This is not runtime guidance for app-spawned agents.
+
+Browser Harness JS should cover normal browser automation. Treat harness edits
+as an escape hatch only when the user explicitly asks for them, or when a
+confirmed harness/runtime defect blocks the task.
 
 ## Files that matter
 
-- `helpers.js` — tool implementations. Every helper is dispatched from the `module.exports.dispatch.<name>` object at the bottom. Adding a key there is enough to register a new tool.
-- `TOOLS.json` — tool schemas exposed to the LLM. Must be valid JSON; validate with `node -e 'JSON.parse(require("fs").readFileSync(path))'` before trusting it.
+- `helpers.js` — now a small compatibility bridge to `browser-harness-js`, not
+  a normal extension surface.
+- `AGENTS.md` — the app-specific browser harness manual.
+- `browser-harness-js/` — bundled runtime; app launches may replace it.
 
-## Adding a new tool
+## Legacy notes
 
-1. Write/append the handler in `helpers.js`. For trivial pure-JS tools you can inline the body directly in the dispatch map, e.g.
-   ```js
-   reverse_string: (_ctx, a) => ({ input: str(a, 'text'), reversed: str(a, 'text').split('').reverse().join('') }),
-   ```
-2. Add a matching entry to `TOOLS.json` (insert *before* the `done` entry — that's the conventional last tool).
-3. Both files hot-reload on the next tool call; no restart needed.
+The old model used `helpers.js` implementations plus `TOOLS.json` schemas.
+That model has been removed from the desktop runtime. Do not revive it for
+ordinary browser tasks.
 
-## Arg validation helpers already in scope
+## If an edit is unavoidable
 
-- `str(a, 'key')` — required string
-- `num(a, 'key')` — required finite number
-- `optNum(a, 'key', default)` — optional number
-
-Use them so bad LLM args produce clean errors instead of silent `undefined`.
-
-## Gotchas
-
-- Edits take effect on the *very next* tool call, so if you call the new tool in the same batch as the file write it will 404. Sequence the calls.
-- `shell` output is sometimes truncated in the middle of long lines — prefer `awk 'NR>=A && NR<=B'` over `sed -n` and avoid piping through `cat -n` when inspecting.
-- `patch_file` only replaces the first occurrence; make `old_str` unique.
+- Keep the patch minimal and task-scoped.
+- Prefer fixing app source stock files over editing generated userData copies.
+- Mention the edited file and reason in the final answer.

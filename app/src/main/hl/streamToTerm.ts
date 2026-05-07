@@ -194,7 +194,7 @@ export function hlEventToTermBytes(event: HlEvent, state: TermTranslatorState): 
 
     case 'harness_edited': {
       const verb = event.action === 'patch' ? 'patched' : 'updated';
-      const target = event.target === 'helpers' ? 'helpers.js' : 'TOOLS.json';
+      const target = event.target === 'helpers' ? 'helpers.js' : 'AGENTS.md';
       out.push(`${FG.yellow}✎ ${verb} harness ${target}${RESET}\r\n`);
       return finish();
     }
