@@ -17,5 +17,5 @@
     "resolveJsonModule": true,
     "types": ["node", "vite/client"]
   },
-  "exclude": ["node_modules", "out", ".vite", "dist"]
+  "exclude": ["node_modules", "out", ".vite", "dist", "src/main/hl/stock/browser-harness-js/sdk"]
 }
