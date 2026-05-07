@@ -1210,15 +1210,23 @@ app.whenReady().then(async () => {
     const { getAdapter } = await import('./hl/engines');
     const adapter = getAdapter(validated);
     if (!adapter) throw new Error(`unknown engine: ${validated}`);
-    const { openEngineInstallTerminal } = await import('./hl/engines/installer');
-    const result = openEngineInstallTerminal(adapter.id);
+    const { runEngineInstall } = await import('./hl/engines/installer');
+    const result = await runEngineInstall(adapter.id);
+    const installed = await adapter.probeInstalled().catch((err) => ({
+      installed: false,
+      error: (err as Error).message,
+    }));
     mainLogger.info('sessions.engine-install.result', {
       engineId: adapter.id,
       opened: result.opened,
+      completed: result.completed,
+      exitCode: result.exitCode,
       hasError: !!result.error,
+      installed: installed.installed,
+      installedError: installed.error,
       command: result.command,
     });
-    return result;
+    return { ...result, installed };
   });
 
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {

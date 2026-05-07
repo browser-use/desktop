@@ -1,19 +1,29 @@
-import { spawn, spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { mainLogger } from '../../logger';
+import { enrichedEnv, resetPathEnrichmentCache } from './pathEnrich';
 
 export interface EngineInstallResult {
   opened: boolean;
+  completed?: boolean;
+  exitCode?: number | null;
+  signal?: NodeJS.Signals | null;
   error?: string;
   command?: string;
   displayName?: string;
+  stdout?: string;
+  stderr?: string;
 }
 
 interface InstallSpec {
   displayName: string;
   command: (platform: NodeJS.Platform) => string;
+}
+
+export interface InstallerSpawnSpec {
+  command: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  spawnOptions: { windowsHide?: boolean };
 }
 
 const INSTALLERS: Record<string, InstallSpec> = {
@@ -39,137 +49,166 @@ const INSTALLERS: Record<string, InstallSpec> = {
   },
 };
 
-function shellScript(displayName: string, command: string): string {
-  return [
-    posixPrintLine(`Installing ${displayName}...`),
-    posixPrintLine(`$ ${command}`),
-    command,
-    'status=$?',
-    posixPrintLine(''),
-    'if [ "$status" -eq 0 ]; then',
-    `  ${posixPrintLine(`${displayName} install finished. Return to Browser Use and refresh the connection.`)}`,
-    'else',
-    `  printf '%s%s.\\n' ${posixSingleQuote(`${displayName} install failed with exit code `)} "$status"`,
-    'fi',
-    posixPrintLine(''),
-    'read -r -p "Press Enter to close this terminal..."',
-  ].join('\n');
+const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+const OUTPUT_TAIL_LIMIT = 8192;
+
+function trimTail(value: string): string {
+  return value.length > OUTPUT_TAIL_LIMIT ? value.slice(-OUTPUT_TAIL_LIMIT) : value;
 }
 
-function posixSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
+function installerExitError(displayName: string, exitCode: number | null, signal: NodeJS.Signals | null): string {
+  if (signal) return `${displayName} installer exited from signal ${signal}`;
+  return `${displayName} installer exited ${exitCode}`;
 }
 
-function posixPrintLine(value: string): string {
-  return `printf '%s\\n' ${posixSingleQuote(value)}`;
+export function installerSpawnSpec(
+  installCommand: string,
+  opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv } = {},
+): InstallerSpawnSpec {
+  if (/[\r\n\0]/.test(installCommand)) throw new Error('installer command contains unsupported control characters');
+  const platform = opts.platform ?? process.platform;
+  const env = enrichedEnv(opts.env ?? process.env, { platform });
+  if (platform === 'win32') {
+    return {
+      command: env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', installCommand],
+      env,
+      spawnOptions: { windowsHide: true },
+    };
+  }
+  return {
+    command: 'sh',
+    args: ['-lc', installCommand],
+    env,
+    spawnOptions: {},
+  };
 }
 
-function appleScriptString(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+export function runInstallCommand(
+  displayName: string,
+  installCommand: string,
+  opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+): Promise<EngineInstallResult> {
+  const timeoutMs = opts.timeoutMs ?? INSTALL_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    let spawnSpec: InstallerSpawnSpec;
+    try {
+      spawnSpec = installerSpawnSpec(installCommand, opts);
+    } catch (err) {
+      resolve({
+        opened: false,
+        completed: false,
+        error: (err as Error).message,
+        command: installCommand,
+        displayName,
+      });
+      return;
+    }
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(spawnSpec.command, spawnSpec.args, {
+        env: spawnSpec.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        ...spawnSpec.spawnOptions,
+      });
+    } catch (err) {
+      resolve({
+        opened: false,
+        completed: false,
+        error: (err as Error).message,
+        command: installCommand,
+        displayName,
+      });
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (result: EngineInstallResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      resetPathEnrichmentCache();
+      resolve(result);
+    };
+
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGTERM'); } catch { /* already closed */ }
+      forceKillTimer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* already closed */ }
+      }, 1000);
+    }, timeoutMs);
+
+    child.stdout?.on('data', (chunk) => {
+      stdout = trimTail(stdout + String(chunk));
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr = trimTail(stderr + String(chunk));
+    });
+    child.on('error', (err) => {
+      finish({
+        opened: false,
+        completed: false,
+        error: err.message,
+        command: installCommand,
+        displayName,
+        stdout,
+        stderr,
+      });
+    });
+    child.on('close', (exitCode, signal) => {
+      const ok = exitCode === 0 && !timedOut;
+      finish({
+        opened: ok,
+        completed: !timedOut,
+        exitCode,
+        signal,
+        error: ok
+          ? undefined
+          : timedOut
+            ? `Installer timed out after ${timeoutMs}ms`
+            : stderr.trim() || stdout.trim() || installerExitError(displayName, exitCode, signal),
+        command: installCommand,
+        displayName,
+        stdout,
+        stderr,
+      });
+    });
+  });
 }
 
-function openMacTerminal(displayName: string, command: string): EngineInstallResult {
-  const script = shellScript(displayName, command);
-  const osa = spawn('osascript', [
-    '-e', 'tell application "Terminal"',
-    '-e', 'activate',
-    '-e', `do script ${appleScriptString(script)}`,
-    '-e', 'end tell',
-  ], { detached: true, stdio: 'ignore' });
-  osa.unref();
-  return { opened: true, command, displayName };
-}
-
-function commandExists(bin: string): boolean {
-  const r = spawnSync('sh', ['-lc', `command -v -- ${posixSingleQuote(bin)}`], { stdio: 'ignore' });
-  return r.status === 0;
-}
-
-function openLinuxTerminal(displayName: string, command: string): EngineInstallResult {
-  const script = shellScript(displayName, command);
-  const candidates: Array<{ bin: string; args: string[] }> = [
-    { bin: 'x-terminal-emulator', args: ['-e', 'sh', '-lc', script] },
-    { bin: 'gnome-terminal', args: ['--', 'sh', '-lc', script] },
-    { bin: 'konsole', args: ['-e', 'sh', '-lc', script] },
-    { bin: 'xterm', args: ['-e', 'sh', '-lc', script] },
-  ];
-  const candidate = candidates.find((c) => commandExists(c.bin));
-  if (!candidate) return { opened: false, error: 'No supported terminal emulator found', command, displayName };
-  const child = spawn(candidate.bin, candidate.args, { detached: true, stdio: 'ignore' });
-  child.unref();
-  return { opened: true, command, displayName };
-}
-
-function escapeCmdEcho(value: string): string {
-  if (/[\r\n\0]/.test(value)) throw new Error('installer text contains unsupported control characters');
-  return value
-    .replace(/\^/g, '^^')
-    .replace(/%/g, '%%')
-    .replace(/&/g, '^&')
-    .replace(/\|/g, '^|')
-    .replace(/</g, '^<')
-    .replace(/>/g, '^>')
-    .replace(/\(/g, '^(')
-    .replace(/\)/g, '^)');
-}
-
-function quoteCmdToken(value: string): string {
-  if (/[\r\n\0"]/.test(value)) throw new Error('installer command token contains unsupported characters');
-  return `"${value}"`;
-}
-
-function writeWindowsInstallScript(displayName: string, command: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-use-install-'));
-  const scriptPath = path.join(dir, 'install.cmd');
-  const body = [
-    '@echo off',
-    `echo ${escapeCmdEcho(`Installing ${displayName}...`)}`,
-    `echo ${escapeCmdEcho(`$ ${command}`)}`,
-    command,
-    'set "status=%ERRORLEVEL%"',
-    'echo.',
-    'if "%status%"=="0" (',
-    `  echo ${escapeCmdEcho(`${displayName} install finished. Return to Browser Use and refresh the connection.`)}`,
-    ') else (',
-    `  echo ${escapeCmdEcho(`${displayName} install failed with exit code`)} %status%.`,
-    ')',
-    'echo.',
-    'pause',
-  ].join('\r\n');
-  fs.writeFileSync(scriptPath, body, 'utf-8');
-  return scriptPath;
-}
-
-function openWindowsTerminal(displayName: string, command: string): EngineInstallResult {
-  const scriptPath = writeWindowsInstallScript(displayName, command);
-  const comspec = process.env.ComSpec || 'cmd.exe';
-  const child = spawn(comspec, [
-    '/d',
-    '/s',
-    '/c',
-    `start ${quoteCmdToken(`${displayName} Installer`)} ${quoteCmdToken(comspec)} /k ${quoteCmdToken(scriptPath)}`,
-  ], { detached: true, stdio: 'ignore', windowsHide: false });
-  child.unref();
-  return { opened: true, command, displayName };
-}
-
-export function openEngineInstallTerminal(engineId: string): EngineInstallResult {
+export async function runEngineInstall(engineId: string): Promise<EngineInstallResult> {
   const spec = INSTALLERS[engineId];
-  if (!spec) return { opened: false, error: `No installer configured for ${engineId}` };
+  if (!spec) return { opened: false, completed: false, error: `No installer configured for ${engineId}` };
   const command = spec.command(process.platform);
-  mainLogger.info('engineInstaller.open.request', {
+  mainLogger.info('engineInstaller.start.request', {
     engineId,
     displayName: spec.displayName,
     platform: process.platform,
     command,
   });
   try {
-    if (process.platform === 'darwin') return openMacTerminal(spec.displayName, command);
-    if (process.platform === 'win32') return openWindowsTerminal(spec.displayName, command);
-    return openLinuxTerminal(spec.displayName, command);
+    const result = await runInstallCommand(spec.displayName, command);
+    mainLogger.info('engineInstaller.start.result', {
+      engineId,
+      displayName: spec.displayName,
+      completed: result.completed,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      hasError: Boolean(result.error),
+    });
+    return result;
   } catch (err) {
     const error = (err as Error).message;
-    mainLogger.warn('engineInstaller.open.failed', { engineId, error });
-    return { opened: false, error, command, displayName: spec.displayName };
+    mainLogger.warn('engineInstaller.start.failed', { engineId, error });
+    return { opened: false, completed: false, error, command, displayName: spec.displayName };
   }
 }

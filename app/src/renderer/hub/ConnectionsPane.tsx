@@ -8,6 +8,7 @@ import kimiLogo from './kimi-color.svg';
 import qwenLogo from './qwen-color.svg';
 import minimaxLogo from './minimax-color.svg';
 import { CookieBrowser, type CookieBrowserApi } from '../shared/CookieBrowser';
+import { pollInstalledStatus } from '../shared/installStatus';
 
 type WaStatus = 'disconnected' | 'connecting' | 'qr_ready' | 'connected' | 'error';
 type AuthType = 'oauth' | 'apiKey' | 'none';
@@ -183,55 +184,61 @@ export function ConnectionsPane({
     }
   }, []);
 
-  const refreshClaudeCli = useCallback(async () => {
+  const refreshClaudeCli = useCallback(async (): Promise<EngineCliStatus | null> => {
     const api = window.electronAPI;
     if (!api?.sessions?.engineStatus) {
       setClaudeStatusLoaded(true);
-      return;
+      return null;
     }
     try {
       const s = await api.sessions.engineStatus('claude-code');
-      setClaudeStatus({
+      const status = {
         installed: s.installed.installed,
         authed: s.authed.authed,
         version: s.installed.version,
         error: s.installed.error ?? s.authed.error,
-      });
+      };
+      setClaudeStatus(status);
       if (s.installed.installed && installingEngine === 'claude-code') setInstallingEngine(null);
+      return status;
     } catch (err) {
       console.error('[connections] refreshClaudeCli failed', err);
+      return null;
     } finally {
       setClaudeStatusLoaded(true);
     }
   }, [installingEngine]);
 
-  const refreshCodex = useCallback(async () => {
+  const refreshCodex = useCallback(async (): Promise<EngineCliStatus | null> => {
     const api = window.electronAPI;
     if (!api?.settings?.codex) {
       setCodexStatusLoaded(true);
-      return;
+      return null;
     }
     try {
       const s = await api.settings.codex.status();
-      setCodexStatus({
+      const status = {
         installed: s.installed.installed,
         authed: s.authed.authed,
         version: s.installed.version,
         error: s.installed.error ?? s.authed.error,
-      });
+      };
+      setCodexStatus(status);
       if (s.installed.installed && installingEngine === 'codex') setInstallingEngine(null);
+      return status;
     } catch (err) {
       console.error('[connections] refreshCodex failed', err);
+      return null;
     } finally {
       setCodexStatusLoaded(true);
     }
   }, [installingEngine]);
 
-  const refreshBrowserCode = useCallback(async () => {
+  const refreshBrowserCode = useCallback(async (): Promise<BrowserCodeStatus['installed'] | null> => {
     const api = window.electronAPI;
     if (!api?.settings?.browserCode) {
       setBrowserCodeLoaded(true);
-      return;
+      return null;
     }
     try {
       const s = await api.settings.browserCode.getStatus();
@@ -243,8 +250,10 @@ export function ConnectionsPane({
       });
       setBrowserCodeStatus(s);
       if (s.installed?.installed && installingEngine === 'browsercode') setInstallingEngine(null);
+      return s.installed ?? null;
     } catch (err) {
       console.error('[connections] refreshBrowserCode failed', err);
+      return null;
     } finally {
       setBrowserCodeLoaded(true);
     }
@@ -260,27 +269,28 @@ export function ConnectionsPane({
     try {
       const result = await api.sessions.engineInstall(engineId);
       console.info('[connections] engine.install.result', { engineId, result });
-      if (!result.opened) {
-        setInstallingEngine(null);
-        const msg = result.error ?? `Failed to open installer for ${engineId}`;
+      const refreshInstalledStatus = async () => {
+        if (engineId === 'claude-code') return refreshClaudeCli();
+        if (engineId === 'codex') return refreshCodex();
+        if (engineId === 'browsercode') return refreshBrowserCode();
+        return null;
+      };
+      const status = result.opened
+        ? await pollInstalledStatus(refreshInstalledStatus, { initialInstalled: result.installed })
+        : await refreshInstalledStatus();
+      if (!status?.installed) {
+        const msg = result.error ?? result.installed?.error ?? `Installer finished but ${engineId} was not detected.`;
         if (engineId === 'claude-code') setKeyError(msg);
         else if (engineId === 'codex') setOpenaiError(msg);
         else if (engineId === 'browsercode') setBrowserCodeError(msg);
       }
-      setTimeout(() => {
-        if (engineId === 'claude-code') void refreshClaudeCli();
-        if (engineId === 'codex') void refreshCodex();
-        if (engineId === 'browsercode') void refreshBrowserCode();
-      }, 3000);
-      setTimeout(() => {
-        setInstallingEngine((current) => (current === engineId ? null : current));
-      }, 120000);
     } catch (err) {
-      setInstallingEngine(null);
       const msg = (err as Error).message;
       if (engineId === 'claude-code') setKeyError(msg);
       else if (engineId === 'codex') setOpenaiError(msg);
       else if (engineId === 'browsercode') setBrowserCodeError(msg);
+    } finally {
+      setInstallingEngine((current) => (current === engineId ? null : current));
     }
   }, [refreshBrowserCode, refreshClaudeCli, refreshCodex]);
 

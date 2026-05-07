@@ -3,6 +3,7 @@ import claudeLogoSrc from './claude-logo.svg?raw';
 import openaiLogoSrc from './openai-logo.svg?raw';
 import opencodeLogoSrc from './opencode-logo-dark.svg?raw';
 import { BrowserCodeProviderSubmenu } from './BrowserCodeModelPicker';
+import { pollInstalledStatus } from '../shared/installStatus';
 
 export interface EngineInfo {
   id: string;
@@ -212,19 +213,22 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
     try {
       const result = await window.electronAPI?.sessions?.engineInstall?.(id);
       console.info('[EnginePicker] install.result', { id, result });
-      if (!result?.opened) {
-        installingRef.current = null;
-        setInstalling(null);
+      if (result?.opened) {
+        const status = await pollInstalledStatus(async () => {
+          const updates = await refreshStatus([id]);
+          const next = updates.find((u) => u.id === id);
+          return next?.installed ?? null;
+        }, { initialInstalled: result.installed });
+        if (!status?.installed) console.warn('[EnginePicker] engineInstall failed', { id, result });
+      } else {
+        console.warn('[EnginePicker] engineInstall failed', { id, result });
+        await refreshStatus([id]);
       }
-      setTimeout(() => { void refreshStatus([id]); }, 3000);
-      setTimeout(() => {
-        if (installingRef.current === id) installingRef.current = null;
-        setInstalling((current) => (current === id ? null : current));
-      }, 120000);
     } catch (err) {
       console.error('[EnginePicker] engineInstall failed', err);
+    } finally {
       installingRef.current = null;
-      setInstalling(null);
+      setInstalling((current) => (current === id ? null : current));
     }
   };
 

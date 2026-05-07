@@ -72,6 +72,14 @@ function getMenuItemButton(container: HTMLElement, text: string): HTMLButtonElem
   return button;
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('EnginePicker', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -79,6 +87,7 @@ describe('EnginePicker', () => {
 
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -111,6 +120,113 @@ describe('EnginePicker', () => {
     });
 
     expect(sessions.engineInstall).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it('keeps install pending until the background installer process resolves', async () => {
+    let status: EngineStatus = {
+      id: 'codex',
+      displayName: 'Codex',
+      installed: { installed: false },
+      authed: { authed: false },
+    };
+    const install = deferred<{ opened: boolean; completed: boolean; installed: { installed: boolean } }>();
+    const sessions = installElectronApi(status, {
+      engineStatus: vi.fn(async () => status),
+      engineInstall: vi.fn(() => install.promise),
+    });
+    const { container, root } = renderPicker('codex');
+
+    await flush();
+
+    act(() => {
+      getToggleButton(container).click();
+    });
+    await flush();
+
+    act(() => {
+      getMenuItemButton(container, 'Codex').click();
+    });
+    await flush();
+
+    expect(sessions.engineInstall).toHaveBeenCalledTimes(1);
+    expect(getMenuItemButton(container, 'Codex').disabled).toBe(true);
+
+    status = {
+      id: 'codex',
+      displayName: 'Codex',
+      installed: { installed: true, version: '1.2.3' },
+      authed: { authed: false },
+    };
+    await act(async () => {
+      install.resolve({ opened: true, completed: true, installed: { installed: true } });
+      await install.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(sessions.engineStatus).toHaveBeenCalled();
+    expect(getMenuItemButton(container, 'Codex').disabled).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it('keeps install pending while post-install CLI detection catches up', async () => {
+    vi.useFakeTimers();
+    let installed = false;
+    const install = deferred<{ opened: boolean; completed: boolean; installed: { installed: boolean; error?: string } }>();
+    const sessions = installElectronApi({
+      id: 'codex',
+      displayName: 'Codex',
+      installed: { installed: false },
+      authed: { authed: false },
+    }, {
+      engineStatus: vi.fn(async () => ({
+        id: 'codex',
+        displayName: 'Codex',
+        installed: { installed },
+        authed: { authed: false },
+      })),
+      engineInstall: vi.fn(() => install.promise),
+    });
+    const { container, root } = renderPicker('codex');
+
+    await flush();
+
+    act(() => {
+      getToggleButton(container).click();
+    });
+    await flush();
+
+    act(() => {
+      getMenuItemButton(container, 'Codex').click();
+    });
+    await flush();
+
+    await act(async () => {
+      install.resolve({ opened: true, completed: true, installed: { installed: false, error: 'codex not found on PATH' } });
+      await install.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(sessions.engineInstall).toHaveBeenCalledTimes(1);
+    expect(getMenuItemButton(container, 'Codex').disabled).toBe(true);
+    expect(getMenuItemButton(container, 'Codex').textContent).toContain('Installing');
+
+    installed = true;
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(getMenuItemButton(container, 'Codex').disabled).toBe(false);
+    expect(getMenuItemButton(container, 'Codex').textContent).toContain('Log in');
 
     act(() => root.unmount());
   });
