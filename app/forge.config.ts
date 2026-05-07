@@ -36,6 +36,24 @@ const SHOULD_SIGN = IS_MAC && !SKIP_SIGNING && SIGNING_IDENTITY !== '';
 const WINDOWS_ICON_PATH = path.resolve(__dirname, 'assets/icon.ico');
 const LINUX_ICON_PATH = path.resolve(__dirname, 'assets/icon.png');
 
+const cliArgValue = (name: string): string | undefined => {
+  const eqPrefix = `--${name}=`;
+  for (let i = 0; i < process.argv.length; i += 1) {
+    const arg = process.argv[i];
+    if (arg.startsWith(eqPrefix)) return arg.slice(eqPrefix.length);
+    if (arg === `--${name}`) return process.argv[i + 1];
+  }
+  return undefined;
+};
+
+const WINDOWS_BUILD_ARCH = process.env.BROWSER_USE_WINDOWS_ARCH
+  ?? process.env.npm_config_arch
+  ?? cliArgValue('arch')
+  ?? process.arch;
+const WINDOWS_IS_ARM64 = WINDOWS_BUILD_ARCH === 'arm64';
+const WINDOWS_PACKAGE_NAME = WINDOWS_IS_ARM64 ? 'browser_use_desktop_arm64' : 'browser_use_desktop';
+const WINDOWS_SETUP_EXE = WINDOWS_IS_ARM64 ? 'Browser-Use-Setup-arm64.exe' : 'Browser-Use-Setup.exe';
+
 const findNpmCli = (): string | null => {
   const nodeDir = path.dirname(process.execPath);
   const candidates = [
@@ -46,13 +64,13 @@ const findNpmCli = (): string | null => {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 };
 
-const runNpm = (args: string[], cwd: string): void => {
+const runNpm = (args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): void => {
   const npmCli = findNpmCli();
   if (npmCli) {
-    execFileSync(process.execPath, [npmCli, ...args], { cwd, stdio: 'inherit' });
+    execFileSync(process.execPath, [npmCli, ...args], { cwd, stdio: 'inherit', env });
     return;
   }
-  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { cwd, stdio: 'inherit' });
+  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { cwd, stdio: 'inherit', env });
 };
 
 // ---------------------------------------------------------------------------
@@ -136,17 +154,24 @@ const config: ForgeConfig = {
     // better-sqlite3, keytar, etc.) are missing at runtime and main.js
     // crashes on first require('dotenv'). Re-install production deps into
     // the packaged dir so externals resolve.
-    packageAfterPrune: async (_config, buildPath, electronVersion) => {
+    packageAfterPrune: async (_config, buildPath, electronVersion, platform, arch) => {
       const pkgPath = path.join(buildPath, 'package.json');
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       const prodDeps = Object.keys(pkg.dependencies ?? {});
       if (prodDeps.length === 0) return;
-      runNpm(['install', '--omit=dev', '--no-package-lock', '--no-save', '--legacy-peer-deps', ...prodDeps], buildPath);
-      // npm install just built native modules against the host Node ABI.
+      const targetEnv = {
+        ...process.env,
+        npm_config_platform: platform,
+        npm_config_arch: arch,
+        npm_config_target_platform: platform,
+        npm_config_target_arch: arch,
+      };
+      runNpm(['install', '--omit=dev', '--no-package-lock', '--no-save', '--legacy-peer-deps', ...prodDeps], buildPath, targetEnv);
+      // npm install just built native modules for the target platform/arch.
       // Electron uses a different NODE_MODULE_VERSION, so rebuild them
       // against Electron's headers before asar packaging.
       const { rebuild } = await import('@electron/rebuild');
-      await rebuild({ buildPath, electronVersion, arch: process.arch });
+      await rebuild({ buildPath, electronVersion, arch });
       // npm (like yarn) drops the executable bit off node-pty's spawn-helper.
       // Restore it on the packaged tree so `codex login` doesn't crash with
       // `posix_spawnp failed` the first time a user opens onboarding.
@@ -188,9 +213,9 @@ const config: ForgeConfig = {
     // native Windows autoUpdater. Authenticode signing is optional and injected
     // by CI via WINDOWS_SIGN_WITH_PARAMS when a certificate pipeline exists.
     new MakerSquirrel({
-      name: 'browser_use_desktop',
+      name: WINDOWS_PACKAGE_NAME,
       title: 'Browser Use',
-      setupExe: 'Browser-Use-Setup.exe',
+      setupExe: WINDOWS_SETUP_EXE,
       setupIcon: WINDOWS_ICON_PATH,
       noMsi: true,
       ...(WINDOWS_SIGN_WITH_PARAMS ? { signWithParams: WINDOWS_SIGN_WITH_PARAMS } : {}),

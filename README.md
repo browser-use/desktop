@@ -22,6 +22,8 @@ Built on [Browser Harness](https://github.com/browser-use/browser-harness).
 
 **Windows (x64):** [Browser-Use-Setup.exe](https://github.com/browser-use/desktop/releases/latest/download/Browser-Use-Setup.exe)
 
+**Windows (Arm64):** [Browser-Use-Setup-arm64.exe](https://github.com/browser-use/desktop/releases/latest/download/Browser-Use-Setup-arm64.exe)
+
 **Linux:** [Browser-Use-x64.AppImage](https://github.com/browser-use/desktop/releases/latest/download/Browser-Use-x64.AppImage) supports in-app auto-updates. `.deb` and `.rpm` packages are also published on GitHub Releases for manual installs.
 
 The buttons and links always point to the latest release.

@@ -466,29 +466,61 @@ jobs:
         working-directory: app
         env:
           WINDOWS_SIGN_WITH_PARAMS: ${{ secrets.WINDOWS_SIGN_WITH_PARAMS }}
-        run: yarn run make -- --platform=win32 --arch=x64
+        shell: pwsh
+        run: |
+          foreach ($arch in @('x64', 'arm64')) {
+            "Building Windows Squirrel ($arch)"
+            $env:BROWSER_USE_WINDOWS_ARCH = $arch
+            yarn run make -- --platform=win32 "--arch=$arch"
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
 
       - name: Collect Windows release assets
         shell: pwsh
         run: |
           $assetDir = 'release-assets-windows'
-          $sourceDir = 'app/out/make/squirrel.windows/x64'
-          New-Item -ItemType Directory -Force $assetDir | Out-Null
-          if (-not (Test-Path $sourceDir)) {
-            Write-Error "No Squirrel.Windows output found at $sourceDir"
-            exit 1
-          }
-          Copy-Item -Path "$sourceDir/*" -Destination $assetDir -Force
+          $architectures = @('x64', 'arm64')
+          $releaseLines = @()
 
-          if (-not (Test-Path "$assetDir/RELEASES")) {
-            Write-Error 'No RELEASES file produced by Squirrel.Windows'
+          New-Item -ItemType Directory -Force $assetDir | Out-Null
+
+          foreach ($arch in $architectures) {
+            $sourceDir = "app/out/make/squirrel.windows/$arch"
+            if (-not (Test-Path $sourceDir)) {
+              Write-Error "No Squirrel.Windows output found at $sourceDir"
+              exit 1
+            }
+
+            $releasePath = Join-Path $sourceDir 'RELEASES'
+            if (-not (Test-Path $releasePath)) {
+              Write-Error "No RELEASES file produced by Squirrel.Windows for $arch"
+              exit 1
+            }
+
+            $releaseLines += Get-Content $releasePath | Where-Object { $_.Trim() }
+            Copy-Item -Path "$sourceDir/*.nupkg" -Destination $assetDir -Force
+            Copy-Item -Path "$sourceDir/*.exe" -Destination $assetDir -Force
+          }
+
+          if (@($releaseLines).Count -eq 0) {
+            Write-Error 'No package entries found in Windows RELEASES files'
             exit 1
           }
-          if (@(Get-ChildItem $assetDir -Filter '*.nupkg' -File).Count -eq 0) {
-            Write-Error 'No .nupkg file produced by Squirrel.Windows'
+          Set-Content -Path "$assetDir/RELEASES" -Value $releaseLines -Encoding utf8NoBOM
+
+          if (@(Get-ChildItem $assetDir -Filter '*.nupkg' -File).Count -lt $architectures.Count) {
+            Write-Error 'Expected one .nupkg file per Windows architecture'
             exit 1
           }
-          if (@(Get-ChildItem $assetDir -Filter '*.exe' -File).Count -eq 0) {
+          foreach ($setupExe in @('Browser-Use-Setup.exe', 'Browser-Use-Setup-arm64.exe')) {
+            if (-not (Test-Path (Join-Path $assetDir $setupExe))) {
+              Write-Error "Missing Windows setup asset: $setupExe"
+              exit 1
+            }
+          }
+          if (@(Get-ChildItem $assetDir -Filter '*.exe' -File).Count -lt $architectures.Count) {
             Write-Error 'No setup .exe produced by Squirrel.Windows'
             exit 1
           }
@@ -565,6 +597,21 @@ jobs:
                 exit 1
               }
               "Waiting for $package to become publicly downloadable (attempt $attempt/12)"
+              Start-Sleep -Seconds 5
+            }
+          }
+          foreach ($setup in @('Browser-Use-Setup.exe', 'Browser-Use-Setup-arm64.exe')) {
+            "Verifying $baseUrl/$setup"
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+              curl.exe -fsIL "$baseUrl/$setup" | Out-Null
+              if ($LASTEXITCODE -eq 0) {
+                break
+              }
+              if ($attempt -eq 12) {
+                Write-Error "$setup is not publicly downloadable at $baseUrl/$setup. The README download link would 404."
+                exit 1
+              }
+              "Waiting for $setup to become publicly downloadable (attempt $attempt/12)"
               Start-Sleep -Seconds 5
             }
           }
