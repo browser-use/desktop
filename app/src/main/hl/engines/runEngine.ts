@@ -16,6 +16,7 @@ import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType, loadBrowserCode
 import { helpersPath, skillPath } from '../harness';
 import { get as getAdapter } from './registry';
 import { spawnCli } from './cliSpawn';
+import { registerResourceOwner, unregisterResourceOwner } from '../../resourceMonitor';
 import type {
   EngineAdapter,
   ParseContext,
@@ -270,6 +271,13 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawnCli(adapter.binaryName, args, { cwd: opts.harnessDir, env, stdio: [stdinMode, 'pipe', 'pipe'] });
+    registerResourceOwner(child.pid, {
+      kind: 'agent',
+      component: adapter.id,
+      sessionId: opts.sessionId,
+      engineId: adapter.id,
+      label: `${adapter.id}:${opts.sessionId.slice(0, 8)}`,
+    });
   } catch (err) {
     opts.onEvent({ type: 'error', message: `spawn_failed: ${(err as Error).message}` });
     return;
@@ -494,6 +502,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
 
   await new Promise<void>((resolve) => {
     child.on('close', (code, sig) => {
+      unregisterResourceOwner(child.pid);
       opts.signal?.removeEventListener('abort', onAbort);
       flushHarnessChanges();
       closeWatchers();
@@ -524,6 +533,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       resolve();
     });
     child.on('error', (err) => {
+      unregisterResourceOwner(child.pid);
       opts.signal?.removeEventListener('abort', onAbort);
       flushHarnessChanges();
       closeWatchers();

@@ -43,6 +43,7 @@ const channelColors = {
   engine: '33',
   main: '34',
   renderer: '35',
+  resource: '32',
 };
 
 function channelColor(channel) {

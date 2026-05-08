@@ -525,6 +525,16 @@ export class SessionManager extends EventEmitter {
     return { ...session };
   }
 
+  getResourceInfo(id: string): { prompt: string; status: SessionStatus; engine: string | null } | undefined {
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+    return {
+      prompt: session.prompt,
+      status: session.status,
+      engine: session.engine ?? this.getSessionEngine(id),
+    };
+  }
+
   listSessions(): AgentSession[] {
     const list = Array.from(this.sessions.values());
     mainLogger.info('SessionManager.listSessions', {

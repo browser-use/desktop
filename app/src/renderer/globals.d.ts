@@ -83,7 +83,24 @@ interface ElectronSessionAPI {
   viewsDetachAll: () => Promise<void>;
   getTabs: (id: string) => Promise<unknown[]>;
   poolStats: () => Promise<unknown>;
-  memory: () => Promise<{ totalMb: number; sessions: Array<{ id: string; mb: number; status: string }>; processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>; processCount: number }>;
+  memory: () => Promise<{
+    totalMb: number;
+    totalCpuPercent?: number;
+    sessions: Array<{ id: string; mb: number; cpuPercent?: number; status: string; processCount?: number }>;
+    processes: Array<{
+      pid?: number;
+      label: string;
+      type: string;
+      component?: string;
+      mb: number;
+      cpuPercent?: number;
+      sessionId?: string;
+      engineId?: string;
+      source?: string;
+    }>;
+    processCount: number;
+    errors?: string[];
+  }>;
   getTermReplay: (id: string) => Promise<string>;
 }
 

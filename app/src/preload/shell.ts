@@ -287,9 +287,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     memory: (): Promise<{
       totalMb: number;
-      sessions: Array<{ id: string; mb: number; status: string }>;
-      processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>;
+      totalCpuPercent?: number;
+      sessions: Array<{ id: string; mb: number; cpuPercent?: number; status: string; processCount?: number }>;
+      processes: Array<{
+        pid?: number;
+        label: string;
+        type: string;
+        component?: string;
+        mb: number;
+        cpuPercent?: number;
+        sessionId?: string;
+        engineId?: string;
+        source?: string;
+      }>;
       processCount: number;
+      errors?: string[];
     }> => ipcRenderer.invoke('sessions:memory'),
     getTermReplay: (id: string): Promise<string> =>
       ipcRenderer.invoke('sessions:get-term-replay', id),

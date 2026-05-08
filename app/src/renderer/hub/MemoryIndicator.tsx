@@ -2,17 +2,24 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 interface ProcessInfo {
+  pid?: number;
   label: string;
   type: string;
+  component?: string;
   mb: number;
+  cpuPercent?: number;
   sessionId?: string;
+  engineId?: string;
+  source?: string;
 }
 
 interface MemoryData {
   totalMb: number;
-  sessions: Array<{ id: string; mb: number; status: string }>;
+  totalCpuPercent?: number;
+  sessions: Array<{ id: string; mb: number; cpuPercent?: number; status: string; processCount?: number }>;
   processes: ProcessInfo[];
   processCount: number;
+  errors?: string[];
 }
 
 interface AppInfo {
@@ -22,6 +29,11 @@ interface AppInfo {
 function formatGb(mb: number): string {
   if (mb < 1024) return `${Math.round(mb)} MB`;
   return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+function formatCpu(cpuPercent?: number): string {
+  if (cpuPercent == null) return '0%';
+  return `${Math.round(cpuPercent)}%`;
 }
 
 function statusDotClass(status: string): string {
@@ -45,10 +57,10 @@ export function MemoryIndicator({ onOpenSettings, settingsShortcut }: MemoryIndi
     queryKey: ['memory'],
     queryFn: async () => {
       const api = window.electronAPI;
-      if (!api) return { totalMb: 0, sessions: [], processes: [], processCount: 0 };
+      if (!api) return { totalMb: 0, totalCpuPercent: 0, sessions: [], processes: [], processCount: 0 };
       return api.sessions.memory();
     },
-    refetchInterval: 5000,
+    refetchInterval: open ? 5000 : 15000,
     staleTime: 4000,
   });
 
@@ -76,7 +88,7 @@ export function MemoryIndicator({ onOpenSettings, settingsShortcut }: MemoryIndi
           <rect x="4" y="7" width="2" height="3.5" rx="0.5" fill="currentColor" opacity="0.5" />
           <rect x="7.5" y="4.5" width="2" height="6" rx="0.5" fill="currentColor" opacity="0.7" />
         </svg>
-        <span>{formatGb(data.totalMb)}</span>
+        <span>{formatGb(data.totalMb)} / {formatCpu(data.totalCpuPercent)}</span>
       </button>
       <button
         className="mem-indicator__settings-btn"
@@ -99,23 +111,23 @@ export function MemoryIndicator({ onOpenSettings, settingsShortcut }: MemoryIndi
           <div className="mem-indicator__scrim" onClick={() => setOpen(false)} />
           <div className="mem-indicator__dropdown">
             <div className="mem__header">
-              <span className="mem__title">Memory usage</span>
-              <span className="mem__total">{formatGb(data.totalMb)}</span>
+              <span className="mem__title">Resource usage</span>
+              <span className="mem__total">{formatGb(data.totalMb)} / {formatCpu(data.totalCpuPercent)}</span>
             </div>
             <div className="mem__processes">
               {(data.processes ?? [])
                 .sort((a, b) => {
                   if (a.sessionId && !b.sessionId) return -1;
                   if (!a.sessionId && b.sessionId) return 1;
-                  return b.mb - a.mb;
+                  return b.mb - a.mb || (b.cpuPercent ?? 0) - (a.cpuPercent ?? 0);
                 })
                 .map((p, i) => (
-                  <div key={i} className="mem__session-row">
+                  <div key={p.pid ?? i} className="mem__session-row" title={`${p.type}${p.pid ? ` pid ${p.pid}` : ''}${p.component ? ` (${p.component})` : ''}`}>
                     <span className={`mem__dot ${p.sessionId ? statusDotClass(data.sessions.find((s) => s.id === p.sessionId)?.status ?? 'stopped') : 'mem__dot--system'}`} />
                     <span className="mem__session-id">
                       {p.label}
                     </span>
-                    <span className="mem__session-mb">{Math.round(p.mb)} MB</span>
+                    <span className="mem__session-mb">{Math.round(p.mb)} MB / {formatCpu(p.cpuPercent)}</span>
                     {p.sessionId && (
                       <button
                         className="mem__kill-btn"

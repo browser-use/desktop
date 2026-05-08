@@ -238,6 +238,16 @@ tasks:
           SERVICE: engine
           SESSION_ID: "{{default \"\" .SESSION_ID}}"
 
+  windows:logs:resource:
+    desc: "Windows: tail resource usage snapshots, e.g. task windows:logs:resource SESSION_ID=abc123"
+    platforms: [windows]
+    silent: true
+    cmds:
+      - task: windows:logs:service
+        vars:
+          SERVICE: resource
+          SESSION_ID: "{{default \"\" .SESSION_ID}}"
+
   windows:logs:agent:
     desc: "Windows: tail agent transcript events, e.g. task windows:logs:agent SESSION_ID=abc123"
     platforms: [windows]
@@ -434,6 +444,15 @@ tasks:
       - task: logs:service
         vars:
           SERVICE: engine
+          SESSION_ID: "{{default \"\" .SESSION_ID}}"
+
+  logs:resource:
+    desc: Tail resource usage snapshots, e.g. task logs:resource SESSION_ID=abc123
+    silent: true
+    cmds:
+      - task: logs:service
+        vars:
+          SERVICE: resource
           SESSION_ID: "{{default \"\" .SESSION_ID}}"
 
   logs:agent:

@@ -96,6 +96,12 @@ import { forwardAgentEvent } from './pill';
 // Session management
 import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
+import {
+  snapshotResourceUsage,
+  startResourceMonitor,
+  stopResourceMonitor,
+  type ResourceMonitorContext,
+} from './resourceMonitor';
 // Channels (WhatsApp)
 import { WhatsAppAdapter } from './channels/WhatsAppAdapter';
 import { ChannelRouter } from './channels/ChannelRouter';
@@ -171,6 +177,10 @@ const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'se
 // to <userData>/harness/ on first run, preserves user edits on subsequent runs.
 bootstrapHarness();
 const browserPool = new BrowserPool();
+const resourceMonitorContext: ResourceMonitorContext = {
+  browserSessions: () => browserPool.getStats().sessions,
+  sessionInfo: (sessionId) => sessionManager.getResourceInfo(sessionId),
+};
 // Push browser-gone notifications to the shell renderer so the UI can stop
 // showing "Browser starting…" when a WebContents is destroyed or crashes.
 browserPool.setOnGone((sessionId) => {
@@ -360,6 +370,7 @@ function openShellAndWire(): BrowserWindow {
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
   mainLogger.info('main.appReady', { msg: 'Electron app ready — initializing Browser Use' });
+  startResourceMonitor(resourceMonitorContext);
 
   // Verify the CDP endpoint at our announced port is actually OUR Electron
   // instance and not, e.g., the user's own Chrome that happened to already
@@ -1408,37 +1419,31 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('sessions:memory', () => {
-    const metrics = app.getAppMetrics();
-    const poolStats = browserPool.getStats();
-    const pidToSession = new Map<number, string>();
-    for (const s of poolStats.sessions) {
-      if (s.pid > 0) pidToSession.set(s.pid, s.sessionId);
-    }
-
-    let totalMb = 0;
-    let appMb = 0;
-    const sessions: Array<{ id: string; mb: number; status: string }> = [];
-    const processes: Array<{ label: string; type: string; mb: number; sessionId?: string }> = [];
-
-    for (const m of metrics) {
-      const mb = Math.round(m.memory.workingSetSize / 1024);
-      totalMb += mb;
-      const sessionId = pidToSession.get(m.pid);
-
-      if (sessionId) {
-        const session = sessionManager.getSession(sessionId);
-        const prompt = session?.prompt ?? '';
-        const label = prompt.length > 40 ? prompt.slice(0, 40) + '...' : prompt;
-        sessions.push({ id: sessionId, mb, status: session?.status ?? 'unknown' });
-        processes.push({ label, type: 'session', mb, sessionId });
-      } else {
-        appMb += mb;
-      }
-    }
-
-    processes.unshift({ label: 'App', type: 'app', mb: appMb });
-
-    return { totalMb, sessions, processes, processCount: metrics.length };
+    const snapshot = snapshotResourceUsage(resourceMonitorContext);
+    return {
+      totalMb: Math.round(snapshot.total.rssMb),
+      totalCpuPercent: snapshot.total.cpuPercent,
+      sessions: Object.entries(snapshot.bySession).map(([id, usage]) => ({
+        id,
+        mb: Math.round(usage.rssMb),
+        cpuPercent: usage.cpuPercent,
+        status: usage.status ?? 'unknown',
+        processCount: usage.processCount,
+      })),
+      processes: snapshot.processes.map((processUsage) => ({
+        pid: processUsage.pid,
+        label: processUsage.label,
+        type: processUsage.kind,
+        component: processUsage.component,
+        mb: Math.round(processUsage.rssMb),
+        cpuPercent: processUsage.cpuPercent,
+        sessionId: processUsage.sessionId,
+        engineId: processUsage.engineId,
+        source: processUsage.source,
+      })),
+      processCount: snapshot.total.processCount,
+      errors: snapshot.errors,
+    };
   });
 
   // ---------------------------------------------------------------------------
@@ -1572,6 +1577,7 @@ app.whenReady().then(async () => {
     }
     activeAgents.clear();
     browserPool.destroyAll(shellWindow ?? undefined);
+    stopResourceMonitor();
     sessionManager.destroy();
     whatsAppAdapter.disconnect().catch(() => {});
     channelRouter.destroy();

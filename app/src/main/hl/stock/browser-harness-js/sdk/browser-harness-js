@@ -67,7 +67,7 @@ is_up() {
 start_repl() {
   is_up && return 0
   ensure_bun || return 1
-  CDP_REPL_PORT="$PORT" nohup bun "$REPL" >"$LOG" 2>&1 &
+  CDP_REPL_PORT="$PORT" nohup bun "$REPL" "--resource-session=${BU_SESSION_ID:-unknown}" "--resource-port=$PORT" >"$LOG" 2>&1 &
   for _ in $(seq 1 100); do
     sleep 0.1
     is_up && return 0
