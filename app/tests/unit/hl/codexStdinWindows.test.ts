@@ -16,7 +16,12 @@ const MULTILINE_PROMPT = [
 ].join('\n');
 
 describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
-  it('resolves bcode PowerShell shims before cmd/bat shims', () => {
+  it('prefers cmd shims over PowerShell shims when both exist', () => {
+    // npm-installed CLIs typically ship both .cmd and .ps1 (e.g. codex.cmd +
+    // codex.ps1). We pick .cmd as the tiebreaker because cmd.exe is always
+    // on COMSPEC and avoids powershell.exe's cold-start cost (and its
+    // observed `spawn powershell.exe ENOENT` failures from Electron's main
+    // process). The .ps1-only fallback is exercised by the next test.
     const tmpRaw = fs.mkdtempSync(path.join(os.tmpdir(), 'bcode-shim-'));
     const tmp = fs.realpathSync.native(tmpRaw);
     const ps1 = path.join(tmp, 'bcode.ps1');
@@ -31,7 +36,28 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     };
     const resolved = resolveCliSpawn('bcode', ['--version'], { env, platform: 'win32' });
 
-    expect(resolved.command).toBe('powershell.exe');
+    expect(resolved.command.toLowerCase()).toMatch(/cmd\.exe$/);
+    expect(resolved.viaCmdShell).toBe(true);
+    expect(resolved.spawnOptions).toEqual({ windowsVerbatimArguments: true });
+    expect(resolved.args[3]).toContain(cmd);
+  });
+
+  it('falls back to PowerShell when only a .ps1 shim exists', () => {
+    const tmpRaw = fs.mkdtempSync(path.join(os.tmpdir(), 'bcode-ps1-only-'));
+    const tmp = fs.realpathSync.native(tmpRaw);
+    const ps1 = path.join(tmp, 'bcode.ps1');
+    fs.writeFileSync(ps1, 'Write-Output "bcode ps1"', 'utf-8');
+
+    const env = {
+      ...process.env,
+      Path: `${tmp};${process.env.Path ?? ''}`,
+      PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    };
+    const resolved = resolveCliSpawn('bcode', ['--version'], { env, platform: 'win32' });
+
+    // Absolute path to powershell.exe under %SystemRoot%, not bare
+    // 'powershell.exe' — main-process spawns have ENOENTed on the bare name.
+    expect(resolved.command.toLowerCase()).toMatch(/system32[\\/]+windowspowershell[\\/]+v1\.0[\\/]+powershell\.exe$/);
     expect(resolved.args).toEqual(['-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', ps1, '--version']);
     expect(resolved.spawnOptions).toEqual({});
   });
