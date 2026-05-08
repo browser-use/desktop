@@ -41,6 +41,11 @@ class WebContentsCdpClient extends EventEmitter implements CdpClient {
   private onMessage = (_e: Electron.Event, method: string, params: unknown, sessionId?: string) => {
     this.emit(method, params, sessionId);
   };
+  private onDetach = (_e: Electron.Event, reason: string) => {
+    mainLogger.warn('hl.cdp.webcontents.detach', { reason });
+    this.attached = false;
+    this.emit('__detached', { reason });
+  };
 
   constructor(private wc: WebContents) {
     super();
@@ -54,12 +59,10 @@ class WebContentsCdpClient extends EventEmitter implements CdpClient {
     } catch (err) {
       mainLogger.debug('hl.cdp.webcontents.alreadyAttached', { error: (err as Error).message });
     }
+    this.dbg.removeListener('message', this.onMessage);
+    this.dbg.removeListener('detach', this.onDetach);
     this.dbg.on('message', this.onMessage);
-    this.dbg.on('detach', (_e, reason) => {
-      mainLogger.warn('hl.cdp.webcontents.detach', { reason });
-      this.attached = false;
-      this.emit('__detached', { reason });
-    });
+    this.dbg.on('detach', this.onDetach);
     this.attached = true;
   }
 
@@ -73,9 +76,11 @@ class WebContentsCdpClient extends EventEmitter implements CdpClient {
   }
 
   async close(): Promise<void> {
-    if (!this.attached) return;
-    try { this.dbg.detach(); } catch { /* ignore */ }
+    if (this.attached) {
+      try { this.dbg.detach(); } catch { /* ignore */ }
+    }
     this.dbg.removeListener('message', this.onMessage);
+    this.dbg.removeListener('detach', this.onDetach);
     this.attached = false;
   }
 }
@@ -94,14 +99,26 @@ class WebSocketCdpClient extends EventEmitter implements CdpClient {
     super();
   }
 
+  private rejectPending(err: Error): void {
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
+  }
+
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.url);
       this.ws = ws;
       ws.on('open', () => resolve());
-      ws.on('error', (err: Error) => reject(err));
+      ws.on('error', (err: Error) => {
+        this.rejectPending(err);
+        reject(err);
+      });
       ws.on('message', (data: WebSocket.RawData) => this.onMessage(data.toString()));
-      ws.on('close', () => this.emit('__detached', { reason: 'ws-closed' }));
+      ws.on('close', () => {
+        if (this.ws === ws) this.ws = null;
+        this.rejectPending(new Error('CDP socket closed'));
+        this.emit('__detached', { reason: 'ws-closed' });
+      });
     });
   }
 

@@ -16,6 +16,50 @@ const MULTILINE_PROMPT = [
 ].join('\n');
 
 describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
+  it('resolves bcode PowerShell shims before cmd/bat shims', () => {
+    const tmpRaw = fs.mkdtempSync(path.join(os.tmpdir(), 'bcode-shim-'));
+    const tmp = fs.realpathSync.native(tmpRaw);
+    const ps1 = path.join(tmp, 'bcode.ps1');
+    const cmd = path.join(tmp, 'bcode.cmd');
+    fs.writeFileSync(ps1, 'Write-Output "bcode ps1"', 'utf-8');
+    fs.writeFileSync(cmd, '@echo bcode cmd', 'utf-8');
+
+    const env = {
+      ...process.env,
+      Path: `${tmp};${process.env.Path ?? ''}`,
+      PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    };
+    const resolved = resolveCliSpawn('bcode', ['--version'], { env, platform: 'win32' });
+
+    expect(resolved.command).toBe('powershell.exe');
+    expect(resolved.args).toEqual(['-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', ps1, '--version']);
+    expect(resolved.spawnOptions).toEqual({});
+  });
+
+  it('routes bcode cmd shims through cmd.exe with verbatim arguments', () => {
+    const tmpRaw = fs.mkdtempSync(path.join(os.tmpdir(), 'bcode-cmd-'));
+    const tmp = fs.realpathSync.native(tmpRaw);
+    const shim = path.join(tmp, 'bcode.cmd');
+    fs.writeFileSync(shim, '@echo bcode cmd', 'utf-8');
+
+    const env = {
+      ...process.env,
+      Path: `${tmp};${process.env.Path ?? ''}`,
+      PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    };
+    const resolved = resolveCliSpawn('bcode', ['run', '--format', 'json', 'hello world'], { env, platform: 'win32' });
+
+    expect(resolved.command.toLowerCase()).toMatch(/cmd\.exe$/);
+    expect(resolved.viaCmdShell).toBe(true);
+    expect(resolved.spawnOptions).toEqual({ windowsVerbatimArguments: true });
+    expect(resolved.args).toEqual([
+      '/d',
+      '/s',
+      '/c',
+      `"${shim} run --format json "hello world""`,
+    ]);
+  });
+
   it('round-trips a multi-line prompt through a .cmd shim without word-splitting', async () => {
     // realpathSync.native expands 8.3 short names like C:\Users\RUNNER~1
     // (which os.tmpdir returns on GitHub Actions Windows runners) to the
@@ -42,7 +86,7 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     );
 
     const env = { ...process.env, Path: `${tmp};${process.env.Path ?? ''}` };
-    const resolved = resolveCliSpawn('codex', ['exec', '--json', '--yolo', '-'], { env, platform: 'win32' });
+    const resolved = resolveCliSpawn('codex', ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'], { env, platform: 'win32' });
     expect(resolved.viaCmdShell).toBe(true);
 
     let stdoutBuf = '';
@@ -64,7 +108,7 @@ describe.skipIf(!onWindows)('codex stdin path on Windows', () => {
     expect(fs.existsSync(stdinOut), `stdin file not created${diag}`).toBe(true);
 
     const argv = fs.readFileSync(argvOut, 'utf-8').trim().split(/\r?\n/);
-    expect(argv).toEqual(['exec', '--json', '--yolo', '-']);
+    expect(argv).toEqual(['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-']);
 
     const stdinSeen = fs.readFileSync(stdinOut, 'utf-8').replace(/\r\n/g, '\n').replace(/\n$/, '');
     expect(stdinSeen).toBe(MULTILINE_PROMPT);

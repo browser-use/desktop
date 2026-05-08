@@ -10,10 +10,11 @@
  *   result                  → done / error
  */
 
-import { spawn } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
-import { enrichedEnv, resolveCliSpawn } from '../pathEnrich';
+import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
+import { enrichedEnv } from '../pathEnrich';
+import { runCliCapture, spawnCli } from '../cliSpawn';
 import type {
   AuthProbe,
   EngineAdapter,
@@ -92,24 +93,6 @@ function stringifyToolResult(content: unknown): { text: string; isError: boolean
   return { text: JSON.stringify(content), isError: false };
 }
 
-function runCli(args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn(BIN, args, { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
-    }
-    catch { resolve({ ok: false, stdout: '', stderr: 'spawn failed' }); return; }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', () => { clearTimeout(timer); resolve({ ok: false, stdout, stderr }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr }); });
-  });
-}
-
 // ── adapter ─────────────────────────────────────────────────────────────────
 
 const claudeCodeAdapter: EngineAdapter = {
@@ -118,22 +101,22 @@ const claudeCodeAdapter: EngineAdapter = {
   binaryName: BIN,
 
   async probeInstalled(): Promise<InstallProbe> {
-    const r = await runCli(['--version']);
-    if (!r.ok) return { installed: false, error: r.stderr || 'claude not found on PATH' };
+    const r = await runCliCapture(BIN, ['--version']);
+    if (!r.ok) return { installed: false, error: r.stderr || r.error || 'claude not found on PATH' };
     const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
     return { installed: true, version: m?.[1] };
   },
 
   async probeAuthed(): Promise<AuthProbe> {
-    const r = await runCli(['auth', 'status']);
-    return r.ok ? { authed: true } : { authed: false, error: r.stderr || r.stdout || 'not logged in' };
+    const r = await runCliCapture(BIN, ['auth', 'status']);
+    return r.ok ? { authed: true } : { authed: false, error: r.stderr || r.error || r.stdout || 'not logged in' };
   },
 
   async openLoginInTerminal(): Promise<{ opened: boolean; error?: string }> {
     // Shortcut the interactive chooser: jump straight into the subscription
     // OAuth flow and let Claude open the browser itself.
     return new Promise((resolve) => {
-      const child = spawn(BIN, ['auth', 'login', '--claudeai'], { stdio: ['ignore', 'pipe', 'pipe'], env: enrichedEnv() });
+      const child = spawnCli(BIN, ['auth', 'login', '--claudeai'], { env: enrichedEnv() });
       let stdoutBuf = '';
       let stderrBuf = '';
       let settled = false;
@@ -176,8 +159,10 @@ const claudeCodeAdapter: EngineAdapter = {
     const lines: string[] = [
       'You are driving a specific Chromium browser view on this machine.',
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
-      'Read `./AGENTS.md` for how to drive the browser in this harness.',
-      'Always read `./helpers.js` before writing scripts — that is where the functions live. Edit it if a helper is missing.',
+      'Read `./AGENTS.md` for how to drive the browser with Browser Harness JS.',
+      "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
+      'Do not use old helpers.js convenience APIs for browser control.',
+      'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',
     ];
     if (ctx.attachmentRefs.length > 0) {
       lines.push('', 'The user attached these files for this task. Read each with your Read tool before acting:');
@@ -219,7 +204,7 @@ const claudeCodeAdapter: EngineAdapter = {
     if (ctx.savedApiKey) env.ANTHROPIC_API_KEY = ctx.savedApiKey;
     env.BU_TARGET_ID = ctx.targetId;
     env.BU_CDP_PORT = String(ctx.cdpPort);
-    return env;
+    return applyBrowserHarnessEnv(ctx, env);
   },
 
   parseLine(line: string, ctx: ParseContext): ParseResult {

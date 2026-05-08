@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, QueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import type { AgentSession, HlEvent } from './types';
+import type { AgentSession } from './types';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,16 +20,9 @@ export function useSessionsQuery() {
   const query = useQuery<AgentSession[]>({
     queryKey: SESSIONS_KEY,
     queryFn: async () => {
-      const t0 = performance.now();
       const api = window.electronAPI;
       if (!api) return [];
-      const list = await api.sessions.listAll();
-      console.log('[useSessionsQuery] fetched sessions', {
-        total: list.length,
-        fetchMs: Math.round(performance.now() - t0),
-        ids: list.map((s) => ({ id: s.id.slice(0, 8), status: s.status })),
-      });
-      return list;
+      return api.sessions.listAll();
     },
   });
 
@@ -38,7 +31,6 @@ export function useSessionsQuery() {
     if (!api) return;
 
     const unsubUpdate = api.on.sessionUpdated((session) => {
-      console.log('[useSessionsQuery] session-updated', { id: session.id, status: session.status, ts: Date.now() });
       qc.setQueryData<AgentSession[]>(SESSIONS_KEY, (prev = []) => {
         const idx = prev.findIndex((s) => s.id === session.id);
         if (idx >= 0) {
@@ -50,19 +42,8 @@ export function useSessionsQuery() {
       });
     });
 
-    const unsubOutput = api.on.sessionOutput((id, event) => {
-      console.log('[useSessionsQuery] session-output', { id, type: event.type });
-      qc.setQueryData<AgentSession[]>(SESSIONS_KEY, (prev = []) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          return { ...s, output: [...s.output, event] };
-        }),
-      );
-    });
-
     return () => {
       unsubUpdate();
-      unsubOutput();
     };
   }, [qc]);
 
@@ -98,4 +79,3 @@ export function useHydrateSession(id: string | null) {
     }).catch(() => {});
   }, [id, qc]);
 }
-

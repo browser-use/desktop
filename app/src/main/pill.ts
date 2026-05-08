@@ -14,7 +14,8 @@
  * D2: Verbose dev-only logging on all lifecycle events.
  */
 
-import { BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, screen, type Rectangle } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentEvent } from '../shared/types';
 import { mainLogger, rendererLogger } from './logger';
@@ -38,6 +39,7 @@ const PILL_WIDTH = 600;
 const PILL_HEIGHT_COLLAPSED = 110;
 const PILL_HEIGHT_EXPANDED = 520;
 const PILL_TOP_OFFSET = 160;
+const PILL_BOUNDS_FILE_NAME = 'pill-bounds.json';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -45,6 +47,8 @@ const PILL_TOP_OFFSET = 160;
 
 let pillWindow: BrowserWindow | null = null;
 let requestedPillHeight = PILL_HEIGHT_COLLAPSED;
+let savedPillBounds: PillBounds | null = null;
+let programmaticBoundsChangeUntil = 0;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -54,11 +58,142 @@ let requestedPillHeight = PILL_HEIGHT_COLLAPSED;
  * Compute the x position so the pill is horizontally centered on the display
  * nearest the cursor.
  */
+interface PillBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 function clampPillHeight(height: number): number {
   return Math.max(PILL_HEIGHT_COLLAPSED, Math.min(height, PILL_HEIGHT_EXPANDED));
 }
 
-function computePillBounds(height = requestedPillHeight): { x: number; y: number; width: number; height: number } {
+function boundsStorePath(): string {
+  return path.join(app.getPath('userData'), PILL_BOUNDS_FILE_NAME);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function clampToRange(value: number, min: number, max: number): number {
+  if (max < min) return min;
+  return Math.max(min, Math.min(value, max));
+}
+
+function rectsIntersect(a: Rectangle, b: Rectangle): boolean {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
+
+function visibleAreaForBounds(bounds: PillBounds): Rectangle | null {
+  try {
+    const displays = screen.getAllDisplays();
+    const areas = displays.map((display) => display.workArea ?? display.bounds);
+    return areas.find((area) => rectsIntersect(bounds, area)) ?? null;
+  } catch (err) {
+    log.warn('pill.visibleAreaForBounds', {
+      message: 'Failed to get displays for saved pill bounds',
+      error: (err as Error).message,
+    });
+    return null;
+  }
+}
+
+function loadSavedPillBounds(): PillBounds | null {
+  try {
+    const raw = fs.readFileSync(boundsStorePath(), 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<PillBounds>;
+    if (!isFiniteNumber(parsed.x) || !isFiniteNumber(parsed.y)) {
+      log.warn('pill.loadSavedBounds.invalid', { message: 'Saved pill bounds missing valid coordinates' });
+      return null;
+    }
+    return {
+      x: Math.round(parsed.x),
+      y: Math.round(parsed.y),
+      width: PILL_WIDTH,
+      height: clampPillHeight(isFiniteNumber(parsed.height) ? parsed.height : requestedPillHeight),
+    };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code && code !== 'ENOENT') {
+      log.warn('pill.loadSavedBounds.failed', { error: (err as Error).message });
+    }
+    return null;
+  }
+}
+
+function savePillBounds(bounds: PillBounds): void {
+  const toSave: PillBounds = {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: PILL_WIDTH,
+    height: clampPillHeight(bounds.height),
+  };
+
+  try {
+    fs.mkdirSync(path.dirname(boundsStorePath()), { recursive: true });
+    fs.writeFileSync(boundsStorePath(), JSON.stringify(toSave, null, 2), 'utf-8');
+    savedPillBounds = toSave;
+    log.debug('pill.saveBounds.ok', { bounds: toSave });
+  } catch (err) {
+    log.warn('pill.saveBounds.failed', { error: (err as Error).message });
+  }
+}
+
+function beginProgrammaticBoundsChange(durationMs = 200): void {
+  programmaticBoundsChangeUntil = Date.now() + durationMs;
+}
+
+function isProgrammaticBoundsChange(): boolean {
+  return Date.now() < programmaticBoundsChangeUntil;
+}
+
+function boundsFromSavedPosition(height = requestedPillHeight): PillBounds | null {
+  if (!savedPillBounds) return null;
+
+  const candidate = {
+    x: savedPillBounds.x,
+    y: savedPillBounds.y,
+    width: PILL_WIDTH,
+    height,
+  };
+  const visibleArea = visibleAreaForBounds(candidate);
+  if (!visibleArea) {
+    log.warn('pill.savedBounds.offscreen', {
+      message: 'Saved pill bounds are off-screen, using default position',
+      savedBounds: savedPillBounds,
+    });
+    return null;
+  }
+
+  const clamped = {
+    ...candidate,
+    x: clampToRange(candidate.x, visibleArea.x, visibleArea.x + visibleArea.width - PILL_WIDTH),
+    y: clampToRange(candidate.y, visibleArea.y, visibleArea.y + visibleArea.height - height),
+  };
+
+  if (clamped.x !== candidate.x || clamped.y !== candidate.y) {
+    log.info('pill.savedBounds.clamped', {
+      savedBounds: savedPillBounds,
+      clamped,
+      visibleArea,
+    });
+    savePillBounds(clamped);
+  }
+
+  return clamped;
+}
+
+function computePillBounds(height = requestedPillHeight): PillBounds {
+  const savedBounds = boundsFromSavedPosition(height);
+  if (savedBounds) return savedBounds;
+
   let displayBounds = { x: 0, y: 0, width: 1920, height: 1080 };
 
   try {
@@ -83,6 +218,19 @@ function computePillBounds(height = requestedPillHeight): { x: number; y: number
   });
 
   return { x, y, width: PILL_WIDTH, height };
+}
+
+function trackUserMovedPill(): void {
+  if (!pillWindow || pillWindow.isDestroyed()) return;
+  if (isProgrammaticBoundsChange()) return;
+
+  const bounds = pillWindow.getBounds();
+  savePillBounds({
+    x: bounds.x,
+    y: bounds.y,
+    width: PILL_WIDTH,
+    height: requestedPillHeight,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +278,7 @@ export function createPillWindow(): BrowserWindow {
   });
 
   requestedPillHeight = PILL_HEIGHT_COLLAPSED;
+  savedPillBounds = loadSavedPillBounds();
 
   // macOS uses `vibrancy: 'hud'` to render the pill body as frosted glass —
   // it requires `transparent: true` + a fully clear backgroundColor. Windows
@@ -201,6 +350,7 @@ export function createPillWindow(): BrowserWindow {
     log.info('pill.closed', { message: 'Pill window closed — nulling reference' });
     pillWindow = null;
   });
+  pillWindow.on('move', trackUserMovedPill);
 
   log.info('pill.createPillWindow.complete', {
     message: 'Pill window created (hidden)',
@@ -227,6 +377,7 @@ export function showPill(): void {
 
   // Reposition to center-top of active display every time we show
   const bounds = computePillBounds();
+  beginProgrammaticBoundsChange();
   pillWindow.setBounds(bounds);
 
   pillWindow.showInactive();
@@ -357,6 +508,7 @@ export function setPillHeight(height: number): void {
   if (!pillWindow || pillWindow.isDestroyed()) return;
 
   const current = pillWindow.getBounds();
+  beginProgrammaticBoundsChange();
   pillWindow.setBounds({ ...current, height: nextHeight }, true);
 
   log.debug('pill.setPillHeight', {

@@ -261,6 +261,11 @@ html, body {
   color: var(--color-fg-tertiary);
 }
 
+.profile-browser-logo {
+  width: 42px;
+  height: 42px;
+}
+
 .profile-info {
   flex: 1;
   min-width: 0;
@@ -795,10 +800,9 @@ html, body {
   border-radius: 8px;
 }
 
-.import-summary-card .profile-avatar {
-  width: 28px;
-  height: 28px;
-  font-size: 12px;
+.import-summary-card .profile-browser-logo-summary {
+  width: 32px;
+  height: 32px;
 }
 
 .import-summary-card .profile-name {

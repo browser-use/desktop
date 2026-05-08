@@ -1,4 +1,12 @@
-import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { INPUT_PLACEHOLDER } from './constants';
 import { EnginePicker } from './EnginePicker';
 import {
@@ -106,6 +114,29 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
   });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = 'auto';
+    const maxHeight = Number.parseFloat(window.getComputedStyle(textarea).maxHeight);
+    const nextHeight = Number.isFinite(maxHeight) && maxHeight > 0
+      ? Math.min(textarea.scrollHeight, maxHeight)
+      : textarea.scrollHeight;
+
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > nextHeight + 1 ? 'auto' : 'hidden';
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeTextarea();
+  }, [resizeTextarea, value]);
+
+  useEffect(() => {
+    window.addEventListener('resize', resizeTextarea);
+    return () => window.removeEventListener('resize', resizeTextarea);
+  }, [resizeTextarea]);
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     setErrorMsg(null);
@@ -217,8 +248,11 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
   return (
     <div className="task-input">
       <div
-        className={`task-input__box${focused ? ' task-input__box--focused' : ''}`}
+        className={`task-input__box${focused ? ' task-input__box--focused' : ''}${dragActive ? ' task-input__box--drag' : ''}`}
         onClick={focusTextareaOnBoxClick}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
       >
         {attachments.length > 0 && (
           <div className="task-input__chips">

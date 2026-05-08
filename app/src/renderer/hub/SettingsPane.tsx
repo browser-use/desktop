@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ConnectionsPane } from './ConnectionsPane';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ConnectionsPane, type SettingsProviderFocusRequest } from './ConnectionsPane';
 import type { ActionId, KeyBinding } from './keybindings';
 import { fallbackShortcutPlatform, keyboardEventToShortcut } from '../../shared/hotkeys';
 
@@ -158,8 +158,7 @@ function AppSection(): React.ReactElement {
   const handleUpdateClick = updateReady ? handleInstallUpdate : handleDownloadLatest;
 
   return (
-    <div className="settings-pane__section">
-      <span className="settings-pane__section-title">Application</span>
+    <div className="settings-card">
       <div className="settings-pane__row">
         <div>
           <div className="settings-pane__label">Version</div>
@@ -225,12 +224,7 @@ function PrivacySection(): React.ReactElement {
   }, [telemetry, saving, api]);
 
   return (
-    <div className="settings-pane__section">
-      <span className="settings-pane__section-title">Privacy</span>
-      <p className="settings-pane__hint">
-        Control what leaves your machine. No prompts, credentials, or file contents are ever collected.
-      </p>
-
+    <div className="settings-card">
       <div className="settings-pane__row">
         <div>
           <div className="settings-pane__label">Allow telemetry to help us make this app better</div>
@@ -264,9 +258,31 @@ function PrivacySection(): React.ReactElement {
   );
 }
 
+export type SettingsSectionId =
+  | 'settings-model-providers'
+  | 'settings-connections'
+  | 'settings-browser-sync'
+  | 'settings-shortcuts'
+  | 'settings-privacy'
+  | 'settings-application';
+
+export interface SettingsOpenIntent {
+  requestId: number;
+  sectionId?: SettingsSectionId;
+  focusBrowserCodeProvider?: string;
+}
+
+const SETTINGS_TABS: Array<{ id: SettingsSectionId; label: string }> = [
+  { id: 'settings-application', label: 'Application' },
+  { id: 'settings-model-providers', label: 'Model providers' },
+  { id: 'settings-connections', label: 'Connections' },
+  { id: 'settings-browser-sync', label: 'Browser Sync' },
+  { id: 'settings-shortcuts', label: 'Shortcuts' },
+  { id: 'settings-privacy', label: 'Privacy' },
+];
+
 interface SettingsPaneProps {
-  open: boolean;
-  onClose: () => void;
+  intent?: SettingsOpenIntent | null;
   keybindings: KeyBinding[];
   overrides: Record<string, string[]>;
   onUpdateBinding: (id: ActionId, keys: string[]) => Promise<boolean>;
@@ -358,7 +374,10 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
 
   return (
     <div className={`settings-pane__row${isOverridden ? ' settings-pane__row--modified' : ''}`}>
-      <span className="settings-pane__label">{kb.label}</span>
+      <div className="settings-pane__label-block">
+        <span className="settings-pane__label">{kb.label}</span>
+        <span className="settings-pane__sublabel">{kb.category}</span>
+      </div>
       <div className="settings-pane__row-right">
         <button
           className={`settings-pane__key-btn${recording ? ' settings-pane__key-btn--recording' : ''}`}
@@ -395,48 +414,115 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
   );
 }
 
-export function SettingsPane({ open, onClose, keybindings, overrides, onUpdateBinding, onResetBinding, onResetAll, formatShortcut }: SettingsPaneProps): React.ReactElement | null {
-  if (!open) return null;
+export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, onResetBinding, onResetAll, formatShortcut }: SettingsPaneProps): React.ReactElement {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('settings-application');
   const platform = window.electronAPI?.shell?.platform ?? fallbackShortcutPlatform();
 
+  const scrollToSection = useCallback((id: SettingsSectionId, behavior: ScrollBehavior = 'smooth') => {
+    const scroller = scrollerRef.current;
+    const target = scroller?.querySelector<HTMLElement>(`#${id}`);
+    if (!scroller || !target) return;
+    const tabOffset = 96;
+    scroller.scrollTo({
+      top: Math.max(0, target.offsetTop - tabOffset),
+      behavior,
+    });
+    setActiveSection(id);
+  }, []);
+
+  const updateActiveFromScroll = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    let next = SETTINGS_TABS[0].id;
+    const threshold = scroller.scrollTop + 112;
+    for (const tab of SETTINGS_TABS) {
+      const section = scroller.querySelector<HTMLElement>(`#${tab.id}`);
+      if (section && section.offsetTop <= threshold) next = tab.id;
+    }
+    setActiveSection(next);
+  }, []);
+
+  useEffect(() => {
+    const sectionId = intent?.sectionId ?? (
+      intent?.focusBrowserCodeProvider ? 'settings-model-providers' : undefined
+    );
+    if (!sectionId) return;
+    requestAnimationFrame(() => scrollToSection(sectionId, 'auto'));
+  }, [intent?.requestId, intent?.sectionId, intent?.focusBrowserCodeProvider, scrollToSection]);
+
+  const providerFocus: SettingsProviderFocusRequest | null = intent?.focusBrowserCodeProvider
+    ? { providerId: intent.focusBrowserCodeProvider, requestId: intent.requestId }
+    : null;
+
   return (
-    <div className="settings-pane__scrim" onClick={onClose}>
-      <div className="settings-pane" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-pane__header">
-          <span className="settings-pane__title">Settings</span>
-          <button className="settings-pane__close" onClick={onClose}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="settings-pane__body">
-          <AppSection />
-          <div className="settings-pane__section">
-            <span className="settings-pane__section-title">Connections</span>
-            <ConnectionsPane embedded />
-          </div>
-          <PrivacySection />
-          <div className="settings-pane__section">
-            <div className="settings-pane__section-header">
-              <span className="settings-pane__section-title">Keybindings</span>
+    <div className="settings-page">
+      <div className="settings-page__scroller" ref={scrollerRef} onScroll={updateActiveFromScroll}>
+        <div className="settings-page__content">
+          <header className="settings-page__header">
+            <div>
+              <span className="settings-page__eyebrow">Browser Use</span>
+              <h1 className="settings-page__title">Settings</h1>
+            </div>
+          </header>
+
+          <nav className="settings-page__tabs" aria-label="Settings sections">
+            {SETTINGS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`settings-page__tab${activeSection === tab.id ? ' settings-page__tab--active' : ''}`}
+                onClick={() => scrollToSection(tab.id)}
+                data-settings-tab={tab.id}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <section id="settings-application" className="settings-page__section">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Application</h2>
+            </div>
+            <AppSection />
+          </section>
+
+          <ConnectionsPane
+            embedded
+            providerSectionId="settings-model-providers"
+            connectionsSectionId="settings-connections"
+            browserSyncSectionId="settings-browser-sync"
+            focusBrowserCodeProvider={providerFocus}
+          />
+
+          <section id="settings-shortcuts" className="settings-page__section">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Shortcuts</h2>
               {Object.keys(overrides).length > 0 && (
                 <button className="settings-pane__reset-all" onClick={onResetAll}>Reset all</button>
               )}
             </div>
-            <p className="settings-pane__hint">Click a binding to record a new key. Press Esc to cancel.</p>
-            {keybindings.map((kb) => (
-              <KeybindRow
-                key={kb.id}
-                kb={kb}
-                isOverridden={kb.id in overrides}
-                onUpdate={onUpdateBinding}
-                onReset={onResetBinding}
-                platform={platform}
-                formatShortcut={formatShortcut}
-              />
-            ))}
-          </div>
+            <div className="settings-card settings-card--shortcuts">
+              {keybindings.map((kb) => (
+                <KeybindRow
+                  key={kb.id}
+                  kb={kb}
+                  isOverridden={kb.id in overrides}
+                  onUpdate={onUpdateBinding}
+                  onReset={onResetBinding}
+                  platform={platform}
+                  formatShortcut={formatShortcut}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section id="settings-privacy" className="settings-page__section settings-page__section--last">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Privacy</h2>
+            </div>
+            <PrivacySection />
+          </section>
         </div>
       </div>
     </div>

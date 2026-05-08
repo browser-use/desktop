@@ -66,6 +66,35 @@ describe('shortcut platform normalization', () => {
     expect(keyboardEventToShortcut(event, 'linux')).toBe('Alt+Space');
   });
 
+  it('preserves printable letter case when capturing physical letter keys', () => {
+    expect(keyboardEventToShortcut({
+      key: 'j',
+      code: 'KeyJ',
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    } as KeyboardEvent, 'darwin')).toBe('j');
+
+    expect(keyboardEventToShortcut({
+      key: 'c',
+      code: 'KeyC',
+      metaKey: false,
+      ctrlKey: true,
+      altKey: false,
+      shiftKey: false,
+    } as KeyboardEvent, 'darwin')).toBe('Ctrl+c');
+
+    expect(keyboardEventToShortcut({
+      key: 'K',
+      code: 'KeyK',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: true,
+    } as KeyboardEvent, 'darwin')).toBe('Cmd+Shift+K');
+  });
+
   it('captures macOS option-space as Space instead of a non-breaking-space glyph', () => {
     const event = {
       key: '\u00A0',

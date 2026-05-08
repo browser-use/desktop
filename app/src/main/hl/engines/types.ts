@@ -12,7 +12,7 @@ import type { HlEvent } from '../../../shared/session-schemas';
 export interface SpawnContext {
   /** User prompt to feed to the CLI. Adapters may wrap with seed/system text. */
   prompt: string;
-  /** Absolute path to <userData>/harness/ (AGENTS.md + helpers.js live here). */
+  /** Absolute path to <userData>/harness/ (AGENTS.md + browser-harness-js live here). */
   harnessDir: string;
   /** App session id (used for naming uploads/outputs dirs + env injection). */
   sessionId: string;
@@ -24,7 +24,9 @@ export interface SpawnContext {
   resumeSessionId?: string;
   /** Optional user-supplied API key; adapter decides how to inject. */
   savedApiKey?: string;
-  /** Optional model id selected by the user. Undefined means use the CLI default. */
+  /** Optional provider id for engines that route through provider/model registries. */
+  providerId?: string;
+  /** Optional model id selected for this run. */
   model?: string;
   /** List of attachment paths (relative to harnessDir) the adapter may mention in wrappedPrompt. */
   attachmentRefs: Array<{ relPath: string; mime: string; size: number }>;
@@ -122,7 +124,7 @@ export interface EngineAdapter {
 export interface RunEngineOptions {
   engineId: string;
   prompt: string;
-  /** Optional model id selected by the user. Undefined means use the CLI default. */
+  /** Optional model id selected by the user. Undefined means use the engine default. */
   model?: string;
   sessionId: string;
   webContents: WebContents;
@@ -133,6 +135,8 @@ export interface RunEngineOptions {
   signal?: AbortSignal;
   onEvent: (e: HlEvent) => void;
   onSessionId?: (id: string) => void;
+  /** Fired when the runner can identify the model that this spawn is using. */
+  onModelResolved?: (info: { model: string; source: 'config' | 'engine' }) => void;
   /** Fired once per run with the resolved auth for this spawn, so the caller
    *  can stamp the session with the mode that actually ran it. */
   onAuthResolved?: (info: { authMode: 'apiKey' | 'subscription' | null; subscriptionType: string | null }) => void;

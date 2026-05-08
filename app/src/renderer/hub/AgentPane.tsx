@@ -1,5 +1,4 @@
-import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
-import { useHydrateSession } from './useSessionsQuery';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { STATUS_LABEL } from './constants';
 import { ContentRenderer, getPreview } from './ContentRenderer';
 import { Markdown, linkifyOutputPaths } from './Markdown';
@@ -11,7 +10,7 @@ import cursorLogoSrc from './cursor-logo.svg?raw';
 import vscodeLogo from './vscode-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogo from './openai-logo.svg';
-import { adaptSession } from './types';
+import opencodeLogo from './opencode-logo-dark.svg';
 import type { AgentSession, OutputEntry } from './types';
 
 function formatElapsed(createdAt: number): string {
@@ -37,6 +36,9 @@ function isApiKeyError(raw: string): boolean {
 
 function friendlyError(raw: string): string {
   const lower = raw.toLowerCase();
+  if (lower.includes('browsercode') || lower.includes('moonshot') || lower.includes('minimax') || lower.includes('qwen') || lower.includes('alibaba')) {
+    if (isApiKeyError(raw)) return 'BrowserCode provider API key is missing or invalid. Update it in Settings.';
+  }
   if (lower.includes('credit balance is too low') || lower.includes('insufficient_quota')) return 'API credits exhausted. Please add credits to your Anthropic account.';
   if (isApiKeyError(raw)) return 'Anthropic API key is missing or invalid. Update it in Settings.';
   if (lower.includes('rate_limit') || lower.includes('rate limit')) return 'Rate limited. Too many requests — try again in a moment.';
@@ -466,7 +468,7 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
           </svg>
         </span>
         <span className="step__skill-label">{verb} harness</span>
-        <span className="step__skill-topic">{isHelpers ? 'helpers.js' : `TOOLS.json${diffSummary}`}</span>
+        <span className="step__skill-topic">{isHelpers ? 'helpers.js' : `AGENTS.md${diffSummary}`}</span>
       </div>
     );
   }
@@ -556,6 +558,14 @@ function RerunIcon(): React.ReactElement {
     <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
       <path d="M2 7a5 5 0 019.33-2.5M12 7a5 5 0 01-9.33 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
       <path d="M11 2v3h-3M3 12V9h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ResumeIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+      <path d="M5 3.5v7L10.5 7 5 3.5Z" fill="currentColor" />
     </svg>
   );
 }
@@ -733,6 +743,7 @@ interface AgentPaneProps {
   session: AgentSession;
   focused?: boolean;
   onRerun?: (sessionId: string) => void;
+  onResume?: (sessionId: string) => void;
   onFollowUp?: (sessionId: string, prompt: string, attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>) => void;
   onDismiss?: (sessionId: string) => void;
   onCancel?: (sessionId: string) => void;
@@ -743,9 +754,7 @@ interface AgentPaneProps {
   cycleShortcut?: string;
 }
 
-export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
-  useHydrateSession(session.id);
-  const scrollRef = useRef<HTMLDivElement>(null);
+export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
   const paneRef = useRef<HTMLDivElement>(null);
   const [browserDead, setBrowserDead] = useState(false);
   const [browserMissing, setBrowserMissing] = useState(false);
@@ -756,18 +765,6 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
   // Auto-open the logs overlay once per fresh session id so users see the
   // agent's stream as soon as a task starts.
   const autoLogsTriggeredRef = useRef<Set<string>>(new Set());
-  const { entries: rawEntries } = useMemo(() => adaptSession(session), [session]);
-  const entries = useMemo<OutputEntry[]>(() => {
-    if (!session.prompt) return rawEntries;
-    const promptEntry: OutputEntry = {
-      id: `prompt-${session.id}`,
-      type: 'user_input',
-      timestamp: session.createdAt,
-      content: session.prompt,
-    };
-    return [promptEntry, ...rawEntries];
-  }, [rawEntries, session.prompt, session.id, session.createdAt]);
-
   const computeBounds = useCallback((): { x: number; y: number; width: number; height: number; slotWidth: number } | null => {
     const el = paneRef.current?.querySelector('.pane__output') as HTMLElement | null;
     if (!el) return null;
@@ -803,26 +800,6 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     });
     return off;
   }, [session.id]);
-
-  // A running session always has a pool entry. Treat it as ready so the
-  // renderer calls viewAttach immediately — previously we also required
-  // rawEntries.length>0, which stalled the initial attach until the agent
-  // produced its first HlEvent.
-  const browserNotReady = session.status === 'draft';
-
-  const updateFrameRect = useCallback((slotWidth: number) => {
-    const paneEl = paneRef.current;
-    const outEl = paneEl?.querySelector('.pane__output') as HTMLElement | null;
-    if (!paneEl || !outEl) return;
-    const p = paneEl.getBoundingClientRect();
-    const o = outEl.getBoundingClientRect();
-    setFrameRect({
-      left: Math.round(o.left - p.left),
-      top: Math.round(o.top - p.top),
-      width: slotWidth,
-      height: Math.round(o.height),
-    });
-  }, []);
 
   const handleToggleLogs = useCallback(() => {
     const api = window.electronAPI;
@@ -865,8 +842,9 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     if (!api) return;
     if (browserDead) {
       // Dead browser — ensure any lingering view is detached.
+      // Keep frameRect so the "Browser ended" overlay can paint over the
+      // pane__output slot; nulling it leaves the pane black with no label.
       api.sessions.viewDetach(session.id).catch(() => {});
-      setFrameRect(null);
       return;
     }
 
@@ -1006,14 +984,16 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
     }
   }, [session.id, session.status]);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [entries.length]);
-
   const elapsed = formatElapsed(session.createdAt);
   const statusText = STATUS_LABEL[session.status] ?? session.status;
+  const isCancellation = !!session.error && session.error.toLowerCase().includes('cancel');
+  const showErrorUi = !!session.error && !isCancellation;
+  const canResume = Boolean(
+    onResume &&
+    session.canResume === true &&
+    (session.status === 'idle' || session.status === 'stopped') &&
+    (browserDead || browserMissing || session.status === 'stopped'),
+  );
 
   return (
     <div
@@ -1031,12 +1011,22 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
           {session.engine === 'codex' && (
             <img className="pane__engine-icon" src={openaiLogo} alt="Codex" title="Codex" />
           )}
+          {session.engine === 'browsercode' && (
+            <img className="pane__engine-icon" src={opencodeLogo} alt="BrowserCode" title="BrowserCode" />
+          )}
           {session.engine === 'claude-code' && (
             <img className="pane__engine-icon" src={claudeCodeLogo} alt="Claude Code" title="Claude Code" />
           )}
+          {session.engine === 'cursor-agent' && (
+            <span
+              className="pane__engine-icon pane__engine-icon--inline"
+              title="Cursor Agent"
+              dangerouslySetInnerHTML={{ __html: cursorLogoSrc as string }}
+            />
+          )}
           {session.model && (
             <span className="pane__model-badge" title={`Model: ${session.model}`}>
-              {session.model}
+              {session.model.includes('/') ? session.model.split('/').pop() : session.model}
             </span>
           )}
           {session.authMode && (
@@ -1095,6 +1085,16 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
               <RerunIcon />
             </button>
           )}
+          {canResume && (
+            <button
+              className="pane__action-btn pane__action-btn--icon pane__action-btn--primary"
+              onClick={(e) => { e.stopPropagation(); onResume?.(session.id); }}
+              aria-label="Resume"
+              data-tip="Resume"
+            >
+              <ResumeIcon />
+            </button>
+          )}
           {(session.status === 'running' || session.status === 'stuck') && onCancel && (
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
@@ -1133,89 +1133,83 @@ export function AgentPane({ session, focused, onRerun, onFollowUp, onDismiss, on
         {session.status === 'running' && <div className="pane__progress-bar" />}
       </div>
 
-      {frameRect && (browserDead || browserMissing || session.status === 'draft' || session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck') && !(session.error && entries.length <= 2) && (
-        <div
-          className="pane__browser-frame"
-          style={{
-            left: frameRect.left,
-            top: frameRect.top,
-            width: frameRect.width,
-            height: frameRect.height,
-          }}
-        >
-          <div className="pane__browser-starting">
-            <span className="pane__browser-starting-row">
-              {browserDead ? (
-                <span>Browser ended</span>
-              ) : browserMissing ? (
-                <span>
-                  {session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck'
-                    ? 'Browser stopped'
-                    : 'No browser started yet'}
-                </span>
-              ) : session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? (
-                <span>Browser ended</span>
-              ) : (
-                <>
-                  <span className="pane__spinner" />
-                  <span>Browser starting…</span>
-                </>
+      {frameRect && (showErrorUi || browserDead || browserMissing || session.status === 'draft' || session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck') && (() => {
+        const isStarting = !showErrorUi && !browserDead && !browserMissing && session.status === 'draft';
+        const browserLine = browserDead
+          ? 'Browser ended'
+          : browserMissing
+            ? (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser stopped' : 'No browser started yet')
+            : (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser ended' : null);
+        const primaryLine = showErrorUi
+          ? friendlyError(session.error!)
+          : isCancellation
+            ? 'Task was cancelled.'
+            : browserLine;
+        const subLine = (showErrorUi || isCancellation) ? browserLine : null;
+        const showActions = !isStarting && (onRerun || canResume || (showErrorUi && isApiKeyError(session.error) && onOpenSettings));
+        return (
+          <div
+            className="pane__browser-frame"
+            style={{
+              left: frameRect.left,
+              top: frameRect.top,
+              width: frameRect.width,
+              height: frameRect.height,
+            }}
+          >
+            <div className="pane__browser-starting">
+              {showErrorUi && (
+                <div className="pane__error-icon">
+                  <ErrorIcon />
+                </div>
               )}
-            </span>
-            {!session.error && session.status === 'stopped' && onRerun && (
-              <button
-                className="pane__rerun-btn"
-                onClick={() => onRerun(session.id)}
-              >
-                <RerunIcon />
-                <span>Rerun task</span>
-              </button>
-            )}
+              <span className="pane__browser-starting-row">
+                {isStarting ? (
+                  <>
+                    <span className="pane__spinner" />
+                    <span>Browser starting…</span>
+                  </>
+                ) : (
+                  <span>{primaryLine}</span>
+                )}
+              </span>
+              {subLine && primaryLine !== subLine && (
+                <span className="pane__browser-subline">{subLine}</span>
+              )}
+              {showActions && (
+                <div className="pane__browser-actions">
+                  {canResume && (
+                    <button
+                      className="pane__rerun-btn pane__rerun-btn--primary"
+                      onClick={() => onResume?.(session.id)}
+                    >
+                      <ResumeIcon />
+                      <span>Resume</span>
+                    </button>
+                  )}
+                  {showErrorUi && isApiKeyError(session.error) && onOpenSettings && (
+                    <button className="pane__rerun-btn" onClick={onOpenSettings}>
+                      <span>Open Settings</span>
+                    </button>
+                  )}
+                  {onRerun && (
+                    <button
+                      className="pane__rerun-btn"
+                      onClick={() => onRerun(session.id)}
+                    >
+                      <RerunIcon />
+                      <span>Rerun task</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       <div
         className="pane__output"
-        ref={scrollRef}
-      >
-        {session.error && entries.length <= 2 && (
-          <div className="pane__error-center">
-            <div className="pane__error-icon">
-              <ErrorIcon />
-            </div>
-            <p className="pane__error-msg">{friendlyError(session.error)}</p>
-            <div className="pane__error-actions">
-              {isApiKeyError(session.error) && onOpenSettings && (
-                <button className="pane__rerun-btn" onClick={onOpenSettings}>
-                  <span>Open Settings</span>
-                </button>
-              )}
-              {onRerun && (
-                <button className="pane__rerun-btn" onClick={() => onRerun(session.id)}>
-                  <RerunIcon />
-                  <span>Rerun task</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        {session.error && entries.length > 2 && (
-          <div className="pane__rerun">
-            <span className="pane__rerun-error">{friendlyError(session.error)}</span>
-            {isApiKeyError(session.error) && onOpenSettings && (
-              <button className="pane__rerun-btn" onClick={onOpenSettings}>
-                <span>Open Settings</span>
-              </button>
-            )}
-            {onRerun && (
-              <button className="pane__rerun-btn" onClick={() => onRerun(session.id)}>
-                <RerunIcon />
-                <span>Rerun task</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      />
 
     </div>
   );

@@ -18,10 +18,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
-import { enrichedEnv, resolveCliSpawn } from '../pathEnrich';
+import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
+import { enrichedEnv } from '../pathEnrich';
+import { runCliCapture, spawnCli } from '../cliSpawn';
 import { runCodexDeviceLogin } from '../../../identity/codexLogin';
 import type {
   AuthProbe,
@@ -38,6 +40,7 @@ import { estimateCostUsd } from '../../pricing';
 const ID = 'codex';
 const DISPLAY = 'Codex';
 const BIN = 'codex';
+const BYPASS_APPROVALS_FLAG = '--dangerously-bypass-approvals-and-sandbox';
 
 const CODEX_FALLBACK_MODELS: EngineModelList['models'] = [
   {
@@ -153,8 +156,7 @@ function listCodexModelsViaAppServer(timeoutMs = 10_000): Promise<EngineModelLis
 
     try {
       const env = enrichedEnv();
-      const resolved = resolveCliSpawn(BIN, ['app-server', '--listen', 'stdio://'], { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['pipe', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
+      child = spawnCli(BIN, ['app-server', '--listen', 'stdio://'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (err) {
       settle(fallback((err as Error).message));
       return;
@@ -200,24 +202,6 @@ function listCodexModelsViaAppServer(timeoutMs = 10_000): Promise<EngineModelLis
   });
 }
 
-function runCli(args: string[], timeoutMs = 5000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      const env = enrichedEnv();
-      const resolved = resolveCliSpawn(BIN, args, { env });
-      child = spawn(resolved.command, resolved.args, { stdio: ['ignore', 'pipe', 'pipe'], env, ...resolved.spawnOptions });
-    }
-    catch { resolve({ ok: false, stdout: '', stderr: 'spawn failed' }); return; }
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', (d) => (stdout += String(d)));
-    child.stderr.on('data', (d) => (stderr += String(d)));
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
-    child.on('error', () => { clearTimeout(timer); resolve({ ok: false, stdout, stderr }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr }); });
-  });
-}
-
 function codexAuthFilePath(): string {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
   return path.join(home, 'auth.json');
@@ -258,8 +242,8 @@ const codexAdapter: EngineAdapter = {
   binaryName: BIN,
 
   async probeInstalled(): Promise<InstallProbe> {
-    const r = await runCli(['--version']);
-    if (!r.ok) return { installed: false, error: r.stderr || 'codex not found on PATH' };
+    const r = await runCliCapture(BIN, ['--version']);
+    if (!r.ok) return { installed: false, error: r.stderr || r.error || 'codex not found on PATH' };
     const m = r.stdout.match(/(\d+\.\d+\.\d+)/);
     return { installed: true, version: m?.[1] };
   },
@@ -292,8 +276,10 @@ const codexAdapter: EngineAdapter = {
     const lines: string[] = [
       'You are driving a specific Chromium browser view on this machine.',
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
-      'Read `./AGENTS.md` for how to drive the browser in this harness.',
-      'Always read `./helpers.js` before writing scripts — that is where the functions live. Edit it if a helper is missing.',
+      'Read `./AGENTS.md` for how to drive the browser with Browser Harness JS.',
+      "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
+      'Do not use old helpers.js convenience APIs for browser control.',
+      'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',
     ];
     if (ctx.attachmentRefs.length > 0) {
       lines.push('', 'The user attached these files for this task. Read each one before acting:');
@@ -312,14 +298,13 @@ const codexAdapter: EngineAdapter = {
     // `codex exec resume <id> -` for continuation; otherwise plain exec.
     // The trailing `-` tells codex to read the prompt from stdin — see
     // getStdinPayload below for why we never pass the prompt via argv.
-    // --yolo skips sandbox + approvals — acceptable because the agent is
-    //   already scoped by env BU_TARGET_ID and cwd. Equivalent to Claude Code's
-    //   --dangerously-skip-permissions.
+    // The bypass flag skips sandbox + approvals, mirroring Claude Code's
+    // --dangerously-skip-permissions for this app-managed harness.
     const modelArgs = ctx.model ? ['--model', ctx.model] : [];
     if (ctx.resumeSessionId) {
-      return ['exec', 'resume', ...modelArgs, ctx.resumeSessionId, '--json', '--yolo', '-'];
+      return ['exec', 'resume', '--json', BYPASS_APPROVALS_FLAG, ...modelArgs, ctx.resumeSessionId, '-'];
     }
-    return ['exec', ...modelArgs, '--json', '--yolo', '-'];
+    return ['exec', '--json', BYPASS_APPROVALS_FLAG, ...modelArgs, '-'];
   },
 
   getStdinPayload(_ctx: SpawnContext, wrappedPrompt: string): string {
@@ -345,7 +330,7 @@ const codexAdapter: EngineAdapter = {
     }
     env.BU_TARGET_ID = ctx.targetId;
     env.BU_CDP_PORT = String(ctx.cdpPort);
-    return env;
+    return applyBrowserHarnessEnv(ctx, env);
   },
 
   parseLine(line: string, ctx: ParseContext): ParseResult {
@@ -356,7 +341,6 @@ const codexAdapter: EngineAdapter = {
     const type = e.type as string | undefined;
     const events: HlEvent[] = [];
     let capturedSessionId: string | undefined;
-    let terminalDone = false;
     let terminalError: string | undefined;
 
     if (type === 'thread.started') {

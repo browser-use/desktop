@@ -141,7 +141,10 @@ export function rendererToAccelerator(combo: string, platform?: string): string 
 
 function keyboardEventKeyName(e: KeyboardEvent): string | null {
   if (e.code === 'Space' || SPACE_KEYS.has(e.key)) return 'Space';
-  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3);
+  if (/^Key[A-Z]$/.test(e.code)) {
+    if (/^[a-zA-Z]$/.test(e.key)) return e.key;
+    return e.code.slice(3);
+  }
   if (/^Digit[0-9]$/.test(e.code)) return e.code.slice(5);
   if (e.key.length === 0) return null;
   return e.key;

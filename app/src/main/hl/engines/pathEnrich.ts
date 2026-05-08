@@ -21,6 +21,14 @@ interface EnrichOptions {
   homedir?: string;
 }
 
+interface CliLaunchOptions extends EnrichOptions {
+  env?: NodeJS.ProcessEnv;
+}
+
+type PosixPathMod = typeof path.posix;
+type WindowsPathMod = typeof path.win32;
+type ExtraDirResult = string | string[] | null;
+
 /**
  * Spawn the user's login shell once and capture its PATH. Catches custom
  * dirs set in ~/.zshrc / ~/.bashrc / chruby / mise / asdf / etc. that
@@ -31,6 +39,11 @@ interface EnrichOptions {
  */
 let cachedShellPath: string | null = null;
 let cachedShellPathTried = false;
+
+export function resetPathEnrichmentCache(): void {
+  cachedShellPath = null;
+  cachedShellPathTried = false;
+}
 
 function queryLoginShellPath(env: NodeJS.ProcessEnv = process.env, platform: Platform = process.platform): string | null {
   if (platform === 'win32') return null;
@@ -53,34 +66,101 @@ function queryLoginShellPath(env: NodeJS.ProcessEnv = process.env, platform: Pla
   return cachedShellPath;
 }
 
-const POSIX_EXTRA_DIRS_FNS: Array<(home: string, platform: Platform, pathMod: typeof path) => string | null> = [
+function existingChildBins(root: string, pathMod: PosixPathMod | WindowsPathMod, childToBin: (child: string) => string): string[] {
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => childToBin(pathMod.join(root, entry.name)))
+      .filter((dir) => {
+        try { return fs.statSync(dir).isDirectory(); }
+        catch { return false; }
+      })
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function envPath(env: NodeJS.ProcessEnv, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = env[key];
+    if (value) return value;
+  }
+  return null;
+}
+
+const POSIX_EXTRA_DIRS_FNS: Array<(home: string, platform: Platform, env: NodeJS.ProcessEnv, pathMod: PosixPathMod) => ExtraDirResult> = [
+  (_home, _platform, env) => envPath(env, 'PNPM_HOME'),
+  (_home, _platform, env, pathMod) => {
+    const prefix = envPath(env, 'NPM_CONFIG_PREFIX', 'npm_config_prefix');
+    return prefix ? pathMod.join(prefix, 'bin') : null;
+  },
   () => '/opt/homebrew/bin',
   () => '/opt/homebrew/sbin',
   () => '/usr/local/bin',
   () => '/usr/local/sbin',
-  (home, _platform, pathMod) => pathMod.join(home, '.npm-global', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, '.volta', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, '.nvm', 'versions', 'node'),
-  (home, _platform, pathMod) => pathMod.join(home, '.bun', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, '.deno', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, '.cargo', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, '.local', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, '.yarn', 'bin'),
-  (home, _platform, pathMod) => pathMod.join(home, 'bin'),
+  (_home, _platform, _env, pathMod) => platformDir(pathMod, '/snap/bin'),
+  (_home, platform) => platform === 'darwin' ? '/Applications/Codex.app/Contents/Resources' : null,
+  (home, platform, _env, pathMod) => platform === 'darwin' ? pathMod.join(home, 'Applications', 'Codex.app', 'Contents', 'Resources') : null,
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.npm-global', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.npm-packages', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.volta', 'bin'),
+  (home, _platform, _env, pathMod) => existingChildBins(pathMod.join(home, '.nvm', 'versions', 'node'), pathMod, (child) => pathMod.join(child, 'bin')),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.nodebrew', 'current', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.n', 'bin'),
+  (home, _platform, _env, pathMod) => existingChildBins(pathMod.join(home, '.fnm', 'node-versions'), pathMod, (child) => pathMod.join(child, 'installation', 'bin')),
+  (home, _platform, _env, pathMod) => existingChildBins(pathMod.join(home, '.local', 'share', 'fnm', 'node-versions'), pathMod, (child) => pathMod.join(child, 'installation', 'bin')),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.asdf', 'shims'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.local', 'share', 'mise', 'shims'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.local', 'share', 'rtx', 'shims'),
+  (home, platform, _env, pathMod) => platform === 'darwin' ? pathMod.join(home, 'Library', 'pnpm') : null,
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.local', 'share', 'pnpm'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.bun', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.bcode', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.deno', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.cargo', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.local', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.yarn', 'bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, '.config', 'yarn', 'global', 'node_modules', '.bin'),
+  (home, _platform, _env, pathMod) => pathMod.join(home, 'bin'),
 ];
 
-const WINDOWS_EXTRA_DIRS_FNS: Array<(home: string, env: NodeJS.ProcessEnv, pathMod: typeof path.win32) => string | null> = [
+function platformDir(pathMod: PosixPathMod, dir: string): string {
+  return pathMod.normalize(dir);
+}
+
+const WINDOWS_EXTRA_DIRS_FNS: Array<(home: string, env: NodeJS.ProcessEnv, pathMod: WindowsPathMod) => ExtraDirResult> = [
+  (_home, env) => envPath(env, 'PNPM_HOME'),
+  (_home, env) => {
+    const prefix = envPath(env, 'NPM_CONFIG_PREFIX', 'npm_config_prefix');
+    return prefix;
+  },
   (_home, env, pathMod) => env.LOCALAPPDATA ? pathMod.join(env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'bin') : null,
   (_home, env, pathMod) => env.LOCALAPPDATA ? pathMod.join(env.LOCALAPPDATA, 'Programs', 'cursor', 'resources', 'app', 'bin') : null,
   (_home, env, pathMod) => env.LOCALAPPDATA ? pathMod.join(env.LOCALAPPDATA, 'Programs', 'Windsurf', 'resources', 'app', 'bin') : null,
+  (_home, env, pathMod) => env.LOCALAPPDATA ? pathMod.join(env.LOCALAPPDATA, 'pnpm') : null,
+  (_home, env, pathMod) => env.LOCALAPPDATA ? pathMod.join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps') : null,
+  (_home, env, pathMod) => env.APPDATA ? pathMod.join(env.APPDATA, 'npm') : null,
+  (_home, env, pathMod) => env.APPDATA ? existingChildBins(pathMod.join(env.APPDATA, 'fnm', 'node-versions'), pathMod, (child) => pathMod.join(child, 'installation')) : null,
   (home, _env, pathMod) => pathMod.join(home, 'AppData', 'Roaming', 'npm'),
+  (home, _env, pathMod) => pathMod.join(home, '.npm-global'),
+  (home, _env, pathMod) => pathMod.join(home, '.npm-packages', 'bin'),
+  (home, _env, pathMod) => pathMod.join(home, '.volta', 'bin'),
+  (home, _env, pathMod) => existingChildBins(pathMod.join(home, '.fnm', 'node-versions'), pathMod, (child) => pathMod.join(child, 'installation')),
   (home, _env, pathMod) => pathMod.join(home, '.bun', 'bin'),
+  (home, _env, pathMod) => pathMod.join(home, '.bcode', 'bin'),
   (home, _env, pathMod) => pathMod.join(home, '.deno', 'bin'),
   (home, _env, pathMod) => pathMod.join(home, '.cargo', 'bin'),
+  (home, _env, pathMod) => pathMod.join(home, 'scoop', 'shims'),
+  (_home, env, pathMod) => env.ProgramData ? pathMod.join(env.ProgramData, 'scoop', 'shims') : pathMod.join('C:\\', 'ProgramData', 'scoop', 'shims'),
+  (_home, env, pathMod) => env.ChocolateyInstall ? pathMod.join(env.ChocolateyInstall, 'bin') : pathMod.join('C:\\', 'ProgramData', 'chocolatey', 'bin'),
 ];
 
 function pathValueFromEnv(env: NodeJS.ProcessEnv, platform: Platform): string {
-  if (platform === 'win32') return env.Path ?? env.PATH ?? '';
+  if (platform === 'win32') {
+    const values = [env.Path, env.PATH].filter((value): value is string => Boolean(value));
+    return Array.from(new Set(values)).join(';');
+  }
   return env.PATH ?? '';
 }
 
@@ -89,25 +169,29 @@ function pathKeyForEnv(env: NodeJS.ProcessEnv, platform: Platform): 'PATH' | 'Pa
   return 'PATH';
 }
 
-export function enrichedPath(base = pathValueFromEnv(process.env, process.platform), opts: EnrichOptions = {}): string {
+export function enrichedPath(base?: string, opts: EnrichOptions = {}): string {
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
   const home = opts.homedir ?? os.homedir();
-  const pathMod = platform === 'win32' ? path.win32 : path;
+  const pathMod = platform === 'win32' ? path.win32 : path.posix;
   const delimiter = platform === 'win32' ? ';' : ':';
-  const existing = base.split(delimiter).filter(Boolean);
+  const existing = (base ?? pathValueFromEnv(env, platform)).split(delimiter).filter(Boolean);
   const set = new Set(existing);
   const out = [...existing];
+
+  const addDir = (dir: string): void => {
+    if (!set.has(dir)) {
+      set.add(dir);
+      out.push(dir);
+    }
+  };
 
   // First: anything the user's login shell knows about on POSIX — covers
   // custom setups like chruby, asdf, mise, direnv, or ad-hoc PATH exports.
   const shellPath = queryLoginShellPath(env, platform);
   if (shellPath) {
     for (const dir of shellPath.split(delimiter).filter(Boolean)) {
-      if (!set.has(dir)) {
-        set.add(dir);
-        out.push(dir);
-      }
+      addDir(dir);
     }
   }
 
@@ -115,21 +199,28 @@ export function enrichedPath(base = pathValueFromEnv(process.env, process.platfo
   // shell query failed or the platform has no login-shell convention.
   const extraFns = platform === 'win32'
     ? WINDOWS_EXTRA_DIRS_FNS.map((fn) => () => fn(home, env, pathMod))
-    : POSIX_EXTRA_DIRS_FNS.map((fn) => () => fn(home, platform, pathMod));
+    : POSIX_EXTRA_DIRS_FNS.map((fn) => () => fn(home, platform, env, pathMod));
   for (const fn of extraFns) {
-    const dir = fn();
-    if (dir && !set.has(dir)) {
-      set.add(dir);
-      out.push(dir);
+    const result = fn();
+    const dirs = Array.isArray(result) ? result : result ? [result] : [];
+    for (const dir of dirs) {
+      addDir(dir);
     }
   }
   return out.join(delimiter);
 }
 
-export function enrichedEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const platform = process.platform;
+export function enrichedEnv(baseEnv: NodeJS.ProcessEnv = process.env, opts: Omit<EnrichOptions, 'env'> = {}): NodeJS.ProcessEnv {
+  const platform = opts.platform ?? process.platform;
   const key = pathKeyForEnv(baseEnv, platform);
-  return { ...baseEnv, [key]: enrichedPath(pathValueFromEnv(baseEnv, platform), { platform, env: baseEnv }) };
+  return {
+    ...baseEnv,
+    [key]: enrichedPath(pathValueFromEnv(baseEnv, platform), {
+      platform,
+      env: baseEnv,
+      homedir: opts.homedir,
+    }),
+  };
 }
 
 /**
@@ -208,7 +299,7 @@ export function resolveCliSpawn(
   const platform = opts.platform ?? process.platform;
   if (platform !== 'win32') return { command: name, args: [...args], viaCmdShell: false, spawnOptions: {} };
 
-  const env = opts.env ?? enrichedEnv();
+  const env = opts.env ?? enrichedEnv(process.env, { platform });
   const resolved = findOnWindowsPath(name, env);
   if (!resolved) return { command: name, args: [...args], viaCmdShell: false, spawnOptions: {} };
 
@@ -246,9 +337,38 @@ export function resolveCliSpawn(
   // GitHub Actions windows-latest in tests/unit/hl/codexStdinWindows.test.ts.
   const cmdline = [resolved, ...args].map(quoteForCmdExe).join(' ');
   return {
-    command: process.env.ComSpec || 'cmd.exe',
+    command: env.ComSpec || 'cmd.exe',
     args: ['/d', '/s', '/c', `"${cmdline}"`],
     viaCmdShell: true,
     spawnOptions: { windowsVerbatimArguments: true },
   };
+}
+
+export interface CliLaunchSpec extends ResolvedCli {
+  env: NodeJS.ProcessEnv;
+}
+
+/**
+ * High-level router for launching user-installed CLIs from the Electron app.
+ *
+ * Every call gets a GUI-safe PATH first. On macOS/Linux, that is the main
+ * compatibility fix: CLIs installed by Homebrew, pnpm, Volta, asdf, npm,
+ * mise, etc. become visible even when the app was opened outside a shell.
+ *
+ * Windows gets the same PATH enrichment, then adds shim resolution for npm's
+ * `.cmd`/`.ps1` launchers so callers can keep passing plain names like
+ * `codex` or `claude` without knowing how the package manager installed them.
+ */
+export function resolveCliLaunch(
+  name: string,
+  args: readonly string[],
+  opts: CliLaunchOptions = {},
+): CliLaunchSpec {
+  const platform = opts.platform ?? process.platform;
+  const env = enrichedEnv(opts.env ?? process.env, {
+    platform,
+    homedir: opts.homedir,
+  });
+  const resolved = resolveCliSpawn(name, args, { platform, env });
+  return { ...resolved, env };
 }

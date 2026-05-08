@@ -1,20 +1,25 @@
 /**
  * Preload for the logs window. Exposes what TerminalPane needs plus a tiny
- * `logsAPI` for close/active-session signalling. Verbose logging so we can
- * see the stream reaching this window when the xterm is empty.
+ * `logsAPI` for close/active-session signalling.
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
 
-// eslint-disable-next-line no-console
-console.log('[logs-preload] init');
+const DEBUG_LOGS_PRELOAD = process.env.BU_DEBUG_LOGS_PRELOAD === '1';
+function debugLog(message: string, data?: Record<string, unknown>): void {
+  if (!DEBUG_LOGS_PRELOAD) return;
+  if (data) console.log(message, data);
+  else console.log(message);
+}
+
+debugLog('[logs-preload] init');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   sessions: {
     getTermReplay: async (id: string): Promise<string> => {
-      console.log('[logs-preload] getTermReplay', { id });
+      debugLog('[logs-preload] getTermReplay', { id });
       const replay = await ipcRenderer.invoke('sessions:get-term-replay', id);
-      console.log('[logs-preload] getTermReplay result', {
+      debugLog('[logs-preload] getTermReplay result', {
         id,
         length: typeof replay === 'string' ? replay.length : 'non-string',
       });
@@ -32,9 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   on: {
     sessionOutputTerm: (cb: (id: string, bytes: string) => void): (() => void) => {
-      console.log('[logs-preload] subscribe sessionOutputTerm');
+      debugLog('[logs-preload] subscribe sessionOutputTerm');
       const handler = (_e: unknown, id: string, bytes: string) => {
-        console.log('[logs-preload] session-output-term received', {
+        debugLog('[logs-preload] session-output-term received', {
           id,
           byteLen: bytes?.length ?? 0,
         });
@@ -42,7 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
       ipcRenderer.on('session-output-term', handler);
       return () => {
-        console.log('[logs-preload] unsubscribe sessionOutputTerm');
+        debugLog('[logs-preload] unsubscribe sessionOutputTerm');
         ipcRenderer.removeListener('session-output-term', handler);
       };
     },
@@ -58,7 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // only emits session-output, not session-updated.
     sessionOutput: (cb: (id: string, event: unknown) => void): (() => void) => {
       const handler = (_e: unknown, id: string, event: unknown) => {
-        console.log('[logs-preload] session-output received', {
+        debugLog('[logs-preload] session-output received', {
           id,
           type: (event as { type?: string })?.type,
         });
@@ -72,17 +77,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 contextBridge.exposeInMainWorld('logsAPI', {
   close: (): void => {
-    console.log('[logs-preload] close');
+    debugLog('[logs-preload] close');
     ipcRenderer.send('logs:close');
   },
   setMode: (mode: 'dot' | 'normal' | 'full'): void => {
-    console.log('[logs-preload] setMode', { mode });
+    debugLog('[logs-preload] setMode', { mode });
     ipcRenderer.send('logs:set-mode', mode);
   },
   onModeChanged: (cb: (mode: 'dot' | 'normal' | 'full') => void): (() => void) => {
     const handler = (_e: unknown, m: string) => {
       if (m === 'dot' || m === 'normal' || m === 'full') {
-        console.log('[logs-preload] mode-changed', { mode: m });
+        debugLog('[logs-preload] mode-changed', { mode: m });
         cb(m);
       }
     };
@@ -90,9 +95,9 @@ contextBridge.exposeInMainWorld('logsAPI', {
     return () => ipcRenderer.removeListener('logs:mode-changed', handler);
   },
   onActiveSessionChanged: (cb: (sessionId: string | null) => void): (() => void) => {
-    console.log('[logs-preload] subscribe onActiveSessionChanged');
+    debugLog('[logs-preload] subscribe onActiveSessionChanged');
     const handler = (_e: unknown, id: string | null) => {
-      console.log('[logs-preload] active-session-changed', { id });
+      debugLog('[logs-preload] active-session-changed', { id });
       cb(id);
     };
     ipcRenderer.on('logs:active-session-changed', handler);
@@ -101,7 +106,7 @@ contextBridge.exposeInMainWorld('logsAPI', {
   // Fired when the hub asks us to take focus (user pressed 'f' on a card).
   onFocusFollowUp: (cb: () => void): (() => void) => {
     const handler = () => {
-      console.log('[logs-preload] focus-followup');
+      debugLog('[logs-preload] focus-followup');
       cb();
     };
     ipcRenderer.on('logs:focus-followup', handler);
@@ -114,4 +119,4 @@ contextBridge.exposeInMainWorld('logsAPI', {
     ipcRenderer.invoke('sessions:resume', { id: sessionId, prompt }),
 });
 
-console.log('[logs-preload] ready');
+debugLog('[logs-preload] ready');

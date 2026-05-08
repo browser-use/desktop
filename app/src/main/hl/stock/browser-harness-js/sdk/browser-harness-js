@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# browser-harness-js — eval JS in the persistent CDP REPL. Auto-starts the REPL on first use.
+#
+# Usage:
+#   browser-harness-js 'await session.connect({port:9222})'
+#   browser-harness-js 'await session.Page.navigate({url:"https://example.com"})'
+#   browser-harness-js <<'EOF'
+#     const t = await listPageTargets("localhost", 9222);
+#     globalThis.tid = t[0].targetId;
+#     await session.use(globalThis.tid);
+#     globalThis.tid
+#   EOF
+#
+#   browser-harness-js --status   # is the REPL running? prints health JSON
+#   browser-harness-js --stop     # gracefully shut it down
+#   browser-harness-js --logs     # tail the REPL log
+#   browser-harness-js --restart  # stop + start fresh (drops session state)
+#   browser-harness-js --start    # explicit start (no-op if already running)
+
+set -euo pipefail
+
+PORT="${CDP_REPL_PORT:-9876}"
+HOST="127.0.0.1"
+URL="http://$HOST:$PORT"
+
+# Resolve repl.ts alongside this script, following symlinks (e.g. /usr/local/bin/browser-harness-js → <skill-dir>/sdk/browser-harness-js).
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+REPL="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/repl.ts"
+
+LOG="${CDP_REPL_LOG:-/tmp/browser-harness-js.log}"
+
+# Bootstrap bun if missing — the REPL server is Bun-native.
+ensure_bun() {
+  if command -v bun >/dev/null 2>&1; then return 0; fi
+  # Handle fresh install: bun's install script drops the binary here but
+  # PATH isn't updated until the next login shell.
+  if [ -x "$HOME/.bun/bin/bun" ]; then
+    export PATH="$HOME/.bun/bin:$PATH"
+    return 0
+  fi
+  if [ -n "${BROWSER_HARNESS_SKIP_BUN_INSTALL:-}" ]; then
+    echo "browser-harness-js: bun not found and BROWSER_HARNESS_SKIP_BUN_INSTALL is set." >&2
+    echo "  Install manually: curl -fsSL https://bun.sh/install | bash" >&2
+    return 1
+  fi
+  echo "browser-harness-js: installing bun (one-time, from https://bun.sh/install)..." >&2
+  if ! curl -fsSL https://bun.sh/install | bash >&2; then
+    echo "browser-harness-js: bun install failed. Install manually from https://bun.sh, or set BROWSER_HARNESS_SKIP_BUN_INSTALL=1 to suppress this prompt." >&2
+    return 1
+  fi
+  export PATH="$HOME/.bun/bin:$PATH"
+  command -v bun >/dev/null 2>&1 || {
+    echo "browser-harness-js: bun installed but not found at \$HOME/.bun/bin/bun." >&2
+    return 1
+  }
+}
+
+is_up() {
+  curl -fsS --max-time 1 "$URL/health" >/dev/null 2>&1
+}
+
+start_repl() {
+  is_up && return 0
+  ensure_bun || return 1
+  CDP_REPL_PORT="$PORT" nohup bun "$REPL" "--resource-session=${BU_SESSION_ID:-unknown}" "--resource-port=$PORT" >"$LOG" 2>&1 &
+  for _ in $(seq 1 100); do
+    sleep 0.1
+    is_up && return 0
+  done
+  echo "browser-harness-js: REPL failed to start on $URL (see $LOG)" >&2
+  return 1
+}
+
+post_eval() {
+  # Capture body + status separately. Body goes to stdout (only if non-empty)
+  # on 200; otherwise to stderr with non-zero exit.
+  local out status body
+  out=$(curl -sS -w '\n___STATUS___%{http_code}' --data-binary "$1" "$URL/eval")
+  status="${out##*___STATUS___}"
+  body="${out%$'\n'___STATUS___*}"
+  if [ "$status" = "200" ]; then
+    [ -n "$body" ] && printf '%s\n' "$body"
+    return 0
+  else
+    [ -n "$body" ] && printf '%s\n' "$body" >&2
+    return 1
+  fi
+}
+
+case "${1:-}" in
+  --status)
+    if is_up; then
+      curl -sS "$URL/health"; echo
+    else
+      echo '{"ok":false,"error":"down"}'
+      exit 1
+    fi
+    ;;
+  --start)
+    start_repl
+    curl -sS "$URL/health"; echo
+    ;;
+  --stop)
+    if is_up; then
+      curl -s -X POST "$URL/quit" >/dev/null || true
+      echo '{"ok":true,"stopped":true}'
+    else
+      echo '{"ok":true,"stopped":false,"note":"already down"}'
+    fi
+    ;;
+  --restart)
+    is_up && curl -s -X POST "$URL/quit" >/dev/null 2>&1 || true
+    sleep 0.2
+    start_repl
+    curl -sS "$URL/health"; echo
+    ;;
+  --logs)
+    exec tail -f "$LOG"
+    ;;
+  --help|-h)
+    sed -n '2,/^set -euo/p' "$0" | sed 's/^#//; s/^ //; /^set -euo/d'
+    ;;
+  "")
+    start_repl
+    code="$(cat)"
+    post_eval "$code"
+    ;;
+  *)
+    start_repl
+    post_eval "$1"
+    ;;
+esac

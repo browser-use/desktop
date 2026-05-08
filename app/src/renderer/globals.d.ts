@@ -73,6 +73,18 @@ interface ElectronSessionAPI {
     authed: { authed: boolean; error?: string };
   }>;
   engineLogin: (engineId: string) => Promise<{ opened: boolean; error?: string }>;
+  engineInstall: (engineId: string) => Promise<{
+    opened: boolean;
+    completed?: boolean;
+    exitCode?: number | null;
+    signal?: string | null;
+    error?: string;
+    command?: string;
+    displayName?: string;
+    stdout?: string;
+    stderr?: string;
+    installed?: { installed: boolean; version?: string; error?: string };
+  }>;
   resume: (
     id: string,
     prompt: string,
@@ -90,7 +102,24 @@ interface ElectronSessionAPI {
   viewsDetachAll: () => Promise<void>;
   getTabs: (id: string) => Promise<unknown[]>;
   poolStats: () => Promise<unknown>;
-  memory: () => Promise<{ totalMb: number; sessions: Array<{ id: string; mb: number; status: string }>; processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>; processCount: number }>;
+  memory: () => Promise<{
+    totalMb: number;
+    totalCpuPercent?: number;
+    sessions: Array<{ id: string; mb: number; cpuPercent?: number; status: string; processCount?: number }>;
+    processes: Array<{
+      pid?: number;
+      label: string;
+      type: string;
+      component?: string;
+      mb: number;
+      cpuPercent?: number;
+      sessionId?: string;
+      engineId?: string;
+      source?: string;
+    }>;
+    processCount: number;
+    errors?: string[];
+  }>;
   getTermReplay: (id: string) => Promise<string>;
 }
 
@@ -104,13 +133,19 @@ interface ElectronChannelsAPI {
 }
 
 interface ChromeProfileSummary {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -146,7 +181,7 @@ interface ChromeProfileSyncRecord {
 
 interface ElectronChromeImportAPI {
   detectProfiles: () => Promise<ChromeProfileSummary[]>;
-  importCookies: (profileDir: string) => Promise<CookieImportResult>;
+  importCookies: (profileId: string) => Promise<CookieImportResult>;
   listCookies: () => Promise<SessionCookieSummary[]>;
   getSyncs: () => Promise<Record<string, ChromeProfileSyncRecord>>;
 }
@@ -156,7 +191,7 @@ interface ElectronOnAPI {
   sessionBrowserGone: (cb: (id: string) => void) => () => void;
   sessionOutput: (cb: (id: string, event: import('./hub/types').HlEvent) => void) => () => void;
   sessionOutputTerm: (cb: (id: string, bytes: string) => void) => () => void;
-  openSettings?: (cb: () => void) => () => void;
+  openSettings?: (cb: (payload?: { focusBrowserCodeProvider?: string }) => void) => () => void;
   zoomChanged?: (cb: (factor: number) => void) => () => void;
   whatsappQr?: (cb: (dataUrl: string) => void) => () => void;
   channelStatus?: (cb: (channelId: string, status: string, detail?: string) => void) => () => void;
@@ -256,6 +291,24 @@ interface ElectronSettingsCursorAPI {
   logout: () => Promise<{ opened: boolean; error?: string }>;
 }
 
+interface ElectronSettingsBrowserCodeAPI {
+  getStatus: () => Promise<{
+    keys: Record<string, { masked: string; lastModel?: string }>;
+    active: string | null;
+    installed?: { installed: boolean; version?: string; error?: string };
+    providers: Array<{
+      id: string;
+      name: string;
+      defaultModel: string;
+      models: Array<{ id: string; label: string }>;
+    }>;
+  }>;
+  save: (payload: { providerId: string; apiKey: string; lastModel?: string }) => Promise<void>;
+  test: (payload: { providerId: string; apiKey: string; model?: string }) => Promise<{ success: boolean; error?: string }>;
+  delete: (payload?: { providerId?: string }) => Promise<void>;
+  setActive: (payload: { providerId: string }) => Promise<void>;
+}
+
 interface ElectronSettingsAppAPI {
   getUpdateStatus: () => Promise<{
     status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error' | 'unavailable';
@@ -304,11 +357,13 @@ interface ElectronSettingsAppAPI {
 }
 
 interface ElectronSettingsAPI {
+  open?: (payload?: { focusBrowserCodeProvider?: string }) => Promise<void>;
   apiKey: ElectronSettingsApiKeyAPI;
   claudeCode?: ElectronSettingsClaudeCodeAPI;
   openaiKey?: ElectronSettingsOpenAiKeyAPI;
   codex?: ElectronSettingsCodexAPI;
   cursor?: ElectronSettingsCursorAPI;
+  browserCode?: ElectronSettingsBrowserCodeAPI;
   app?: ElectronSettingsAppAPI;
 }
 

@@ -1,13 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 export interface ChromeProfile {
+  id: string;
   directory: string;
+  browserKey: string;
+  browserName: string;
   name: string;
   email: string;
   avatarIcon: string;
 }
 
 export interface CookieImportResult {
+  profileId: string;
+  browserName: string;
+  profileDirectory: string;
   total: number;
   imported: number;
   failed: number;
@@ -23,8 +29,8 @@ const onboardingAPI = {
   detectChromeProfiles: (): Promise<ChromeProfile[]> =>
     ipcRenderer.invoke('chrome-import:detect-profiles'),
 
-  importChromeProfileCookies: (profileDir: string): Promise<CookieImportResult> =>
-    ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+  importChromeProfileCookies: (profileId: string): Promise<CookieImportResult> =>
+    ipcRenderer.invoke('chrome-import:import-cookies', profileId),
 
   listSessionCookies: (): Promise<Array<{
     name: string;
@@ -83,6 +89,20 @@ const onboardingAPI = {
 
   openCodexLoginTerminal: (opts?: { deviceAuth?: boolean }): Promise<{ opened: boolean; error?: string; verificationUrl?: string; deviceCode?: string }> =>
     ipcRenderer.invoke('onboarding:open-codex-login-terminal', opts),
+
+  installEngine: (engineId: 'claude-code' | 'codex'): Promise<{
+    opened: boolean;
+    completed?: boolean;
+    exitCode?: number | null;
+    signal?: string | null;
+    error?: string;
+    command?: string;
+    displayName?: string;
+    stdout?: string;
+    stderr?: string;
+    installed?: { installed: boolean; version?: string; error?: string };
+  }> =>
+    ipcRenderer.invoke('sessions:engine-install', engineId),
 
   openExternal: (url: string): Promise<{ opened: boolean }> =>
     ipcRenderer.invoke('onboarding:open-external', url),

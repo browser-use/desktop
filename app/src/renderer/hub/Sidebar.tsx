@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentSession, SessionStatus } from './types';
+import { orderSessionsForSidebar } from './sessionOrdering';
 
 interface SidebarSession extends AgentSession {
   primarySite?: string | null;
@@ -80,6 +81,10 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   stopped: { color: '#6e7681', label: 'Stopped' },
   draft:   { color: '#6e7681', label: 'Draft' },
 };
+
+function preventMouseFocus(e: React.MouseEvent<HTMLElement>): void {
+  e.preventDefault();
+}
 
 function formatRelative(ts: number): string {
   const delta = Date.now() - ts;
@@ -174,6 +179,8 @@ function SessionRow({
         type="button"
         className={`sidebar__row has-tooltip${selected ? ' sidebar__row--active' : ''}`}
         onClick={() => onSelect?.(s.id)}
+        onMouseDown={preventMouseFocus}
+        tabIndex={-1}
         data-tooltip={s.prompt}
       >
         <span className="sidebar__row-icon">
@@ -194,10 +201,12 @@ function SessionRow({
         <button
           type="button"
           className="sidebar__row-menu-btn"
+          onMouseDown={preventMouseFocus}
           onClick={(e) => {
             e.stopPropagation();
             setMenuOpen((v) => !v);
           }}
+          tabIndex={-1}
           aria-label="Session actions"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
@@ -208,11 +217,23 @@ function SessionRow({
 
       {menuOpen && (
         <div className="sidebar__row-menu" role="menu">
-          <button className="sidebar__row-menu-item" role="menuitem" onClick={() => handleAction('rerun')}>
+          <button
+            className="sidebar__row-menu-item"
+            role="menuitem"
+            onMouseDown={preventMouseFocus}
+            onClick={() => handleAction('rerun')}
+            tabIndex={-1}
+          >
             Re-run
           </button>
           {isRunning && (
-            <button className="sidebar__row-menu-item" role="menuitem" onClick={() => handleAction('stop')}>
+            <button
+              className="sidebar__row-menu-item"
+              role="menuitem"
+              onMouseDown={preventMouseFocus}
+              onClick={() => handleAction('stop')}
+              tabIndex={-1}
+            >
               Stop
             </button>
           )}
@@ -225,19 +246,7 @@ function SessionRow({
 export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowAction }: SidebarProps): React.ReactElement {
   const data = sessions ?? MOCK_SIDEBAR_SESSIONS;
 
-  const { active, done } = useMemo(() => {
-    const sortByActivity = (a: SidebarSession, b: SidebarSession): number =>
-      (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt);
-    const act: SidebarSession[] = [];
-    const don: SidebarSession[] = [];
-    for (const s of data) {
-      if (s.status === 'running' || s.status === 'idle' || s.status === 'stuck' || s.status === 'draft') act.push(s);
-      else don.push(s);
-    }
-    act.sort(sortByActivity);
-    don.sort(sortByActivity);
-    return { active: act, done: don };
-  }, [data]);
+  const orderedSessions = useMemo(() => orderSessionsForSidebar(data), [data]);
 
   return (
     <aside className="sidebar" aria-label="Agent sessions">
@@ -248,6 +257,8 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowActio
             type="button"
             className="sidebar__icon-btn sidebar__icon-btn--new has-tooltip"
             onClick={onNewAgent}
+            onMouseDown={preventMouseFocus}
+            tabIndex={-1}
             aria-label="New agent"
             data-tooltip="New agent"
           >
@@ -258,7 +269,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowActio
 
       <div className="sidebar__groups">
         <div className="sidebar__group-body">
-          {[...active, ...done].map((s) => (
+          {orderedSessions.map((s) => (
             <SessionRow key={s.id} s={s} selected={s.id === selectedId} onSelect={onSelect} onAction={onRowAction} />
           ))}
         </div>

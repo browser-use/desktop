@@ -8,6 +8,17 @@ import {
 } from '../shared/session-schemas';
 import type { AgentSession, HlEvent, TabInfo, BrowserPoolStats } from '../shared/session-schemas';
 
+type SettingsOpenPayload = { focusBrowserCodeProvider?: string };
+
+function normalizeSettingsOpenPayload(raw: unknown): SettingsOpenPayload | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rawProvider = (raw as { focusBrowserCodeProvider?: unknown }).focusBrowserCodeProvider;
+  const providerId = typeof rawProvider === 'string' ? rawProvider.trim() : '';
+  return providerId.length > 0 && providerId.length <= 80
+    ? { focusBrowserCodeProvider: providerId }
+    : undefined;
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
     platform: process.platform,
@@ -49,6 +60,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     hide: (sessionId: string): Promise<void> => ipcRenderer.invoke('takeover:hide', sessionId),
   },
   settings: {
+    open: (payload?: { focusBrowserCodeProvider?: string }): Promise<void> => ipcRenderer.invoke('settings:open', payload),
     apiKey: {
       getMasked: (): Promise<{ present: boolean; masked: string | null }> =>
         ipcRenderer.invoke('settings:api-key:get-masked'),
@@ -102,6 +114,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('sessions:engine-login', 'cursor-agent'),
       logout: (): Promise<{ opened: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:cursor-agent:logout'),
+    },
+    browserCode: {
+      getStatus: (): Promise<{
+        keys: Record<string, { masked: string; lastModel?: string }>;
+        active: string | null;
+        installed?: { installed: boolean; version?: string; error?: string };
+        providers: Array<{
+          id: string;
+          name: string;
+          defaultModel: string;
+          models: Array<{ id: string; label: string }>;
+        }>;
+      }> => ipcRenderer.invoke('settings:browsercode:get-status'),
+      save: (payload: { providerId: string; apiKey: string; lastModel?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:save', payload),
+      test: (payload: { providerId: string; apiKey: string; model?: string }): Promise<{ success: boolean; error?: string }> =>
+        ipcRenderer.invoke('settings:browsercode:test', payload),
+      delete: (payload?: { providerId?: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:delete', payload),
+      setActive: (payload: { providerId: string }): Promise<void> =>
+        ipcRenderer.invoke('settings:browsercode:set-active', payload),
     },
     privacy: {
       get: (): Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }> =>
@@ -218,6 +251,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('sessions:engine-status', engineId),
     engineLogin: (engineId: string): Promise<{ opened: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:engine-login', engineId),
+    engineInstall: (engineId: string): Promise<{
+      opened: boolean;
+      completed?: boolean;
+      exitCode?: number | null;
+      signal?: string | null;
+      error?: string;
+      command?: string;
+      displayName?: string;
+      stdout?: string;
+      stderr?: string;
+      installed?: { installed: boolean; version?: string; error?: string };
+    }> =>
+      ipcRenderer.invoke('sessions:engine-install', engineId),
     resume: (
       id: string,
       prompt: string,
@@ -264,9 +310,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     memory: (): Promise<{
       totalMb: number;
-      sessions: Array<{ id: string; mb: number; status: string }>;
-      processes: Array<{ label: string; type: string; mb: number; sessionId?: string }>;
+      totalCpuPercent?: number;
+      sessions: Array<{ id: string; mb: number; cpuPercent?: number; status: string; processCount?: number }>;
+      processes: Array<{
+        pid?: number;
+        label: string;
+        type: string;
+        component?: string;
+        mb: number;
+        cpuPercent?: number;
+        sessionId?: string;
+        engineId?: string;
+        source?: string;
+      }>;
       processCount: number;
+      errors?: string[];
     }> => ipcRenderer.invoke('sessions:memory'),
     getTermReplay: (id: string): Promise<string> =>
       ipcRenderer.invoke('sessions:get-term-replay', id),
@@ -285,9 +343,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   chromeImport: {
-    detectProfiles: (): Promise<Array<{ directory: string; name: string; email: string; avatarIcon: string }>> =>
+    detectProfiles: (): Promise<Array<{ id: string; directory: string; browserKey: string; browserName: string; name: string; email: string; avatarIcon: string }>> =>
       ipcRenderer.invoke('chrome-import:detect-profiles'),
-    importCookies: (profileDir: string): Promise<{
+    importCookies: (profileId: string): Promise<{
+      profileId: string;
+      browserName: string;
+      profileDirectory: string;
       total: number;
       imported: number;
       failed: number;
@@ -295,7 +356,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       domains: string[];
       failedDomains: string[];
       errorReasons: Record<string, number>;
-    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileDir),
+    }> => ipcRenderer.invoke('chrome-import:import-cookies', profileId),
     listCookies: (): Promise<Array<{
       name: string;
       domain: string;
@@ -359,8 +420,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('session-output-term', handler);
       return () => ipcRenderer.removeListener('session-output-term', handler);
     },
-    openSettings: (cb: () => void): (() => void) => {
-      const handler = () => cb();
+    openSettings: (cb: (payload?: SettingsOpenPayload) => void): (() => void) => {
+      const handler = (_event: unknown, rawPayload?: unknown) => cb(normalizeSettingsOpenPayload(rawPayload));
       ipcRenderer.on('open-settings', handler);
       return () => ipcRenderer.removeListener('open-settings', handler);
     },
