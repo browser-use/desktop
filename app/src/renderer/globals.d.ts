@@ -65,6 +65,7 @@ interface ElectronSessionAPI {
     cachedAt?: number;
     expiresAt?: number;
   }>;
+  invalidateEngineModels: (engineId: string) => Promise<{ invalidated: boolean }>;
   engineStatus: (engineId: string) => Promise<{
     id: string;
     displayName: string;

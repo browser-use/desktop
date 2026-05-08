@@ -277,6 +277,10 @@ export function ConnectionsPane({ embedded }: ConnectionsPaneProps): React.React
     if (!api?.settings?.cursor?.logout) return;
     const res = await api.settings.cursor.logout();
     if (!res.opened) console.warn('[connections] cursor logout failed', res.error);
+    // Drop any cached cursor-agent model list so the next session re-fetches
+    // it instead of reusing entries from the now-signed-out account.
+    try { await api.sessions?.invalidateEngineModels?.('cursor-agent'); }
+    catch (err) { console.warn('[connections] invalidate cursor models failed', err); }
     await refreshCursor();
   }, [refreshCursor]);
 

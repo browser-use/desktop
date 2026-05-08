@@ -176,6 +176,14 @@ function getCachedEngineModels(engineId: string): CachedEngineModelList | null {
   return entry;
 }
 
+function invalidateEngineModelCache(engineId: string): boolean {
+  const cache = readEngineModelCache();
+  if (!(engineId in cache.entries)) return false;
+  delete cache.entries[engineId];
+  writeEngineModelCache(cache);
+  return true;
+}
+
 function storeEngineModels(engineId: string, list: EngineModelList): EngineModelList {
   const now = Date.now();
   const stamped: CachedEngineModelList = {
@@ -1132,8 +1140,11 @@ app.whenReady().then(async () => {
       }
       const listed = await adapter.listModels();
       if (listed.source === 'fallback' || listed.error) {
-        const stale = readEngineModelCache().entries[validated];
-        if (stale && !forceRefresh) {
+        // Only fall back to a still-fresh cache entry — `getCachedEngineModels`
+        // enforces the TTL so we don't resurrect stale lists when the live
+        // listing fails (e.g. after sign-out).
+        const stale = forceRefresh ? null : getCachedEngineModels(validated);
+        if (stale) {
           return { ...stale, cached: true, error: listed.error };
         }
       }
@@ -1146,6 +1157,13 @@ app.whenReady().then(async () => {
     } finally {
       engineModelRequests.delete(validated);
     }
+  });
+
+  ipcMain.handle('sessions:invalidate-engine-models', async (_event, engineId: string) => {
+    const validated = assertString(engineId, 'engineId', 50);
+    engineModelRequests.delete(validated);
+    const removed = invalidateEngineModelCache(validated);
+    return { invalidated: removed };
   });
 
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {

@@ -162,10 +162,13 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     try { localStorage.setItem(ENGINE_STORAGE_KEY, id); } catch { /* ignore */ }
   }, []);
 
-  const onModelChange = useCallback((model: string | undefined) => {
-    setModelsByEngine((prev) => ({ ...prev, [engine]: model }));
-    storeSelectedModel(engine, model);
-  }, [engine]);
+  const onModelChange = useCallback((model: string | undefined, engineId: string) => {
+    // Use the engineId reported by the picker rather than the closure's
+    // `engine` state — when the user picks a model on a different engine in
+    // the same interaction, our `engine` state hasn't updated yet.
+    setModelsByEngine((prev) => ({ ...prev, [engineId]: model }));
+    storeSelectedModel(engineId, model);
+  }, []);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

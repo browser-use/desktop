@@ -1767,10 +1767,13 @@ button:focus:not(:focus-visible) {
   background-color: var(--color-bg-hover, var(--color-border-subtle));
 }
 
-.engine-picker__item-select:focus,
+.engine-picker__item-select:focus {
+  outline: none;
+}
+
 .engine-picker__item-select:focus-visible {
   outline: none;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 2px var(--color-accent, #6aa9ff);
 }
 
 .engine-picker__item .engine-logo,

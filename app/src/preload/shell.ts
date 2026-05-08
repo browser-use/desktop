@@ -208,6 +208,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       cachedAt?: number;
       expiresAt?: number;
     }> => ipcRenderer.invoke('sessions:list-engine-models', engineId, opts),
+    invalidateEngineModels: (engineId: string): Promise<{ invalidated: boolean }> =>
+      ipcRenderer.invoke('sessions:invalidate-engine-models', engineId),
     engineStatus: (engineId: string): Promise<{
       id: string;
       displayName: string;

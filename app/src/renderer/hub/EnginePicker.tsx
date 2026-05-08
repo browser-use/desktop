@@ -102,7 +102,7 @@ interface EnginePickerProps {
   onChange: (engineId: string) => void;
   model?: string;
   modelByEngine?: Record<string, string | undefined>;
-  onModelChange?: (modelId: string | undefined) => void;
+  onModelChange?: (modelId: string | undefined, engineId: string) => void;
   labelMode?: 'engine-model' | 'model';
   /** Fires when the dropdown opens/closes. Used by hosts (e.g. the pill
    *  renderer) that need to grow their window so the menu isn't clipped.
@@ -307,7 +307,7 @@ export function EnginePicker({
     const engineId = modelViewEngineId ?? value;
     if (engineId && engineId !== value) onChange(engineId);
     setSelectedProviderId(engineId);
-    onModelChange?.(modelId);
+    if (engineId) onModelChange?.(modelId, engineId);
     setOpen(false);
   };
 
@@ -359,7 +359,9 @@ export function EnginePicker({
       >
         {currentEngine && <EngineLogo id={currentEngine.id} />}
         <span className="engine-picker__label">
-          {!modelOnlyLabel && (
+          {modelOnlyLabel ? (
+            <span className="engine-picker__name">{currentModelLabel}</span>
+          ) : (
             <span className="engine-picker__name">{currentEngine?.displayName ?? '…'}</span>
           )}
         </span>
