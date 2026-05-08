@@ -8,6 +8,7 @@ export interface SpawnCliOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   stdio?: [CliStdinMode, 'pipe', 'pipe'];
+  detached?: boolean;
 }
 
 export interface CliCaptureResult {
@@ -40,6 +41,7 @@ export function spawnCli(bin: string, args: readonly string[], opts: SpawnCliOpt
     cwd: opts.cwd,
     env: resolved.env,
     stdio,
+    detached: opts.detached,
     ...resolved.spawnOptions,
   }) as ChildProcessWithoutNullStreams;
 }

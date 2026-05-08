@@ -374,10 +374,16 @@ export function LogsApp(): React.ReactElement {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck')) {
-          void window.electronAPI?.sessions.pause(sessionId).catch((err) => {
-            console.error('[LogsApp] pause failed', err);
-          });
+        if (sessionId) {
+          void window.electronAPI?.sessions.pause(sessionId)
+            .then((result: { paused?: boolean; error?: string } | undefined) => {
+              if (result?.paused || mode === 'dot') return;
+              window.logsAPI.setMode(mode === 'full' ? 'normal' : 'dot');
+            })
+            .catch((err) => {
+              console.error('[LogsApp] pause failed', err);
+              if (mode !== 'dot') window.logsAPI.setMode(mode === 'full' ? 'normal' : 'dot');
+            });
           return;
         }
         if (mode === 'dot') return;

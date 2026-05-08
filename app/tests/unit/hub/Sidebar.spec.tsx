@@ -87,8 +87,8 @@ describe('Sidebar focus behavior', () => {
     act(() => root.unmount());
   });
 
-  it('shows pause for resumable running sessions', () => {
-    const running = { ...session('running', 1, 'running'), canResume: true };
+  it('shows pause for running sessions before a provider resume id is known', () => {
+    const running = { ...session('running', 1, 'running'), canResume: false };
     const { container, root, onRowAction } = renderSidebar([running]);
 
     click(menuButton(container));

@@ -1000,7 +1000,6 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
   const showErrorUi = !!session.error && !isCancellation;
   const isRunningLike = session.status === 'running' || session.status === 'stuck';
   const isPaused = session.status === 'paused';
-  const pauseReady = session.canResume === true;
   const canResume = Boolean(
     onResume &&
     session.canResume === true &&
@@ -1014,7 +1013,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
   );
 
   useEffect(() => {
-    if (!focused || !isRunningLike || !pauseReady || !onPause) return;
+    if (!focused || !isRunningLike || !onPause) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.key !== 'Escape' || e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
@@ -1029,7 +1028,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [focused, isRunningLike, onPause, pauseReady, session.id]);
+  }, [focused, isRunningLike, onPause, session.id]);
 
   return (
     <div
@@ -1126,11 +1125,10 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
           )}
           {isRunningLike && onPause && (
             <button
-              className={`pane__action-btn pane__action-btn--icon${pauseReady ? '' : ' pane__action-btn--disabled'}`}
-              onClick={(e) => { e.stopPropagation(); if (pauseReady) onPause(session.id); }}
+              className="pane__action-btn pane__action-btn--icon"
+              onClick={(e) => { e.stopPropagation(); onPause(session.id); }}
               aria-label="Pause"
-              data-tip={pauseReady ? 'Pause' : 'Pause available after engine starts'}
-              disabled={!pauseReady}
+              data-tip="Pause"
             >
               <PauseIcon />
             </button>

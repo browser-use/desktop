@@ -92,6 +92,7 @@ import { assertString, assertAttachments, type ValidatedAttachment } from './ipc
 // pluggable (claude-code, codex, …) — see src/main/hl/engines/.
 import { bootstrapHarness, harnessDir } from './hl/harness';
 import { runEngine, DEFAULT_ENGINE_ID } from './hl/engines';
+import type { EngineRunControl } from './hl/engines/types';
 import { getEngine, setEngine, type EngineId } from './hl/engine';
 import { forwardAgentEvent } from './pill';
 // Session management
@@ -178,6 +179,7 @@ const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'se
 // to <userData>/harness/ on first run, preserves user edits on subsequent runs.
 bootstrapHarness();
 const browserPool = new BrowserPool();
+let pauseBrowserSessionFromEscape: ((sessionId: string) => boolean) | null = null;
 const resourceMonitorContext: ResourceMonitorContext = {
   browserSessions: () => browserPool.getStats().sessions,
   sessionInfo: (sessionId) => sessionManager.getResourceInfo(sessionId),
@@ -200,16 +202,7 @@ browserPool.setOnNavigate((sessionId, url) => {
   sessionManager.updateNavigationFromUrl(sessionId, url);
 });
 browserPool.setOnEscape((sessionId) => {
-  const status = sessionManager.getSessionStatus(sessionId);
-  if (status !== 'running' && status !== 'stuck') return false;
-  const result = sessionManager.pauseSession(sessionId);
-  if (!result.paused) return false;
-  takeoverOverlay.hide(sessionId, shellWindow);
-  captureEvent('session_paused', {
-    engine: sessionManager.getSessionEngine(sessionId) ?? 'unknown',
-    source: 'browser-escape',
-  });
-  return true;
+  return pauseBrowserSessionFromEscape?.(sessionId) ?? false;
 });
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
@@ -491,6 +484,7 @@ app.whenReady().then(async () => {
   const queuedFollowUps = new Map<string, QueuedFollowUp[]>();
   const drainingQueuedFollowUps = new Set<string>();
   const activeRunIds = new Map<string, number>();
+  const activeRunControls = new Map<string, { runId: number; control: EngineRunControl }>();
   let nextRunId = 0;
   const startingSessionIds = new Set<string>();
 
@@ -779,6 +773,23 @@ app.whenReady().then(async () => {
     if (activeRunIds.get(id) === runId) {
       activeRunIds.delete(id);
     }
+    if (activeRunControls.get(id)?.runId === runId) {
+      activeRunControls.delete(id);
+    }
+  }
+
+  function bindRunControl(id: string, runId: number): (control: EngineRunControl) => void {
+    return (control) => {
+      if (activeRunIds.get(id) !== runId) return;
+      activeRunControls.set(id, { runId, control });
+    };
+  }
+
+  function terminateActiveRunControl(id: string): void {
+    const active = activeRunControls.get(id);
+    if (!active) return;
+    active.control.terminate();
+    activeRunControls.delete(id);
   }
 
   function pauseSessionFromMain(
@@ -786,6 +797,17 @@ app.whenReady().then(async () => {
     source: 'button' | 'browser-escape' | 'logs-escape' | 'queued-follow-up',
     opts: { notify?: boolean } = {},
   ): { paused?: boolean; error?: string } {
+    const status = sessionManager.getSessionStatus(id);
+    if (status !== 'running' && status !== 'stuck' && status !== 'paused') {
+      return { error: `Session ${id} is ${status ?? 'unknown'}, expected running or stuck` };
+    }
+    const active = activeRunControls.get(id);
+    if (!active) {
+      return { error: 'Session is still starting and cannot be paused yet. Try again in a moment.' };
+    }
+    const controlResult = active.control.pause();
+    if (!controlResult.paused) return controlResult;
+
     const result = sessionManager.pauseSession(id, opts);
     if (result.paused) {
       takeoverOverlay.hide(id, shellWindow);
@@ -793,15 +815,41 @@ app.whenReady().then(async () => {
         engine: sessionManager.getSessionEngine(id) ?? 'unknown',
         source,
       });
+    } else {
+      active.control.resume();
     }
     return result;
   }
 
+  function resumePausedRun(id: string, source: 'button' | 'logs' | 'resume'): { resumed?: boolean; error?: string } {
+    const active = activeRunControls.get(id);
+    if (!active) {
+      return { error: 'Paused agent process is no longer available.' };
+    }
+    const controlResult = active.control.resume();
+    if (!controlResult.resumed) return controlResult;
+    const result = sessionManager.resumePausedSession(id);
+    if (result.resumed) {
+      captureEvent('session_resumed', {
+        engine: sessionManager.getSessionEngine(id) ?? 'unknown',
+        source,
+      });
+    } else {
+      active.control.pause();
+    }
+    return result;
+  }
+
+  pauseBrowserSessionFromEscape = (sessionId) => {
+    const result = pauseSessionFromMain(sessionId, 'browser-escape');
+    return result.paused === true;
+  };
+
   function queueFollowUpAfterNextTool(id: string, prompt: string, attachments: ValidatedAttachment[]): { queued?: boolean; error?: string } {
     const session = sessionManager.getSession(id);
     if (!session) return { error: 'Session not found' };
-    if (session.status !== 'running' && session.status !== 'stuck') {
-      return { error: `Session ${id} is ${session.status}, expected running or stuck` };
+    if (session.status !== 'running' && session.status !== 'stuck' && session.status !== 'paused') {
+      return { error: `Session ${id} is ${session.status}, expected running, stuck, or paused` };
     }
     const q = queuedFollowUps.get(id) ?? [];
     q.push({ prompt, attachments });
@@ -941,6 +989,7 @@ app.whenReady().then(async () => {
       cdpPort: resolvedCdp.port,
       signal: abortController.signal,
       resumeSessionId: sessionManager.getEngineSessionId(validatedId),
+      onRunControl: bindRunControl(validatedId, runId),
       onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
@@ -967,7 +1016,10 @@ app.whenReady().then(async () => {
       const status = sessionManager.getSessionStatus(id);
       mainLogger.info('main.sessions.followUpDrain', { id, boundary, status });
       if (status === 'running' || status === 'stuck') {
-        const paused = pauseSessionFromMain(id, 'queued-follow-up', { notify: false });
+        const ctrl = sessionManager.getAbortController(id);
+        if (ctrl) ctrl.abort();
+        terminateActiveRunControl(id);
+        const paused = sessionManager.pauseSession(id, { notify: false });
         if (!paused.paused) {
           const existing = queuedFollowUps.get(id) ?? [];
           queuedFollowUps.set(id, [next, ...existing]);
@@ -1046,6 +1098,7 @@ app.whenReady().then(async () => {
         webContents: view.webContents,
         cdpPort: resolvedCdp.port,
         signal: abortController.signal,
+        onRunControl: bindRunControl(id, runId),
         onSessionId: (sid) => sessionManager.setEngineSessionId(id, sid),
         onModelResolved: ({ model }) => sessionManager.setSessionModel(id, model),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
@@ -1168,6 +1221,20 @@ app.whenReady().then(async () => {
     if (currentSession.status === 'running' || currentSession.status === 'stuck') {
       return queueFollowUpAfterNextTool(validatedId, validatedPrompt, resumeAttachments);
     }
+    if (currentSession.status === 'paused') {
+      const isPlainResume = validatedPrompt.trim() === 'Continue from where you left off.' && resumeAttachments.length === 0;
+      if (activeRunControls.has(validatedId)) {
+        if (!isPlainResume) {
+          const queued = queueFollowUpAfterNextTool(validatedId, validatedPrompt, resumeAttachments);
+          if (queued.error) return queued;
+        }
+        return resumePausedRun(validatedId, 'resume');
+      }
+      if (sessionManager.getEngineSessionId(validatedId)) {
+        return resumeSessionWithAgent(validatedId, validatedPrompt, resumeAttachments, 'resume');
+      }
+      return { error: 'Paused agent process is no longer available.' };
+    }
     return resumeSessionWithAgent(validatedId, validatedPrompt, resumeAttachments, 'resume');
   });
 
@@ -1179,6 +1246,7 @@ app.whenReady().then(async () => {
     const session = sessionManager.getSession(validatedId);
     if (!session) return { error: 'Session not found' };
 
+    terminateActiveRunControl(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
@@ -1224,6 +1292,7 @@ app.whenReady().then(async () => {
       signal: abortController.signal,
       // Rerun intentionally starts a fresh conversation; SessionManager.rerunSession
       // already cleared any stored resume id.
+      onRunControl: bindRunControl(validatedId, runId),
       onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
@@ -1249,6 +1318,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('sessions:cancel', (_event, id: string) => {
     const validatedId = assertString(id, 'id', 100);
     mainLogger.info('main.sessions:cancel', { id: validatedId });
+    terminateActiveRunControl(validatedId);
     sessionManager.cancelSession(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
     queuedFollowUps.delete(validatedId);
@@ -1260,6 +1330,7 @@ app.whenReady().then(async () => {
     mainLogger.info('main.sessions:halt', { id: validatedId });
     const ctrl = sessionManager.getAbortController(validatedId);
     if (ctrl) ctrl.abort();
+    terminateActiveRunControl(validatedId);
     queuedFollowUps.delete(validatedId);
     drainingQueuedFollowUps.delete(validatedId);
   });
@@ -1276,6 +1347,7 @@ app.whenReady().then(async () => {
     mainLogger.info('main.sessions:dismiss', { id: validatedId });
     queuedFollowUps.delete(validatedId);
     drainingQueuedFollowUps.delete(validatedId);
+    terminateActiveRunControl(validatedId);
     sessionManager.dismissSession(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
   });
@@ -1285,6 +1357,7 @@ app.whenReady().then(async () => {
     mainLogger.info('main.sessions:delete', { id: validatedId });
     queuedFollowUps.delete(validatedId);
     drainingQueuedFollowUps.delete(validatedId);
+    terminateActiveRunControl(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
     sessionManager.deleteSession(validatedId);
   });
