@@ -80,6 +80,7 @@ import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
 import { createLocalTaskServer } from './localTaskServer';
+import { createEngineModelCache } from './engineModelCache';
 import {
   resolveUserDataDir,
   resolveCdpPort,
@@ -119,81 +120,11 @@ import {
   stopUpdater,
 } from './updater';
 
-const ENGINE_MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-type CachedEngineModelList = EngineModelList & {
-  cachedAt: number;
-  expiresAt: number;
-};
-
-interface EngineModelCacheFile {
-  version: 1;
-  entries: Record<string, CachedEngineModelList>;
-}
-
-let engineModelCache: EngineModelCacheFile | null = null;
+const engineModelCache = createEngineModelCache({
+  cachePath: () => path.join(app.getPath('userData'), 'engine-model-cache.json'),
+  logger: mainLogger,
+});
 const engineModelRequests = new Map<string, Promise<EngineModelList>>();
-
-function engineModelCachePath(): string {
-  return path.join(app.getPath('userData'), 'engine-model-cache.json');
-}
-
-function readEngineModelCache(): EngineModelCacheFile {
-  if (engineModelCache) return engineModelCache;
-  try {
-    const raw = fs.readFileSync(engineModelCachePath(), 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<EngineModelCacheFile>;
-    if (parsed.version === 1 && parsed.entries && typeof parsed.entries === 'object') {
-      engineModelCache = { version: 1, entries: parsed.entries as Record<string, CachedEngineModelList> };
-      return engineModelCache;
-    }
-  } catch {
-    // Missing or corrupt cache is non-fatal; model listing can repopulate it.
-  }
-  engineModelCache = { version: 1, entries: {} };
-  return engineModelCache;
-}
-
-function writeEngineModelCache(cache: EngineModelCacheFile): void {
-  engineModelCache = cache;
-  try {
-    fs.mkdirSync(path.dirname(engineModelCachePath()), { recursive: true });
-    fs.writeFileSync(engineModelCachePath(), JSON.stringify(cache, null, 2));
-  } catch (err) {
-    mainLogger.warn('engineModelCache.writeFailed', { error: (err as Error).message });
-  }
-}
-
-function getCachedEngineModels(engineId: string): CachedEngineModelList | null {
-  const entry = readEngineModelCache().entries[engineId];
-  if (!entry) return null;
-  if (Date.now() >= entry.expiresAt) return null;
-  return entry;
-}
-
-function invalidateEngineModelCache(engineId: string): boolean {
-  const cache = readEngineModelCache();
-  if (!(engineId in cache.entries)) return false;
-  delete cache.entries[engineId];
-  writeEngineModelCache(cache);
-  return true;
-}
-
-function storeEngineModels(engineId: string, list: EngineModelList): EngineModelList {
-  const now = Date.now();
-  const stamped: CachedEngineModelList = {
-    ...list,
-    cached: false,
-    cachedAt: now,
-    expiresAt: now + ENGINE_MODEL_CACHE_TTL_MS,
-  };
-  if (list.models.length > 0 && list.source !== 'fallback' && !list.error) {
-    const cache = readEngineModelCache();
-    cache.entries[engineId] = stamped;
-    writeEngineModelCache(cache);
-  }
-  return stamped;
-}
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -1342,7 +1273,7 @@ app.whenReady().then(async () => {
     const validated = assertString(engineId, 'engineId', 50);
     const forceRefresh = Boolean(opts?.forceRefresh);
     if (!forceRefresh) {
-      const cached = getCachedEngineModels(validated);
+      const cached = engineModelCache.getCached(validated);
       if (cached) {
         return { ...cached, cached: true };
       }
@@ -1350,38 +1281,41 @@ app.whenReady().then(async () => {
       if (inFlight) return inFlight;
     }
 
+    const requestVersion = engineModelCache.currentVersion(validated);
     const request = (async (): Promise<EngineModelList> => {
       const { getAdapter } = await import('./hl/engines');
       const adapter = getAdapter(validated);
       if (!adapter) throw new Error(`unknown engine: ${validated}`);
       if (!adapter.listModels) {
-        return storeEngineModels(adapter.id, { engineId: adapter.id, models: [], source: 'static' });
+        return engineModelCache.store(adapter.id, { engineId: adapter.id, models: [], source: 'static' }, { expectedVersion: requestVersion });
       }
       const listed = await adapter.listModels();
       if (listed.source === 'fallback' || listed.error) {
-        // Only fall back to a still-fresh cache entry — `getCachedEngineModels`
+        // Only fall back to a still-fresh cache entry — `getCached`
         // enforces the TTL so we don't resurrect stale lists when the live
         // listing fails (e.g. after sign-out).
-        const stale = forceRefresh ? null : getCachedEngineModels(validated);
+        const stale = forceRefresh ? null : engineModelCache.getCached(validated);
         if (stale) {
           return { ...stale, cached: true, error: listed.error };
         }
       }
-      return storeEngineModels(adapter.id, listed);
+      return engineModelCache.store(adapter.id, listed, { expectedVersion: requestVersion });
     })();
 
     if (!forceRefresh) engineModelRequests.set(validated, request);
     try {
       return await request;
     } finally {
-      engineModelRequests.delete(validated);
+      if (engineModelRequests.get(validated) === request) {
+        engineModelRequests.delete(validated);
+      }
     }
   });
 
   ipcMain.handle('sessions:invalidate-engine-models', async (_event, engineId: string) => {
     const validated = assertString(engineId, 'engineId', 50);
     engineModelRequests.delete(validated);
-    const removed = invalidateEngineModelCache(validated);
+    const removed = engineModelCache.invalidate(validated);
     return { invalidated: removed };
   });
 
