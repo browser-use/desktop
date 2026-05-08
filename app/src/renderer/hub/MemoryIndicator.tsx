@@ -40,6 +40,7 @@ function statusDotClass(status: string): string {
   switch (status) {
     case 'running': return 'mem__dot--running';
     case 'stuck': return 'mem__dot--stuck';
+    case 'paused': return 'mem__dot--paused';
     case 'idle': return 'mem__dot--idle';
     default: return 'mem__dot--stopped';
   }

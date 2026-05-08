@@ -72,6 +72,36 @@ describe('BrowserPool — creation', () => {
     expect(pool.getView('s1')).not.toBeNull();
     expect(pool.getView('nonexistent')).toBeNull();
   });
+
+  it('notifies when Escape is pressed inside a browser view and prevents the page keypress when handled', () => {
+    const view = pool.create('s1');
+    const onEscape = vi.fn(() => true);
+    const preventDefault = vi.fn();
+    pool.setOnEscape(onEscape);
+
+    (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
+      'before-input-event',
+      { preventDefault },
+      { type: 'keyDown', key: 'Escape', control: false, meta: false, alt: false },
+    );
+
+    expect(onEscape).toHaveBeenCalledWith('s1');
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('lets Escape through to the page when the app does not handle it', () => {
+    const view = pool.create('s1');
+    const preventDefault = vi.fn();
+    pool.setOnEscape(() => false);
+
+    (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
+      'before-input-event',
+      { preventDefault },
+      { type: 'keyDown', key: 'Escape', control: false, meta: false, alt: false },
+    );
+
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

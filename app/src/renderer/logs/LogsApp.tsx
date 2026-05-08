@@ -14,7 +14,7 @@ declare global {
       onModeChanged: (cb: (mode: 'dot' | 'normal' | 'full') => void) => () => void;
       onActiveSessionChanged: (cb: (id: string | null) => void) => () => void;
       onFocusFollowUp: (cb: () => void) => () => void;
-      followUp: (sessionId: string, prompt: string) => Promise<{ resumed?: boolean; error?: string }>;
+      followUp: (sessionId: string, prompt: string) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
     };
   }
 }
@@ -374,6 +374,12 @@ export function LogsApp(): React.ReactElement {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck')) {
+          void window.electronAPI?.sessions.pause(sessionId).catch((err) => {
+            console.error('[LogsApp] pause failed', err);
+          });
+          return;
+        }
         if (mode === 'dot') return;
         // Step down one size per Esc press: full → normal → dot. Jumping
         // full → dot in one keystroke skips the card view the user most
@@ -383,7 +389,7 @@ export function LogsApp(): React.ReactElement {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mode]);
+  }, [mode, sessionId, sessionStatus]);
 
   const onExpandFromDot = useCallback(() => { window.logsAPI.setMode('normal'); }, []);
   const preventButtonFocus = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
@@ -525,7 +531,7 @@ export function LogsApp(): React.ReactElement {
             ref={inputRef}
             className="logs-followup__input"
             value={input}
-            placeholder={sessionId ? 'Follow up…' : 'No session'}
+            placeholder={sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck') ? 'Queue follow-up…' : sessionId ? 'Follow up…' : 'No session'}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onInputKeyDown}
             rows={1}

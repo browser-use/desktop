@@ -205,6 +205,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ): Promise<string> => ipcRenderer.invoke('sessions:create', promptOrPayload),
     start: (id: string): Promise<void> => ipcRenderer.invoke('sessions:start', id),
     cancel: (id: string): Promise<void> => ipcRenderer.invoke('sessions:cancel', id),
+    pause: (id: string): Promise<{ paused?: boolean; error?: string }> => ipcRenderer.invoke('sessions:pause', id),
     halt: (id: string): Promise<void> => ipcRenderer.invoke('sessions:halt', id),
     steer: (id: string, message: string): Promise<{ queued?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:steer', { id, message }),
@@ -245,7 +246,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       id: string,
       prompt: string,
       attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
-    ): Promise<{ resumed?: boolean; error?: string }> =>
+    ): Promise<{ resumed?: boolean; queued?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:resume', { id, prompt, attachments }),
     rerun: (id: string): Promise<{ rerun?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:rerun', id),

@@ -10,7 +10,7 @@ export const TABLE_SESSIONS = 'sessions';
 export const TABLE_EVENTS = 'session_events';
 export const TABLE_ATTACHMENTS = 'session_attachments';
 
-export const VALID_STATUSES = ['draft', 'running', 'stuck', 'idle', 'stopped'] as const;
+export const VALID_STATUSES = ['draft', 'running', 'stuck', 'paused', 'idle', 'stopped'] as const;
 
 // -- attachment constraints --------------------------------------------------
 
