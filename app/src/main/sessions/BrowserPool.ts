@@ -615,6 +615,17 @@ export class BrowserPool {
 
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
+      // Guard against transient zero/non-finite bounds (e.g. a frame fired
+      // mid-relayout when the pane has 0 width/height). Without this, the
+      // aspect-ratio recompute below would feed NaN/Infinity through the
+      // emulation + clamp + setBounds path. Skip entirely; ResizeObserver
+      // will fire again with a valid rect.
+      const validShape = Number.isFinite(bounds.width) && Number.isFinite(bounds.height)
+        && bounds.width > 0 && bounds.height > 0;
+      if (!validShape) {
+        browserLogger.debug('BrowserPool.attach.skipInvalidBounds', { sessionId, bounds });
+        return true;
+      }
       // Recompute aspect-matched emulated width — the hub layout may have
       // changed shape (e.g. user toggled top tabs, reclaiming the sidebar
       // width) and the cached width would leave dead bands on the sides.

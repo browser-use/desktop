@@ -184,7 +184,10 @@ describe('BrowserPool — attach/detach', () => {
 
     const ok = pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
     expect(ok).toBe(true);
-    expect(view!.getBounds()).toEqual({ x: 600, y: 0, width: 800, height: 900 });
+    // emulatedWidth is clamped to MAX_EMULATED_VIEWPORT_WIDTH (1920); at
+    // zoom 0.5 the rendered width is 960, leaving (2000-960)/2 = 520px
+    // letterbox on each side.
+    expect(view!.getBounds()).toEqual({ x: 520, y: 0, width: 960, height: 900 });
   });
 
   it('destroy detaches if currently attached', () => {
@@ -241,8 +244,10 @@ describe('BrowserPool — fitted resize', () => {
     (view!.webContents as { getZoomFactor?: () => number }).getZoomFactor = () => 0.5;
 
     const fitted = pool.setViewBoundsFitted('s1', { x: 0, y: 0, width: 2000, height: 900 });
-    expect(fitted).toEqual({ x: 600, y: 0, width: 800, height: 900 });
-    expect(view!.getBounds()).toEqual({ x: 600, y: 0, width: 800, height: 900 });
+    // emulatedWidth clamped to MAX (1920); at zoom 0.5 → renderedWidth 960,
+    // x letterbox = (2000-960)/2 = 520.
+    expect(fitted).toEqual({ x: 520, y: 0, width: 960, height: 900 });
+    expect(view!.getBounds()).toEqual({ x: 520, y: 0, width: 960, height: 900 });
   });
 });
 
