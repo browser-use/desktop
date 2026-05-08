@@ -127,6 +127,7 @@ const STATUS_DOT_COLOR: Record<string, string> = {
   running: 'var(--color-status-success)',
   idle:    'var(--color-status-warning)',
   stuck:   'var(--color-status-error)',
+  paused:  'var(--color-accent-default)',
   stopped: 'var(--color-fg-tertiary)',
   draft:   'var(--color-fg-disabled)',
 };
@@ -202,6 +203,7 @@ function statusDot(status: string): string {
   switch (status) {
     case 'running': return 'cmdbar__dot--running';
     case 'stuck': return 'cmdbar__dot--stuck';
+    case 'paused': return 'cmdbar__dot--paused';
     case 'idle': return 'cmdbar__dot--idle';
     case 'draft': return 'cmdbar__dot--draft';
     default: return 'cmdbar__dot--stopped';
@@ -212,6 +214,7 @@ function statusLabel(status: string): string {
   switch (status) {
     case 'running': return 'running';
     case 'stuck': return 'stuck';
+    case 'paused': return 'paused';
     case 'idle': return 'idle';
     case 'draft': return 'draft';
     case 'stopped': return 'stopped';
@@ -263,7 +266,7 @@ export function Pill(): React.ReactElement {
 
   const recents = useMemo(() => {
     if (value.trim()) return [];
-    const ACTIVE = new Set(['running', 'idle', 'stuck']);
+    const ACTIVE = new Set(['running', 'paused', 'idle', 'stuck']);
     return [...sessions]
       .sort((a, b) => {
         const aActive = ACTIVE.has(a.status) ? 1 : 0;

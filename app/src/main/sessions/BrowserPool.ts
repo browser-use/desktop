@@ -51,6 +51,7 @@ export class BrowserPool {
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
+  private onEscape?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT, opts: { idleFreezeDelayMs?: number } = {}) {
@@ -73,6 +74,12 @@ export class BrowserPool {
     this.onNavigate = listener;
   }
 
+  /** Register a listener for Escape inside an attached browser view. Returning
+   *  true means the Escape key was handled and should not continue into the page. */
+  setOnEscape(listener: (sessionId: string) => boolean | void): void {
+    this.onEscape = listener;
+  }
+
   private notifyGone(sessionId: string): void {
     try { this.onGone?.(sessionId); } catch (err) {
       browserLogger.warn('BrowserPool.notifyGone.listenerError', { sessionId, error: (err as Error).message });
@@ -82,6 +89,13 @@ export class BrowserPool {
   private notifyNavigate(sessionId: string, url: string): void {
     try { this.onNavigate?.(sessionId, url); } catch (err) {
       browserLogger.warn('BrowserPool.notifyNavigate.listenerError', { sessionId, error: (err as Error).message });
+    }
+  }
+
+  private notifyEscape(sessionId: string): boolean {
+    try { return this.onEscape?.(sessionId) === true; } catch (err) {
+      browserLogger.warn('BrowserPool.notifyEscape.listenerError', { sessionId, error: (err as Error).message });
+      return false;
     }
   }
 
@@ -184,6 +198,18 @@ export class BrowserPool {
       ).catch(() => { /* frame may have navigated away */ });
     };
     view.webContents.on('dom-ready', hideWebdriver);
+    view.webContents.on('before-input-event', (event, input) => {
+      if (
+        input.type === 'keyDown' &&
+        input.key === 'Escape' &&
+        !input.control &&
+        !input.meta &&
+        !input.alt
+      ) {
+        const handled = this.notifyEscape(sessionId);
+        if (handled) event.preventDefault();
+      }
+    });
 
     view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
 

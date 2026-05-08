@@ -77,7 +77,7 @@ contextBridge.exposeInMainWorld('pillAPI', {
     sessionId: string,
     prompt: string,
     attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
-  ): Promise<{ resumed?: boolean; error?: string }> => {
+  ): Promise<{ resumed?: boolean; queued?: boolean; error?: string }> => {
     return ipcRenderer.invoke('sessions:resume', { id: sessionId, prompt, attachments });
   },
 

@@ -38,6 +38,7 @@ interface ElectronSessionAPI {
   ) => Promise<string>;
   start: (id: string) => Promise<void>;
   cancel: (id: string) => Promise<void>;
+  pause: (id: string) => Promise<{ paused?: boolean; error?: string }>;
   halt: (id: string) => Promise<void>;
   steer: (id: string, message: string) => Promise<{ queued?: boolean; error?: string }>;
   dismiss: (id: string) => Promise<void>;
@@ -70,7 +71,7 @@ interface ElectronSessionAPI {
     id: string,
     prompt: string,
     attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
-  ) => Promise<{ resumed?: boolean; error?: string }>;
+  ) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
   rerun: (id: string) => Promise<{ rerun?: boolean; error?: string }>;
   list: () => Promise<import('./hub/types').AgentSession[]>;
   listAll: () => Promise<import('./hub/types').AgentSession[]>;

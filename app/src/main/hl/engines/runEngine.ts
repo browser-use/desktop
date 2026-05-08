@@ -299,8 +299,20 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     }
   }
 
+  let abortKillTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearAbortKillTimer = () => {
+    if (!abortKillTimer) return;
+    clearTimeout(abortKillTimer);
+    abortKillTimer = null;
+  };
   const onAbort = () => {
     try { child.kill('SIGTERM'); } catch { /* already dead */ }
+    clearAbortKillTimer();
+    abortKillTimer = setTimeout(() => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      try { child.kill('SIGKILL'); } catch { /* already dead */ }
+    }, 1500);
+    abortKillTimer.unref?.();
   };
   opts.signal?.addEventListener('abort', onAbort);
 
@@ -504,6 +516,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     child.on('close', (code, sig) => {
       unregisterResourceOwner(child.pid);
       opts.signal?.removeEventListener('abort', onAbort);
+      clearAbortKillTimer();
       flushHarnessChanges();
       closeWatchers();
       engineLogger.info('engines.run.exit', {
@@ -535,6 +548,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     child.on('error', (err) => {
       unregisterResourceOwner(child.pid);
       opts.signal?.removeEventListener('abort', onAbort);
+      clearAbortKillTimer();
       flushHarnessChanges();
       closeWatchers();
       opts.onEvent({ type: 'error', message: `${adapter.id}_spawn_error: ${err.message}` });
