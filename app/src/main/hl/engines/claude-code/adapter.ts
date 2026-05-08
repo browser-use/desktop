@@ -18,6 +18,7 @@ import { runCliCapture, spawnCli } from '../cliSpawn';
 import type {
   AuthProbe,
   EngineAdapter,
+  EngineModelList,
   InstallProbe,
   ParseContext,
   ParseResult,
@@ -28,6 +29,41 @@ import type { HlEvent } from '../../../../shared/session-schemas';
 const ID = 'claude-code';
 const DISPLAY = 'Claude Code';
 const BIN = 'claude';
+
+function claudeModelList(): EngineModelList {
+  const models: EngineModelList['models'] = [
+    {
+      id: 'sonnet',
+      displayName: 'Sonnet',
+      description: 'Claude Code Sonnet alias',
+      source: 'static',
+    },
+    {
+      id: 'opus',
+      displayName: 'Opus',
+      description: 'Claude Code Opus alias',
+      source: 'static',
+    },
+    {
+      id: 'haiku',
+      displayName: 'Haiku',
+      description: 'Claude Code Haiku alias',
+      source: 'static',
+    },
+  ];
+
+  const custom = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION?.trim();
+  if (custom && !models.some((m) => m.id === custom)) {
+    models.push({
+      id: custom,
+      displayName: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME?.trim() || custom,
+      description: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION?.trim() || 'Custom Claude Code model',
+      source: 'env',
+    });
+  }
+
+  return { engineId: ID, models, source: custom ? 'env' : 'static' };
+}
 
 // ── helpers: prompt shaping ─────────────────────────────────────────────────
 
@@ -115,6 +151,10 @@ const claudeCodeAdapter: EngineAdapter = {
     });
   },
 
+  async listModels(): Promise<EngineModelList> {
+    return claudeModelList();
+  },
+
   wrapPrompt(ctx: SpawnContext): string {
     const lines: string[] = [
       'You are driving a specific Chromium browser view on this machine.',
@@ -145,6 +185,7 @@ const claudeCodeAdapter: EngineAdapter = {
       '--verbose',
       '--dangerously-skip-permissions',
     ];
+    if (_ctx.model) args.push('--model', _ctx.model);
     if (_ctx.resumeSessionId) args.push('--resume', _ctx.resumeSessionId);
     args.push(wrappedPrompt);
     return args;

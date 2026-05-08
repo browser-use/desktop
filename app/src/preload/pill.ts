@@ -250,6 +250,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sessions: {
     listEngines: (): Promise<Array<{ id: string; displayName: string; binaryName: string }>> =>
       ipcRenderer.invoke('sessions:list-engines'),
+    listEngineModels: (engineId: string, opts?: { forceRefresh?: boolean }): Promise<{
+      engineId: string;
+      models: Array<{ id: string; displayName: string; description?: string; source: string; isDefault?: boolean; isCurrent?: boolean; hidden?: boolean; supportedReasoningEfforts?: string[] }>;
+      source: string;
+      error?: string;
+      cached?: boolean;
+      cachedAt?: number;
+      expiresAt?: number;
+    }> => ipcRenderer.invoke('sessions:list-engine-models', engineId, opts),
+    invalidateEngineModels: (engineId: string): Promise<{ invalidated: boolean }> =>
+      ipcRenderer.invoke('sessions:invalidate-engine-models', engineId),
     engineStatus: (engineId: string): Promise<{
       id: string;
       displayName: string;

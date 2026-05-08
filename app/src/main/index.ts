@@ -80,6 +80,7 @@ import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
 import { createLocalTaskServer } from './localTaskServer';
+import { createEngineModelCache } from './engineModelCache';
 import {
   resolveUserDataDir,
   resolveCdpPort,
@@ -91,6 +92,7 @@ import { assertString, assertAttachments } from './ipc-validators';
 // pluggable (claude-code, codex, …) — see src/main/hl/engines/.
 import { bootstrapHarness, harnessDir } from './hl/harness';
 import { runEngine, DEFAULT_ENGINE_ID } from './hl/engines';
+import type { EngineModelList } from './hl/engines/types';
 import { getEngine, setEngine, type EngineId } from './hl/engine';
 import { forwardAgentEvent } from './pill';
 // Session management
@@ -117,6 +119,12 @@ import {
   onUpdateStatusChanged,
   stopUpdater,
 } from './updater';
+
+const engineModelCache = createEngineModelCache({
+  cachePath: () => path.join(app.getPath('userData'), 'engine-model-cache.json'),
+  logger: mainLogger,
+});
+const engineModelRequests = new Map<string, Promise<EngineModelList>>();
 
 // ---------------------------------------------------------------------------
 // Crash telemetry: catch unhandled errors before anything else
@@ -478,19 +486,25 @@ app.whenReady().then(async () => {
   ipcMain.handle('pill:submit', async (_event, payload: unknown) => {
     let promptRaw: unknown;
     let attachmentsRaw: unknown;
+    let modelRaw: unknown;
     if (typeof payload === 'string') {
       promptRaw = payload;
     } else if (payload && typeof payload === 'object') {
       promptRaw = (payload as { prompt?: unknown }).prompt;
       attachmentsRaw = (payload as { attachments?: unknown }).attachments;
+      modelRaw = (payload as { model?: unknown }).model;
     } else {
-      throw new Error('pill:submit payload must be a string or { prompt, attachments? }');
+      throw new Error('pill:submit payload must be a string or { prompt, attachments?, engine?, model? }');
     }
     const validatedPrompt = assertString(promptRaw, 'prompt', 10000);
     const attachments = assertAttachments(attachmentsRaw);
+    const pillModelId = modelRaw == null || modelRaw === ''
+      ? null
+      : assertString(modelRaw, 'model', 200);
     mainLogger.info('main.pill:submit', {
       promptLength: validatedPrompt.length,
       attachmentCount: attachments.length,
+      model: pillModelId,
     });
 
     hidePill();
@@ -507,6 +521,7 @@ app.whenReady().then(async () => {
       ? pillEngineRaw
       : DEFAULT_ENGINE_ID;
     sessionManager.setSessionEngine(id, pillEngineId);
+    sessionManager.setSessionModel(id, pillModelId);
     if (attachments.length > 0) {
       const turnIndex = sessionManager.getNextAttachmentTurnIndex(id);
       for (const a of attachments) {
@@ -516,6 +531,7 @@ app.whenReady().then(async () => {
     captureEvent('session_created', {
       source: 'pill',
       engine: pillEngineId,
+      model: pillModelId ?? 'default',
       prompt_length: validatedPrompt.length,
       attachments_count: attachments.length,
     });
@@ -798,6 +814,7 @@ app.whenReady().then(async () => {
       launched = true;
       runEngine({
         engineId,
+        model: sessionManager.getSessionModel(id) ?? undefined,
         harnessDir: harnessDir(),
         sessionId: id,
         prompt: sessionManager.getSession(id)!.prompt,
@@ -884,26 +901,31 @@ app.whenReady().then(async () => {
     let promptRaw: unknown;
     let attachmentsRaw: unknown;
     let engineRaw: unknown;
+    let modelRaw: unknown;
     if (typeof payload === 'string') {
       promptRaw = payload;
     } else if (payload && typeof payload === 'object') {
       promptRaw = (payload as { prompt?: unknown }).prompt;
       attachmentsRaw = (payload as { attachments?: unknown }).attachments;
       engineRaw = (payload as { engine?: unknown }).engine;
+      modelRaw = (payload as { model?: unknown }).model;
     } else {
-      throw new Error('sessions:create payload must be a string or { prompt, attachments?, engine? }');
+      throw new Error('sessions:create payload must be a string or { prompt, attachments?, engine?, model? }');
     }
     const validatedPrompt = assertString(promptRaw, 'prompt', 10000);
     const attachments = assertAttachments(attachmentsRaw);
     const engineId = engineRaw == null ? DEFAULT_ENGINE_ID : assertString(engineRaw, 'engine', 50);
+    const modelId = modelRaw == null || modelRaw === '' ? null : assertString(modelRaw, 'model', 200);
     mainLogger.info('main.sessions:create', {
       promptLength: validatedPrompt.length,
       attachmentCount: attachments.length,
       engineId,
+      model: modelId,
       attachmentMeta: attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.bytes.byteLength })),
     });
     const id = sessionManager.createSession(validatedPrompt);
     sessionManager.setSessionEngine(id, engineId);
+    sessionManager.setSessionModel(id, modelId);
     if (attachments.length > 0) {
       const turnIndex = sessionManager.getNextAttachmentTurnIndex(id);
       for (const a of attachments) {
@@ -913,6 +935,7 @@ app.whenReady().then(async () => {
     captureEvent('session_created', {
       source: 'hub',
       engine: engineId,
+      model: modelId ?? 'default',
       prompt_length: validatedPrompt.length,
       attachments_count: attachments.length,
     });
@@ -996,6 +1019,7 @@ app.whenReady().then(async () => {
     steerQueues.set(validatedId, []);
     runEngine({
       engineId,
+      model: sessionManager.getSessionModel(validatedId) ?? undefined,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: validatedPrompt,
@@ -1073,6 +1097,7 @@ app.whenReady().then(async () => {
     steerQueues.set(validatedId, []);
     runEngine({
       engineId,
+      model: sessionManager.getSessionModel(validatedId) ?? undefined,
       harnessDir: harnessDir(),
       sessionId: validatedId,
       prompt: session.prompt,
@@ -1242,6 +1267,56 @@ app.whenReady().then(async () => {
       command: result.command,
     });
     return { ...result, installed };
+  });
+
+  ipcMain.handle('sessions:list-engine-models', async (_event, engineId: string, opts?: { forceRefresh?: boolean }) => {
+    const validated = assertString(engineId, 'engineId', 50);
+    const forceRefresh = Boolean(opts?.forceRefresh);
+    if (!forceRefresh) {
+      const cached = engineModelCache.getCached(validated);
+      if (cached) {
+        return { ...cached, cached: true };
+      }
+      const inFlight = engineModelRequests.get(validated);
+      if (inFlight) return inFlight;
+    }
+
+    const requestVersion = engineModelCache.currentVersion(validated);
+    const request = (async (): Promise<EngineModelList> => {
+      const { getAdapter } = await import('./hl/engines');
+      const adapter = getAdapter(validated);
+      if (!adapter) throw new Error(`unknown engine: ${validated}`);
+      if (!adapter.listModels) {
+        return engineModelCache.store(adapter.id, { engineId: adapter.id, models: [], source: 'static' }, { expectedVersion: requestVersion });
+      }
+      const listed = await adapter.listModels();
+      if (listed.source === 'fallback' || listed.error) {
+        // Only fall back to a still-fresh cache entry — `getCached`
+        // enforces the TTL so we don't resurrect stale lists when the live
+        // listing fails (e.g. after sign-out).
+        const stale = forceRefresh ? null : engineModelCache.getCached(validated);
+        if (stale) {
+          return { ...stale, cached: true, error: listed.error };
+        }
+      }
+      return engineModelCache.store(adapter.id, listed, { expectedVersion: requestVersion });
+    })();
+
+    if (!forceRefresh) engineModelRequests.set(validated, request);
+    try {
+      return await request;
+    } finally {
+      if (engineModelRequests.get(validated) === request) {
+        engineModelRequests.delete(validated);
+      }
+    }
+  });
+
+  ipcMain.handle('sessions:invalidate-engine-models', async (_event, engineId: string) => {
+    const validated = assertString(engineId, 'engineId', 50);
+    engineModelRequests.delete(validated);
+    const removed = engineModelCache.invalidate(validated);
+    return { invalidated: removed };
   });
 
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {

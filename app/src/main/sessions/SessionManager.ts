@@ -41,6 +41,7 @@ export class SessionManager extends EventEmitter {
    * hydrated at startup so historical sessions resume on the same backend.
    */
   private sessionEngines: Map<string, string> = new Map();
+  private sessionModels: Map<string, string> = new Map();
   private termStates: Map<string, TermTranslatorState> = new Map();
   private db: SessionDb;
 
@@ -88,6 +89,7 @@ export class SessionManager extends EventEmitter {
       }
       if (row.model) {
         session.model = row.model;
+        this.sessionModels.set(row.id, row.model);
       }
       if (row.auth_mode === 'apiKey' || row.auth_mode === 'subscription') {
         session.authMode = row.auth_mode;
@@ -427,6 +429,8 @@ export class SessionManager extends EventEmitter {
     this.clearStuckTimer(id);
     this.abortControllers.delete(id);
     this.sessions.delete(id);
+    this.sessionEngines.delete(id);
+    this.sessionModels.delete(id);
     this.termStates.delete(id);
     this.db.deleteSession(id);
     mainLogger.info('SessionManager.deleteSession', { id });
@@ -587,20 +591,28 @@ export class SessionManager extends EventEmitter {
     return this.sessionEngines.get(id) ?? null;
   }
 
+  /** Record the explicit model selected for this session. Null means CLI default. */
   setSessionModel(id: string, model: string | null): void {
     const session = this.sessions.get(id);
+    if (model) this.sessionModels.set(id, model);
+    else this.sessionModels.delete(id);
+    this.db.updateModel(id, model);
     if (!session) {
       mainLogger.warn('SessionManager.setSessionModel.notFound', { id, model });
       return;
     }
     session.model = model ?? undefined;
-    this.db.updateModel(id, model);
     mainLogger.info('SessionManager.setSessionModel', {
       id,
       engine: session.engine ?? this.getSessionEngine(id),
       model,
     });
     this.emitEvent('session-updated', { ...session });
+  }
+
+  /** Retrieve the per-session explicit model, or null for CLI default. */
+  getSessionModel(id: string): string | null {
+    return this.sessionModels.get(id) ?? null;
   }
 
   /** Snapshot the auth mode + subscription type that actually ran this session.

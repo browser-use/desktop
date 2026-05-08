@@ -5104,7 +5104,7 @@ export namespace Preload {
      * Source text of JSON representing the rule set. If it comes from
      * `<script>` tag, it is the textContent of the node. Note that it is
      * a JSON for valid case.
-     * 
+     *
      * See also:
      * - https://wicg.github.io/nav-speculation/speculation-rules.html
      * - https://github.com/WICG/nav-speculation/blob/main/triggers.md
@@ -5117,7 +5117,7 @@ export namespace Preload {
      * the BackendNodeId of the relevant `<script>` tag. For the second
      * case, we include the external URL where the rule set was loaded
      * from, and also RequestId if Network domain is enabled.
-     * 
+     *
      * See also:
      * - https://wicg.github.io/nav-speculation/speculation-rules.html#speculation-rules-script
      * - https://wicg.github.io/nav-speculation/speculation-rules.html#speculation-rules-header
@@ -5156,7 +5156,7 @@ export namespace Preload {
 
   /**
    * A key that identifies a preloading attempt.
-   * 
+   *
    * The url used is the url specified by the trigger (i.e. the initial URL), and
    * not the final url that is navigated to. For example, prerendering allows
    * same-origin main frame navigations during the attempt, but the attempt is
@@ -5188,7 +5188,7 @@ export namespace Preload {
    * concept of preloading pipeline. For example, if a site uses a
    * SpeculationRules for prerender, Chrome first starts a prefetch and
    * then upgrades it to prerender.
-   * 
+   *
    * CDP events for them are emitted separately but they share
    * `PreloadPipelineId`.
    */
@@ -5802,7 +5802,7 @@ export namespace SmartCardEmulation {
 
   /**
    * Indicates the PC/SC error code.
-   * 
+   *
    * This maps to:
    * PC/SC Lite: https://pcsclite.apdu.fr/api/group__ErrorCodes.html
    * Microsoft: https://learn.microsoft.com/en-us/windows/win32/secauthn/authentication-return-values
@@ -10694,7 +10694,7 @@ export namespace Page {
      * - `url`: document location
      * - `pageNumber`: current page number
      * - `totalPages`: total pages in the document
-     * 
+     *
      * For example, `<span class=title></span>` would generate span containing the title.
      */
     headerTemplate?: string;
@@ -11041,11 +11041,11 @@ export namespace PWA {
      * extended scope if the manifest has scope extensions and the flags
      * `DesktopPWAsLinkCapturingWithScopeExtensions` and
      * `WebAppEnableScopeExtensions` are enabled.
-     * 
+     *
      * Note, the API does not support resetting the linkCapturing to the
      * initial value, uninstalling and installing the web app again will reset
      * it.
-     * 
+     *
      * TODO(crbug.com/339453269): Setting this value on ChromeOS is not
      * supported yet.
      */
@@ -12648,11 +12648,11 @@ export interface Domains {
      * after a restart was scheduled. This can cause problems with restarting, so
      * we now continue execution immediatly after it has been scheduled until we
      * reach the beginning of the restarted frame.
-     * 
+     *
      * To stay back-wards compatible, `restartFrame` now expects a `mode`
      * parameter to be present. If the `mode` parameter is missing, `restartFrame`
      * errors out.
-     * 
+     *
      * The various return values are deprecated and `callFrames` is always empty.
      * Use the call frames from the `Debugger#paused` events instead, that fires
      * once V8 pauses at the beginning of the restarted function.
@@ -12711,7 +12711,7 @@ export interface Domains {
     setReturnValue: (params: Debugger.SetReturnValueParams) => Promise<void>;
     /**
      * Edits JavaScript source live.
-     * 
+     *
      * In general, functions that are currently on the stack can not be edited with
      * a single exception: If the edited function is the top-most stack frame and
      * that is the only activation of that function on the stack. In this case
@@ -13768,11 +13768,11 @@ export interface Domains {
     setInterceptFileChooserDialog: (params: Page.SetInterceptFileChooserDialogParams) => Promise<void>;
     /**
      * Enable/disable prerendering manually.
-     * 
+     *
      * This command is a short-term solution for https://crbug.com/1440085.
      * See https://docs.google.com/document/d/12HVmFxYj5Jc-eJr5OmWsa2bqTJsbgGLKI6ZIyx0_wpA
      * for more details.
-     * 
+     *
      * TODO(https://crbug.com/1440085): Remove this once Puppeteer supports tab targets.
      */
     setPrerenderingAllowed: (params: Page.SetPrerenderingAllowedParams) => Promise<void>;
@@ -13841,29 +13841,29 @@ export interface Domains {
     getOsAppState: (params: PWA.GetOsAppStateParams) => Promise<PWA.GetOsAppStateReturn>;
     /**
      * Installs the given manifest identity, optionally using the given installUrlOrBundleUrl
-     * 
+     *
      * IWA-specific install description:
      * manifestId corresponds to isolated-app:// + web_package::SignedWebBundleId
-     * 
+     *
      * File installation mode:
      * The installUrlOrBundleUrl can be either file:// or http(s):// pointing
      * to a signed web bundle (.swbn). In this case SignedWebBundleId must correspond to
      * The .swbn file's signing key.
-     * 
+     *
      * Dev proxy installation mode:
      * installUrlOrBundleUrl must be http(s):// that serves dev mode IWA.
      * web_package::SignedWebBundleId must be of type dev proxy.
-     * 
+     *
      * The advantage of dev proxy mode is that all changes to IWA
      * automatically will be reflected in the running app without
      * reinstallation.
-     * 
+     *
      * To generate bundle id for proxy mode:
      * 1. Generate 32 random bytes.
      * 2. Add a specific suffix at the end following the documentation
      *    https://github.com/WICG/isolated-web-apps/blob/main/Scheme.md#suffix
      * 3. Encode the entire sequence using Base32 without padding.
-     * 
+     *
      * If Chrome is not in IWA dev
      * mode, the installation will fail, regardless of the state of the allowlist.
      */
@@ -13884,11 +13884,11 @@ export interface Domains {
      * If some files in the parameters cannot be handled by the web app, they will
      * be ignored. If none of the files can be handled, this API returns an error.
      * If no files are provided as the parameter, this API also returns an error.
-     * 
+     *
      * According to the definition of the file handlers in the manifest file, one
      * Target.TargetID may represent a page handling one or more files. The order
      * of the returned Target.TargetIDs is not guaranteed.
-     * 
+     *
      * TODO(crbug.com/339454034): Check the existences of the input files.
      */
     launchFilesInApp: (params: PWA.LaunchFilesInAppParams) => Promise<PWA.LaunchFilesInAppReturn>;
@@ -13902,11 +13902,11 @@ export interface Domains {
      * Changes user settings of the web app identified by its manifestId. If the
      * app was not installed, this command returns an error. Unset parameters will
      * be ignored; unrecognized values will cause an error.
-     * 
+     *
      * Unlike the ones defined in the manifest files of the web apps, these
      * settings are provided by the browser and controlled by the users, they
      * impact the way the browser handling the web apps.
-     * 
+     *
      * See the comment of each parameter.
      */
     changeAppUserSettings: (params: PWA.ChangeAppUserSettingsParams) => Promise<void>;
@@ -14026,7 +14026,7 @@ export interface Domains {
     disable: () => Promise<void>;
     /**
      * Reports the successful result of a |SCardEstablishContext| call.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gaa1b8970169fd4883a6dc4a8f43f19b67
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardestablishcontext
@@ -14034,7 +14034,7 @@ export interface Domains {
     reportEstablishContextResult: (params: SmartCardEmulation.ReportEstablishContextResultParams) => Promise<void>;
     /**
      * Reports the successful result of a |SCardReleaseContext| call.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga6aabcba7744c5c9419fdd6404f73a934
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardreleasecontext
@@ -14042,7 +14042,7 @@ export interface Domains {
     reportReleaseContextResult: (params: SmartCardEmulation.ReportReleaseContextResultParams) => Promise<void>;
     /**
      * Reports the successful result of a |SCardListReaders| call.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga93b07815789b3cf2629d439ecf20f0d9
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardlistreadersa
@@ -14050,7 +14050,7 @@ export interface Domains {
     reportListReadersResult: (params: SmartCardEmulation.ReportListReadersResultParams) => Promise<void>;
     /**
      * Reports the successful result of a |SCardGetStatusChange| call.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga33247d5d1257d59e55647c3bb717db24
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardgetstatuschangea
@@ -14059,7 +14059,7 @@ export interface Domains {
     /**
      * Reports the result of a |SCardBeginTransaction| call.
      * On success, this creates a new transaction object.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gaddb835dce01a0da1d6ca02d33ee7d861
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardbegintransaction
@@ -14068,20 +14068,20 @@ export interface Domains {
     /**
      * Reports the successful result of a call that returns only a result code.
      * Used for: |SCardCancel|, |SCardDisconnect|, |SCardSetAttrib|, |SCardEndTransaction|.
-     * 
+     *
      * This maps to:
      * 1. SCardCancel
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gaacbbc0c6d6c0cbbeb4f4debf6fbeeee6
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardcancel
-     * 
+     *
      * 2. SCardDisconnect
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga4be198045c73ec0deb79e66c0ca1738a
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scarddisconnect
-     * 
+     *
      * 3. SCardSetAttrib
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga060f0038a4ddfd5dd2b8fadf3c3a2e4f
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardsetattrib
-     * 
+     *
      * 4. SCardEndTransaction
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gae8742473b404363e5c587f570d7e2f3b
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardendtransaction
@@ -14089,7 +14089,7 @@ export interface Domains {
     reportPlainResult: (params: SmartCardEmulation.ReportPlainResultParams) => Promise<void>;
     /**
      * Reports the successful result of a |SCardConnect| call.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga4e515829752e0a8dbc4d630696a8d6a5
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardconnecta
@@ -14098,16 +14098,16 @@ export interface Domains {
     /**
      * Reports the successful result of a call that sends back data on success.
      * Used for |SCardTransmit|, |SCardControl|, and |SCardGetAttrib|.
-     * 
+     *
      * This maps to:
      * 1. SCardTransmit
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#ga9a2d77242a271310269065e64633ab99
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardtransmit
-     * 
+     *
      * 2. SCardControl
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gac3454d4657110fd7f753b2d3d8f4e32f
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardcontrol
-     * 
+     *
      * 3. SCardGetAttrib
      *    PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gaacfec51917255b7a25b94c5104961602
      *    Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardgetattrib
@@ -14115,7 +14115,7 @@ export interface Domains {
     reportDataResult: (params: SmartCardEmulation.ReportDataResultParams) => Promise<void>;
     /**
      * Reports the successful result of a |SCardStatus| call.
-     * 
+     *
      * This maps to:
      * PC/SC Lite: https://pcsclite.apdu.fr/api/group__API.html#gae49c3c894ad7ac12a5b896bde70d0382
      * Microsoft: https://learn.microsoft.com/en-us/windows/win32/api/winscard/nf-winscard-scardstatusa
@@ -14231,9 +14231,9 @@ export interface Domains {
     /**
      * Inject object to the target's main frame that provides a communication
      * channel with browser target.
-     * 
+     *
      * Injected object will be available as `window[bindingName]`.
-     * 
+     *
      * The object has the following API:
      * - `binding.send(json)` - a method to send messages over the remote debugging protocol
      * - `binding.onmessage = json => handleMessage(json)` - a callback that will be called for the protocol notifications and command responses.

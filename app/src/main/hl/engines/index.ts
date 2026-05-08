@@ -6,6 +6,7 @@
 // Adapters (side-effect register()):
 import './claude-code/adapter';
 import './codex/adapter';
+import './cursor-agent/adapter';
 import './browsercode/adapter';
 
 export { runEngine } from './runEngine';

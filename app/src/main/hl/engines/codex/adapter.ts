@@ -18,15 +18,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
 import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
 import { enrichedEnv } from '../pathEnrich';
-import { runCliCapture } from '../cliSpawn';
+import { runCliCapture, spawnCli } from '../cliSpawn';
 import { runCodexDeviceLogin } from '../../../identity/codexLogin';
 import type {
   AuthProbe,
   EngineAdapter,
+  EngineModelList,
   InstallProbe,
   ParseContext,
   ParseResult,
@@ -39,6 +41,166 @@ const ID = 'codex';
 const DISPLAY = 'Codex';
 const BIN = 'codex';
 const BYPASS_APPROVALS_FLAG = '--dangerously-bypass-approvals-and-sandbox';
+
+const CODEX_FALLBACK_MODELS: EngineModelList['models'] = [
+  {
+    id: 'gpt-5.5',
+    displayName: 'GPT-5.5',
+    description: 'Frontier Codex model',
+    source: 'fallback',
+  },
+  {
+    id: 'gpt-5.4',
+    displayName: 'GPT-5.4',
+    description: 'Strong everyday coding model',
+    source: 'fallback',
+  },
+  {
+    id: 'gpt-5.4-mini',
+    displayName: 'GPT-5.4 Mini',
+    description: 'Fast, cost-efficient coding model',
+    source: 'fallback',
+  },
+  {
+    id: 'gpt-5.3-codex',
+    displayName: 'GPT-5.3 Codex',
+    description: 'Codex coding model',
+    source: 'fallback',
+  },
+];
+
+function normalizeCodexModels(raw: unknown): EngineModelList['models'] {
+  const data = raw && typeof raw === 'object' ? (raw as { data?: unknown }).data : undefined;
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((item): EngineModelList['models'] => {
+    if (!item || typeof item !== 'object') return [];
+    const m = item as Record<string, unknown>;
+    const id = typeof m.model === 'string' ? m.model : typeof m.id === 'string' ? m.id : null;
+    if (!id) return [];
+    const efforts = Array.isArray(m.supportedReasoningEfforts)
+      ? m.supportedReasoningEfforts
+        .map((e) => e && typeof e === 'object' && typeof (e as Record<string, unknown>).reasoningEffort === 'string'
+          ? String((e as Record<string, unknown>).reasoningEffort)
+          : null)
+        .filter((e): e is string => Boolean(e))
+      : undefined;
+    return [{
+      id,
+      displayName: typeof m.displayName === 'string' ? m.displayName : id,
+      description: typeof m.description === 'string' ? m.description : undefined,
+      source: 'app-server',
+      hidden: typeof m.hidden === 'boolean' ? m.hidden : undefined,
+      isDefault: typeof m.isDefault === 'boolean' ? m.isDefault : undefined,
+      supportedReasoningEfforts: efforts && efforts.length > 0 ? efforts : undefined,
+    }];
+  });
+}
+
+function listCodexModelsViaAppServer(timeoutMs = 10_000): Promise<EngineModelList> {
+  return new Promise((resolve) => {
+    let child: ChildProcessWithoutNullStreams | undefined;
+    let settled = false;
+    let stdoutBuf = '';
+    let stderrBuf = '';
+    const settle = (result: EngineModelList) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child?.kill('SIGTERM'); } catch { /* already closed */ }
+      resolve(result);
+    };
+    const fallback = (error: string): EngineModelList => ({
+      engineId: ID,
+      source: 'fallback',
+      error,
+      models: CODEX_FALLBACK_MODELS,
+    });
+    const send = (payload: unknown) => {
+      try { child?.stdin.write(`${JSON.stringify(payload)}\n`); }
+      catch { /* close handler will return fallback */ }
+    };
+    const handleMessage = (msg: Record<string, unknown>) => {
+      if (msg.id === 1) {
+        if (msg.error) {
+          const error = msg.error && typeof msg.error === 'object' && typeof (msg.error as Record<string, unknown>).message === 'string'
+            ? String((msg.error as Record<string, unknown>).message)
+            : 'Codex app-server initialize failed';
+          settle(fallback(error));
+          return;
+        }
+        send({ method: 'initialized' });
+        send({ id: 2, method: 'model/list', params: { includeHidden: false } });
+        return;
+      }
+      if (msg.id === 2) {
+        if (msg.error) {
+          const error = msg.error && typeof msg.error === 'object' && typeof (msg.error as Record<string, unknown>).message === 'string'
+            ? String((msg.error as Record<string, unknown>).message)
+            : 'Codex app-server model/list failed';
+          settle(fallback(error));
+          return;
+        }
+        const models = normalizeCodexModels(msg.result);
+        settle({
+          engineId: ID,
+          source: models.length > 0 ? 'app-server' : 'fallback',
+          error: models.length > 0 ? undefined : 'Codex app-server returned no models',
+          models: models.length > 0 ? models : CODEX_FALLBACK_MODELS,
+        });
+      }
+    };
+
+    const timer = setTimeout(() => {
+      settle(fallback('Codex app-server model/list timed out'));
+    }, timeoutMs);
+
+    try {
+      const env = enrichedEnv();
+      child = spawnCli(BIN, ['app-server', '--listen', 'stdio://'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (err) {
+      settle(fallback((err as Error).message));
+      return;
+    }
+
+    child.stdout.on('data', (d) => {
+      stdoutBuf += String(d);
+      let idx;
+      while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
+        const line = stdoutBuf.slice(0, idx).trim();
+        stdoutBuf = stdoutBuf.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          handleMessage(parsed);
+        } catch {
+          // Ignore non-protocol noise defensively.
+        }
+      }
+    });
+    child.stderr.on('data', (d) => {
+      stderrBuf += String(d);
+      if (stderrBuf.length > 4096) stderrBuf = stderrBuf.slice(-4096);
+    });
+    child.on('spawn', () => {
+      send({
+        id: 1,
+        method: 'initialize',
+        params: {
+          clientInfo: { name: 'browser-use-desktop', title: 'Browser Use', version: '0.0.30' },
+          capabilities: { experimentalApi: true },
+        },
+      });
+    });
+    child.on('error', (err) => {
+      settle(fallback(err.message));
+    });
+    child.on('close', (code) => {
+      if (!settled) {
+        settle(fallback(stderrBuf.trim() || `Codex app-server exited before model/list completed (${code})`));
+      }
+    });
+  });
+}
 
 function codexAuthFilePath(): string {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -106,6 +268,10 @@ const codexAdapter: EngineAdapter = {
     return runCodexDeviceLogin(opts);
   },
 
+  async listModels(): Promise<EngineModelList> {
+    return listCodexModelsViaAppServer();
+  },
+
   wrapPrompt(ctx: SpawnContext): string {
     const lines: string[] = [
       'You are driving a specific Chromium browser view on this machine.',
@@ -134,10 +300,11 @@ const codexAdapter: EngineAdapter = {
     // getStdinPayload below for why we never pass the prompt via argv.
     // The bypass flag skips sandbox + approvals, mirroring Claude Code's
     // --dangerously-skip-permissions for this app-managed harness.
+    const modelArgs = ctx.model ? ['--model', ctx.model] : [];
     if (ctx.resumeSessionId) {
-      return ['exec', 'resume', '--json', BYPASS_APPROVALS_FLAG, ctx.resumeSessionId, '-'];
+      return ['exec', 'resume', '--json', BYPASS_APPROVALS_FLAG, ...modelArgs, ctx.resumeSessionId, '-'];
     }
-    return ['exec', '--json', BYPASS_APPROVALS_FLAG, '-'];
+    return ['exec', '--json', BYPASS_APPROVALS_FLAG, ...modelArgs, '-'];
   },
 
   getStdinPayload(_ctx: SpawnContext, wrappedPrompt: string): string {

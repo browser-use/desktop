@@ -1017,7 +1017,14 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
           {session.engine === 'claude-code' && (
             <img className="pane__engine-icon" src={claudeCodeLogo} alt="Claude Code" title="Claude Code" />
           )}
-          {session.model && session.engine === 'browsercode' && (
+          {session.engine === 'cursor-agent' && (
+            <span
+              className="pane__engine-icon pane__engine-icon--inline"
+              title="Cursor Agent"
+              dangerouslySetInnerHTML={{ __html: cursorLogoSrc as string }}
+            />
+          )}
+          {session.model && (
             <span className="pane__model-badge" title={`Model: ${session.model}`}>
               {session.model.includes('/') ? session.model.split('/').pop() : session.model}
             </span>

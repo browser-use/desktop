@@ -34,7 +34,7 @@ declare module '*.webp' {
 
 interface ElectronSessionAPI {
   create: (
-    promptOrPayload: string | { prompt: string; attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>; engine?: string },
+    promptOrPayload: string | { prompt: string; attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>; engine?: string; model?: string },
   ) => Promise<string>;
   start: (id: string) => Promise<void>;
   cancel: (id: string) => Promise<void>;
@@ -47,6 +47,25 @@ interface ElectronSessionAPI {
   listEditors: () => Promise<Array<{ id: string; name: string }>>;
   openInEditor: (editorId: string, filePath: string) => Promise<{ opened: boolean }>;
   listEngines: () => Promise<Array<{ id: string; displayName: string; binaryName: string }>>;
+  listEngineModels: (engineId: string, opts?: { forceRefresh?: boolean }) => Promise<{
+    engineId: string;
+    models: Array<{
+      id: string;
+      displayName: string;
+      description?: string;
+      source: string;
+      isDefault?: boolean;
+      isCurrent?: boolean;
+      hidden?: boolean;
+      supportedReasoningEfforts?: string[];
+    }>;
+    source: string;
+    error?: string;
+    cached?: boolean;
+    cachedAt?: number;
+    expiresAt?: number;
+  }>;
+  invalidateEngineModels: (engineId: string) => Promise<{ invalidated: boolean }>;
   engineStatus: (engineId: string) => Promise<{
     id: string;
     displayName: string;
@@ -261,6 +280,17 @@ interface ElectronSettingsCodexAPI {
   logout: () => Promise<{ opened: boolean; error?: string }>;
 }
 
+interface ElectronSettingsCursorAPI {
+  status: () => Promise<{
+    id: string;
+    displayName: string;
+    installed: { installed: boolean; version?: string; error?: string };
+    authed: { authed: boolean; error?: string };
+  }>;
+  login: () => Promise<{ opened: boolean; error?: string }>;
+  logout: () => Promise<{ opened: boolean; error?: string }>;
+}
+
 interface ElectronSettingsBrowserCodeAPI {
   getStatus: () => Promise<{
     keys: Record<string, { masked: string; lastModel?: string }>;
@@ -332,6 +362,7 @@ interface ElectronSettingsAPI {
   claudeCode?: ElectronSettingsClaudeCodeAPI;
   openaiKey?: ElectronSettingsOpenAiKeyAPI;
   codex?: ElectronSettingsCodexAPI;
+  cursor?: ElectronSettingsCursorAPI;
   browserCode?: ElectronSettingsBrowserCodeAPI;
   app?: ElectronSettingsAppAPI;
 }
