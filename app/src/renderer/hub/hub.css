@@ -4384,28 +4384,9 @@ button:focus:not(:focus-visible) {
     color 140ms var(--ease-out);
 }
 
-/* Subtle vertical separator between adjacent inactive chips, Chrome-style */
-.tabstrip__chip + .tabstrip__chip::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 8px;
-  bottom: 8px;
-  width: 1px;
-  background: var(--color-border-subtle);
-  transition: opacity 140ms var(--ease-out);
-}
-
 .tabstrip__chip:hover {
   background: rgba(255, 255, 255, 0.035);
   color: var(--color-fg-primary);
-}
-
-.tabstrip__chip:hover::before,
-.tabstrip__chip:hover + .tabstrip__chip::before,
-.tabstrip__chip--active::before,
-.tabstrip__chip--active + .tabstrip__chip::before {
-  opacity: 0;
 }
 
 .tabstrip__chip--active {
