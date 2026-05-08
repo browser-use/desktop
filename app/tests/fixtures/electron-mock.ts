@@ -249,6 +249,8 @@ function createMockWebContents() {
     getURL: (): string => 'about:blank',
     getTitle: (): string => 'New Tab',
     getOSProcessId: (): number => 10000 + id,
+    isDestroyed: (): boolean => false,
+    isCurrentlyAudible: (): boolean => false,
     setFrameRate: (_fps: number): void => undefined,
     setBackgroundThrottling: (_throttle: boolean): void => undefined,
     loadURL: (_url: string): Promise<void> => Promise.resolve(),
@@ -259,6 +261,7 @@ function createMockWebContents() {
     debugger: {
       attach: (): void => undefined,
       sendCommand: (): Promise<unknown> => Promise.resolve({}),
+      detach: (): void => undefined,
       on: (): void => undefined,
       isAttached: (): boolean => false,
     },

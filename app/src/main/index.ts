@@ -671,6 +671,7 @@ app.whenReady().then(async () => {
     sendToPill('session-updated', session);
     forwardSessionUpdatedToLogs(session);
     notifiedStuck.delete(session.id);
+    browserPool.markSessionIdle(session.id);
     const doneEvent = session.output.find(
       (e: { type: string }) => e.type === 'done',
     ) as { type: string; summary?: string } | undefined;
@@ -768,6 +769,7 @@ app.whenReady().then(async () => {
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'startSession', ms: Date.now() - t0 });
 
       view = browserPool.create(id, t0);
+      await browserPool.markSessionActive(id);
       mainLogger.info('main.startSessionWithAgent.timing', { id, step: 'poolCreate', ms: Date.now() - t0 });
       if (!view) {
         sessionManager.failSession(id, `Browser pool full (max ${browserPool.activeCount}), session queued`);
@@ -938,6 +940,7 @@ app.whenReady().then(async () => {
     if (currentSession.status !== 'idle' && currentSession.status !== 'stopped') {
       return { error: `Session ${validatedId} is ${currentSession.status}, expected idle or stopped` };
     }
+    await browserPool.markSessionActive(validatedId);
 
     if (resumeAttachments.length > 0) {
       const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
@@ -1045,6 +1048,7 @@ app.whenReady().then(async () => {
     });
 
     const view = browserPool.create(validatedId, t0);
+    await browserPool.markSessionActive(validatedId);
     if (!view) {
       sessionManager.failSession(validatedId, 'Browser pool full');
       return { error: 'Browser pool full' };

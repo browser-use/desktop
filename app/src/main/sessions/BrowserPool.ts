@@ -6,7 +6,10 @@ const DEFAULT_BROWSER_WIDTH = 1280;
 const DEFAULT_BROWSER_HEIGHT = 800;
 const DEFAULT_MAX_CONCURRENT = 10;
 const THROTTLED_FRAME_RATE = 4;
+const IDLE_FRAME_RATE = 1;
 const ACTIVE_FRAME_RATE = 60;
+const DEFAULT_IDLE_FREEZE_DELAY_MS = 15_000;
+const CDP_PROTOCOL_VERSION = '1.3';
 // Emulated viewport pins height; width is computed per-attach from the
 // physical rect's aspect ratio so the rendered page fills the box exactly
 // (no letterboxing). A floor on width keeps sites in their desktop
@@ -26,6 +29,17 @@ interface PoolEntry {
   createdAt: number;
   attached: boolean;
   emulatedWidth: number;
+  idleFreezeEligible: boolean;
+  frozen: boolean;
+  freezeTimer: ReturnType<typeof setTimeout> | null;
+}
+
+function readIdleFreezeDelayMs(): number {
+  const raw = process.env.BU_IDLE_BROWSER_FREEZE_DELAY_MS;
+  if (raw == null || raw.trim() === '') return DEFAULT_IDLE_FREEZE_DELAY_MS;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return DEFAULT_IDLE_FREEZE_DELAY_MS;
+  return value;
 }
 
 export class BrowserPool {
@@ -34,9 +48,11 @@ export class BrowserPool {
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
+  private idleFreezeDelayMs: number;
 
-  constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT) {
+  constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT, opts: { idleFreezeDelayMs?: number } = {}) {
     this.maxConcurrent = maxConcurrent;
+    this.idleFreezeDelayMs = opts.idleFreezeDelayMs ?? readIdleFreezeDelayMs();
     browserLogger.info('BrowserPool.init', { maxConcurrent });
   }
 
@@ -219,6 +235,9 @@ export class BrowserPool {
       createdAt: startupStartedAt,
       attached: false,
       emulatedWidth: DEFAULT_EMULATED_VIEWPORT_WIDTH,
+      idleFreezeEligible: false,
+      frozen: false,
+      freezeTimer: null,
     };
 
     this.entries.set(sessionId, entry);
@@ -289,6 +308,8 @@ export class BrowserPool {
     });
     wc.on('destroyed', () => {
       browserLogger.info('BrowserPool.wc.destroyed', { sessionId, msSinceCreate: startupMs() });
+      const entry = this.entries.get(sessionId);
+      if (entry) this.clearIdleFreezeTimer(entry);
       this.entries.delete(sessionId);
       this.notifyGone(sessionId);
     });
@@ -438,6 +459,106 @@ export class BrowserPool {
     return entry?.view ?? null;
   }
 
+  async markSessionActive(sessionId: string): Promise<void> {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return;
+    entry.idleFreezeEligible = false;
+    this.clearIdleFreezeTimer(entry);
+    this.applyFrameRate(entry);
+    await this.setLifecycleState(entry, 'active', 'session-active');
+  }
+
+  markSessionIdle(sessionId: string): void {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return;
+    entry.idleFreezeEligible = true;
+    this.applyFrameRate(entry);
+    this.scheduleIdleFreeze(entry, 'session-idle');
+  }
+
+  private clearIdleFreezeTimer(entry: PoolEntry): void {
+    if (!entry.freezeTimer) return;
+    clearTimeout(entry.freezeTimer);
+    entry.freezeTimer = null;
+  }
+
+  private frameRateFor(entry: PoolEntry): number {
+    if (entry.attached) return ACTIVE_FRAME_RATE;
+    return entry.idleFreezeEligible ? IDLE_FRAME_RATE : THROTTLED_FRAME_RATE;
+  }
+
+  private applyFrameRate(entry: PoolEntry): void {
+    try {
+      entry.view.webContents.setFrameRate(this.frameRateFor(entry));
+    } catch (err) {
+      browserLogger.warn('BrowserPool.frameRate.error', {
+        sessionId: entry.sessionId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  private scheduleIdleFreeze(entry: PoolEntry, reason: string): void {
+    this.clearIdleFreezeTimer(entry);
+    if (!entry.idleFreezeEligible || entry.attached || this.idleFreezeDelayMs <= 0) return;
+
+    entry.freezeTimer = setTimeout(() => {
+      entry.freezeTimer = null;
+      const current = this.entries.get(entry.sessionId);
+      if (current !== entry) return;
+      void this.freezeIfStillIdle(entry, reason);
+    }, this.idleFreezeDelayMs);
+  }
+
+  private async freezeIfStillIdle(entry: PoolEntry, reason: string): Promise<void> {
+    if (!entry.idleFreezeEligible || entry.attached || entry.frozen) return;
+    const wc = entry.view.webContents;
+    if (wc.isDestroyed()) return;
+    if (wc.isCurrentlyAudible()) {
+      browserLogger.info('BrowserPool.freeze.skippedAudible', { sessionId: entry.sessionId, reason });
+      this.scheduleIdleFreeze(entry, 'audible-retry');
+      return;
+    }
+
+    await this.setLifecycleState(entry, 'frozen', reason);
+  }
+
+  private async wakeForVisibility(entry: PoolEntry, reason: string): Promise<void> {
+    this.clearIdleFreezeTimer(entry);
+    await this.setLifecycleState(entry, 'active', reason);
+  }
+
+  private async setLifecycleState(entry: PoolEntry, state: 'active' | 'frozen', reason: string): Promise<void> {
+    const wc = entry.view.webContents;
+    if (wc.isDestroyed()) return;
+    if (state === 'active' && !entry.frozen) return;
+    if (state === 'frozen' && entry.frozen) return;
+
+    const dbg = wc.debugger;
+    const wasAttached = dbg.isAttached();
+    try {
+      if (!wasAttached) dbg.attach(CDP_PROTOCOL_VERSION);
+      await dbg.sendCommand('Page.setWebLifecycleState', { state });
+      entry.frozen = state === 'frozen';
+      browserLogger.info('BrowserPool.lifecycleState', {
+        sessionId: entry.sessionId,
+        state,
+        reason,
+      });
+    } catch (err) {
+      browserLogger.debug('BrowserPool.lifecycleState.error', {
+        sessionId: entry.sessionId,
+        state,
+        reason,
+        error: (err as Error).message,
+      });
+    } finally {
+      if (!wasAttached) {
+        try { dbg.detach(); } catch { /* debugger may have detached during navigation */ }
+      }
+    }
+  }
+
   /** Center + shrink the view rect inside the hub box if the emulated
    *  viewport is narrower than the rect (after zoom-to-fit on height).
    *  Otherwise the rect is used as-is. */
@@ -514,6 +635,7 @@ export class BrowserPool {
     entry.view.setBounds(fittedBounds);
     window.contentView.addChildView(entry.view);
     entry.attached = true;
+    void this.wakeForVisibility(entry, 'attach');
 
     try {
       entry.view.webContents.enableDeviceEmulation({
@@ -530,7 +652,7 @@ export class BrowserPool {
       browserLogger.warn('BrowserPool.attach.enableDeviceEmulation.error', { sessionId, error: (err as Error).message });
     }
 
-    entry.view.webContents.setFrameRate(ACTIVE_FRAME_RATE);
+    this.applyFrameRate(entry);
 
     // Scale the rendered page so the emulated viewport fills the physical
     // rect. With aspect-matched emulatedWidth, both axes give the same zoom
@@ -549,7 +671,7 @@ export class BrowserPool {
       rectAspect: bounds.width / bounds.height,
       emulatedAspect: emulatedWidth / EMULATED_VIEWPORT_HEIGHT,
       zoomFactor: zoom,
-      frameRate: ACTIVE_FRAME_RATE,
+      frameRate: this.frameRateFor(entry),
     });
 
     return true;
@@ -570,11 +692,13 @@ export class BrowserPool {
     window.contentView.removeChildView(entry.view);
     entry.attached = false;
 
-    entry.view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
+    this.applyFrameRate(entry);
+    this.scheduleIdleFreeze(entry, 'detached');
 
     browserLogger.info('BrowserPool.detach', {
       sessionId,
-      frameRate: THROTTLED_FRAME_RATE,
+      frameRate: this.frameRateFor(entry),
+      idleFreezeEligible: entry.idleFreezeEligible,
     });
 
     return true;
@@ -592,6 +716,14 @@ export class BrowserPool {
     for (const entry of this.entries.values()) {
       if (entry.attached) {
         window.contentView.removeChildView(entry.view);
+        try {
+          entry.view.webContents.setFrameRate(entry.idleFreezeEligible ? IDLE_FRAME_RATE : THROTTLED_FRAME_RATE);
+        } catch (err) {
+          browserLogger.warn('BrowserPool.temporarilyDetachAll.frameRate.error', {
+            sessionId: entry.sessionId,
+            error: (err as Error).message,
+          });
+        }
       }
     }
     browserLogger.info('BrowserPool.temporarilyDetachAll');
@@ -601,6 +733,8 @@ export class BrowserPool {
     for (const entry of this.entries.values()) {
       if (entry.attached) {
         window.contentView.addChildView(entry.view);
+        void this.wakeForVisibility(entry, 'reattach');
+        this.applyFrameRate(entry);
       }
     }
     browserLogger.info('BrowserPool.reattachAll');
@@ -649,6 +783,7 @@ export class BrowserPool {
     }
 
     const lifetimeMs = Date.now() - entry.createdAt;
+    this.clearIdleFreezeTimer(entry);
 
     // Delete from map first so the wc.on('destroyed') listener's notifyGone
     // is a clean no-op (it still fires, but the entry is already gone).

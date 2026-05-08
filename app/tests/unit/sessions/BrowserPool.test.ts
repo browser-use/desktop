@@ -1,9 +1,31 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BrowserPool } from '../../../src/main/sessions/BrowserPool';
 import { contentViewStub } from '../../fixtures/electron-mock';
 
 function mockWindow(): any {
   return { contentView: { ...contentViewStub } };
+}
+
+function instrumentLifecycle(view: NonNullable<ReturnType<BrowserPool['create']>>) {
+  const setFrameRate = vi.fn<(fps: number) => void>();
+  const sendCommand = vi.fn<(method: string, params: Record<string, unknown>) => Promise<unknown>>().mockResolvedValue({});
+  const wc = view.webContents as unknown as {
+    setFrameRate: (fps: number) => void;
+    debugger: {
+      sendCommand: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+      attach: () => void;
+      detach: () => void;
+      isAttached: () => boolean;
+    };
+  };
+  wc.setFrameRate = setFrameRate;
+  Object.assign(wc.debugger, {
+    sendCommand,
+    attach: vi.fn<() => void>(),
+    detach: vi.fn<() => void>(),
+    isAttached: () => false,
+  });
+  return { setFrameRate, sendCommand };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +243,63 @@ describe('BrowserPool — fitted resize', () => {
     const fitted = pool.setViewBoundsFitted('s1', { x: 0, y: 0, width: 2000, height: 900 });
     expect(fitted).toEqual({ x: 600, y: 0, width: 800, height: 900 });
     expect(view!.getBounds()).toEqual({ x: 600, y: 0, width: 800, height: 900 });
+  });
+});
+
+describe('BrowserPool — idle CPU throttling', () => {
+  let pool: BrowserPool;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    pool = new BrowserPool(5, { idleFreezeDelayMs: 100 });
+  });
+
+  afterEach(() => {
+    pool.destroyAll();
+    vi.useRealTimers();
+  });
+
+  it('drops detached idle sessions to 1 FPS and freezes after the idle delay', async () => {
+    const view = pool.create('s1');
+    expect(view).not.toBeNull();
+
+    const { setFrameRate, sendCommand } = instrumentLifecycle(view!);
+
+    pool.markSessionIdle('s1');
+    expect(setFrameRate).toHaveBeenLastCalledWith(1);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sendCommand).toHaveBeenCalledWith('Page.setWebLifecycleState', { state: 'frozen' });
+  });
+
+  it('does not freeze an idle session while it is visible', async () => {
+    const view = pool.create('s1');
+    expect(view).not.toBeNull();
+
+    const { setFrameRate, sendCommand } = instrumentLifecycle(view!);
+
+    const win = mockWindow();
+    pool.attachToWindow('s1', win, { x: 0, y: 0, width: 800, height: 600 });
+    pool.markSessionIdle('s1');
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(setFrameRate).toHaveBeenLastCalledWith(60);
+  });
+
+  it('wakes a frozen detached session before new agent activity', async () => {
+    const view = pool.create('s1');
+    expect(view).not.toBeNull();
+
+    const { setFrameRate, sendCommand } = instrumentLifecycle(view!);
+
+    pool.markSessionIdle('s1');
+    await vi.advanceTimersByTimeAsync(100);
+    await pool.markSessionActive('s1');
+
+    expect(sendCommand).toHaveBeenNthCalledWith(1, 'Page.setWebLifecycleState', { state: 'frozen' });
+    expect(sendCommand).toHaveBeenNthCalledWith(2, 'Page.setWebLifecycleState', { state: 'active' });
+    expect(setFrameRate).toHaveBeenLastCalledWith(4);
   });
 });
 
