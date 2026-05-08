@@ -63,6 +63,7 @@ function installApis(): void {
           engine: 'codex',
           output: [],
         })),
+        pause: vi.fn(async () => ({ paused: true })),
         listEditors: vi.fn(async () => []),
         openInEditor: vi.fn(),
         revealOutput: vi.fn(),
@@ -135,6 +136,24 @@ describe('LogsApp focus behavior', () => {
     });
 
     expect(document.activeElement).toBe(container.querySelector('.logs-followup__input'));
+
+    act(() => root.unmount());
+  });
+
+  it('pauses the active running session on Escape instead of minimizing logs', async () => {
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.pause).toHaveBeenCalledWith('session-1');
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
 
     act(() => root.unmount());
   });

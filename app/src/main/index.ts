@@ -68,6 +68,7 @@ import { sendSessionNotification } from './notifications';
 import { registerHotkeys, unregisterHotkeys, getGlobalCmdbarAccelerator, setGlobalCmdbarAccelerator } from './hotkeys';
 import { makeRequest, PROTOCOL_VERSION } from '../shared/types';
 import type { AgentEvent } from '../shared/types';
+import type { HlEvent } from '../shared/session-schemas';
 // Identity
 import { AccountStore } from './identity/AccountStore';
 import { createOnboardingWindow } from './identity/onboardingWindow';
@@ -86,7 +87,7 @@ import {
   setAnnouncedCdpPort,
   verifyCdpOwnership,
 } from './startup/cli';
-import { assertString, assertAttachments } from './ipc-validators';
+import { assertString, assertAttachments, type ValidatedAttachment } from './ipc-validators';
 // Agent loop: CLI subprocess driving the browser harness. Engine is
 // pluggable (claude-code, codex, …) — see src/main/hl/engines/.
 import { bootstrapHarness, harnessDir } from './hl/harness';
@@ -197,6 +198,18 @@ browserPool.setOnGone((sessionId) => {
 // any clicks the user makes inside the attached view.
 browserPool.setOnNavigate((sessionId, url) => {
   sessionManager.updateNavigationFromUrl(sessionId, url);
+});
+browserPool.setOnEscape((sessionId) => {
+  const status = sessionManager.getSessionStatus(sessionId);
+  if (status !== 'running' && status !== 'stuck') return false;
+  const result = sessionManager.pauseSession(sessionId);
+  if (!result.paused) return false;
+  takeoverOverlay.hide(sessionId, shellWindow);
+  captureEvent('session_paused', {
+    engine: sessionManager.getSessionEngine(sessionId) ?? 'unknown',
+    source: 'browser-escape',
+  });
+  return true;
 });
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
@@ -471,7 +484,14 @@ app.whenReady().then(async () => {
 
   // Active HL agent abort controllers keyed by task_id
   const activeAgents = new Map<string, AbortController>();
-  const steerQueues = new Map<string, string[]>();
+  type QueuedFollowUp = {
+    prompt: string;
+    attachments: ValidatedAttachment[];
+  };
+  const queuedFollowUps = new Map<string, QueuedFollowUp[]>();
+  const drainingQueuedFollowUps = new Set<string>();
+  const activeRunIds = new Map<string, number>();
+  let nextRunId = 0;
   const startingSessionIds = new Set<string>();
 
   // pill:submit — creates a session via the standard pipeline, hides pill
@@ -749,6 +769,227 @@ app.whenReady().then(async () => {
     return engineId;
   }
 
+  function beginEngineRun(id: string): number {
+    const runId = ++nextRunId;
+    activeRunIds.set(id, runId);
+    return runId;
+  }
+
+  function endEngineRun(id: string, runId: number): void {
+    if (activeRunIds.get(id) === runId) {
+      activeRunIds.delete(id);
+    }
+  }
+
+  function pauseSessionFromMain(
+    id: string,
+    source: 'button' | 'browser-escape' | 'logs-escape' | 'queued-follow-up',
+    opts: { notify?: boolean } = {},
+  ): { paused?: boolean; error?: string } {
+    const result = sessionManager.pauseSession(id, opts);
+    if (result.paused) {
+      takeoverOverlay.hide(id, shellWindow);
+      captureEvent('session_paused', {
+        engine: sessionManager.getSessionEngine(id) ?? 'unknown',
+        source,
+      });
+    }
+    return result;
+  }
+
+  function queueFollowUpAfterNextTool(id: string, prompt: string, attachments: ValidatedAttachment[]): { queued?: boolean; error?: string } {
+    const session = sessionManager.getSession(id);
+    if (!session) return { error: 'Session not found' };
+    if (session.status !== 'running' && session.status !== 'stuck') {
+      return { error: `Session ${id} is ${session.status}, expected running or stuck` };
+    }
+    const q = queuedFollowUps.get(id) ?? [];
+    q.push({ prompt, attachments });
+    queuedFollowUps.set(id, q);
+    sessionManager.appendOutput(id, {
+      type: 'notify',
+      level: 'info',
+      message: 'Follow-up queued. It will run after the next tool call.',
+    });
+    mainLogger.info('main.sessions.followUpQueued', {
+      id,
+      queuedCount: q.length,
+      promptLength: prompt.length,
+      attachmentCount: attachments.length,
+    });
+    captureEvent('session_followup_queued', {
+      engine: sessionManager.getSessionEngine(id) ?? 'unknown',
+      attachments_count: attachments.length,
+    });
+    return { queued: true };
+  }
+
+  function shouldIgnoreEngineEvent(id: string, eventType: HlEvent['type'] | 'exception', runId?: number): boolean {
+    const activeRunId = activeRunIds.get(id);
+    if (runId != null && activeRunId != null && activeRunId !== runId) {
+      mainLogger.info('main.engineEvent.ignoredStaleRun', { id, eventType, runId, activeRunId });
+      return true;
+    }
+    const status = sessionManager.getSessionStatus(id);
+    if (status === 'paused' || status === 'stopped') {
+      mainLogger.info('main.engineEvent.ignored', { id, status, eventType });
+      return true;
+    }
+    return false;
+  }
+
+  function handleEngineEvent(id: string, event: HlEvent, runId?: number): void {
+    if (shouldIgnoreEngineEvent(id, event.type, runId)) return;
+    if (event.type === 'done') {
+      sessionManager.appendOutput(id, event);
+      sessionManager.completeSession(id);
+      void drainQueuedFollowUp(id, 'done');
+    } else if (event.type === 'error') {
+      sessionManager.failSession(id, event.message);
+      browserPool.destroy(id, shellWindow ?? undefined);
+      queuedFollowUps.delete(id);
+    } else {
+      sessionManager.appendOutput(id, event);
+      if (event.type === 'tool_result') {
+        void drainQueuedFollowUp(id, 'tool_result');
+      }
+    }
+  }
+
+  function handleEngineRunError(id: string, err: Error, source: string, runId?: number): void {
+    if (shouldIgnoreEngineEvent(id, 'exception', runId)) return;
+    mainLogger.error(source, { id, error: err.message });
+    sessionManager.failSession(id, err.message);
+    browserPool.destroy(id, shellWindow ?? undefined);
+    queuedFollowUps.delete(id);
+  }
+
+  async function resumeSessionWithAgent(
+    validatedId: string,
+    validatedPrompt: string,
+    resumeAttachments: ValidatedAttachment[],
+    source: 'resume' | 'queued-follow-up',
+  ): Promise<{ resumed?: boolean; error?: string }> {
+    const currentSession = sessionManager.getSession(validatedId);
+    if (!currentSession) return { error: 'Session not found' };
+    if (currentSession.status !== 'idle' && currentSession.status !== 'paused' && currentSession.status !== 'stopped') {
+      return { error: `Session ${validatedId} is ${currentSession.status}, expected idle, paused, or stopped` };
+    }
+    await browserPool.markSessionActive(validatedId);
+
+    if (resumeAttachments.length > 0) {
+      const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
+      for (const a of resumeAttachments) {
+        sessionManager.saveAttachment(validatedId, a, turnIndex);
+      }
+      mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length, source });
+    }
+
+    let webContents = browserPool.getWebContents(validatedId);
+    if (!webContents) {
+      const restoreUrl = restorableResumeUrl(currentSession.lastUrl);
+      mainLogger.info('main.sessions:resume.recreateBrowser', {
+        id: validatedId,
+        hasLastUrl: Boolean(currentSession.lastUrl),
+        restoreUrl,
+        source,
+      });
+      const view = browserPool.create(validatedId, Date.now());
+      if (!view) {
+        mainLogger.warn('main.sessions:resume.poolFull', { id: validatedId, stats: browserPool.getStats(), source });
+        return { error: 'Browser pool full' };
+      }
+      if (shellWindow && !shellWindow.isDestroyed()) {
+        browserPool.detachAll(shellWindow);
+        mainLogger.info('main.sessions:resume.detachedAwaitingRenderer', { id: validatedId, source });
+      }
+      try {
+        await view.webContents.loadURL(restoreUrl);
+      } catch (err) {
+        mainLogger.warn('main.sessions:resume.restoreUrl.failed', {
+          id: validatedId,
+          restoreUrl,
+          source,
+          error: (err as Error).message,
+        });
+        try { await view.webContents.loadURL('about:blank'); }
+        catch { /* keep going; runEngine will surface target failures */ }
+      }
+      webContents = view.webContents;
+    }
+
+    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
+    await stampConfiguredSessionModel(validatedId, engineId, source);
+    const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
+    if (resumeAttachments.length > 0) {
+      mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length, source });
+    }
+    captureEvent(source === 'queued-follow-up' ? 'session_followup_started' : 'session_resumed', {
+      engine: engineId,
+      prompt_length: validatedPrompt.length,
+      attachments_count: resumeAttachments.length,
+    });
+
+    const runId = beginEngineRun(validatedId);
+    runEngine({
+      engineId,
+      harnessDir: harnessDir(),
+      sessionId: validatedId,
+      prompt: validatedPrompt,
+      attachments: resumeAttachments.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
+      webContents,
+      cdpPort: resolvedCdp.port,
+      signal: abortController.signal,
+      resumeSessionId: sessionManager.getEngineSessionId(validatedId),
+      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
+      onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
+      onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
+      onEvent: (event) => handleEngineEvent(validatedId, event, runId),
+    }).catch((err: Error) => {
+      handleEngineRunError(validatedId, err, `main.sessions:${source}.agentError`, runId);
+    }).finally(() => {
+      endEngineRun(validatedId, runId);
+      mainLogger.info('main.sessions:resume.agentFinished', { id: validatedId, source, poolStats: browserPool.getStats() });
+    });
+
+    return { resumed: true };
+  }
+
+  async function drainQueuedFollowUp(id: string, boundary: 'tool_result' | 'done'): Promise<void> {
+    if (drainingQueuedFollowUps.has(id)) return;
+    const q = queuedFollowUps.get(id);
+    const next = q?.shift();
+    if (!next) return;
+    if (q.length === 0) queuedFollowUps.delete(id);
+
+    drainingQueuedFollowUps.add(id);
+    try {
+      const status = sessionManager.getSessionStatus(id);
+      mainLogger.info('main.sessions.followUpDrain', { id, boundary, status });
+      if (status === 'running' || status === 'stuck') {
+        const paused = pauseSessionFromMain(id, 'queued-follow-up', { notify: false });
+        if (!paused.paused) {
+          const existing = queuedFollowUps.get(id) ?? [];
+          queuedFollowUps.set(id, [next, ...existing]);
+          mainLogger.warn('main.sessions.followUpDrain.pauseFailed', { id, boundary, error: paused.error });
+          return;
+        }
+      }
+
+      const result = await resumeSessionWithAgent(id, next.prompt, next.attachments, 'queued-follow-up');
+      if (result.error) {
+        mainLogger.warn('main.sessions.followUpDrain.resumeFailed', { id, boundary, error: result.error });
+        sessionManager.appendOutput(id, {
+          type: 'notify',
+          level: 'info',
+          message: `Queued follow-up could not start: ${result.error}`,
+        });
+      }
+    } finally {
+      drainingQueuedFollowUps.delete(id);
+    }
+  }
+
   async function startSessionWithAgent(id: string): Promise<void> {
     if (startingSessionIds.has(id)) {
       mainLogger.warn('main.startSessionWithAgent.alreadyStarting', { id });
@@ -794,7 +1035,7 @@ app.whenReady().then(async () => {
       if (attachmentsForRun.length > 0) {
         mainLogger.info('main.startSessionWithAgent.attachments', { id, count: attachmentsForRun.length, totalBytes: attachmentsForRun.reduce((s, a) => s + a.size, 0) });
       }
-      steerQueues.set(id, []);
+      const runId = beginEngineRun(id);
       launched = true;
       runEngine({
         engineId,
@@ -808,23 +1049,11 @@ app.whenReady().then(async () => {
         onSessionId: (sid) => sessionManager.setEngineSessionId(id, sid),
         onModelResolved: ({ model }) => sessionManager.setSessionModel(id, model),
         onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(id, authMode, subscriptionType),
-        onEvent: (event) => {
-          if (event.type === 'done') {
-            sessionManager.appendOutput(id, event);
-            sessionManager.completeSession(id);
-          } else if (event.type === 'error') {
-            sessionManager.failSession(id, event.message);
-            browserPool.destroy(id, shellWindow ?? undefined);
-          } else {
-            sessionManager.appendOutput(id, event);
-          }
-        },
+        onEvent: (event) => handleEngineEvent(id, event, runId),
       }).catch((err: Error) => {
-        mainLogger.error('main.startSessionWithAgent.agentError', { id, error: err.message });
-        sessionManager.failSession(id, err.message);
-        browserPool.destroy(id, shellWindow ?? undefined);
+        handleEngineRunError(id, err, 'main.startSessionWithAgent.agentError', runId);
       }).finally(() => {
-        steerQueues.delete(id);
+        endEngineRun(id, runId);
         startingSessionIds.delete(id);
         mainLogger.info('main.startSessionWithAgent.finished', { id, poolStats: browserPool.getStats() });
       });
@@ -836,7 +1065,6 @@ app.whenReady().then(async () => {
       throw err;
     } finally {
       if (!launched) {
-        steerQueues.delete(id);
         startingSessionIds.delete(id);
       }
     }
@@ -937,97 +1165,10 @@ app.whenReady().then(async () => {
 
     const currentSession = sessionManager.getSession(validatedId);
     if (!currentSession) return { error: 'Session not found' };
-    if (currentSession.status !== 'idle' && currentSession.status !== 'stopped') {
-      return { error: `Session ${validatedId} is ${currentSession.status}, expected idle or stopped` };
+    if (currentSession.status === 'running' || currentSession.status === 'stuck') {
+      return queueFollowUpAfterNextTool(validatedId, validatedPrompt, resumeAttachments);
     }
-    await browserPool.markSessionActive(validatedId);
-
-    if (resumeAttachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
-      for (const a of resumeAttachments) {
-        sessionManager.saveAttachment(validatedId, a, turnIndex);
-      }
-      mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length });
-    }
-
-    let webContents = browserPool.getWebContents(validatedId);
-    if (!webContents) {
-      const restoreUrl = restorableResumeUrl(currentSession.lastUrl);
-      mainLogger.info('main.sessions:resume.recreateBrowser', {
-        id: validatedId,
-        hasLastUrl: Boolean(currentSession.lastUrl),
-        restoreUrl,
-      });
-      const view = browserPool.create(validatedId, Date.now());
-      if (!view) {
-        mainLogger.warn('main.sessions:resume.poolFull', { id: validatedId, stats: browserPool.getStats() });
-        return { error: 'Browser pool full' };
-      }
-      if (shellWindow && !shellWindow.isDestroyed()) {
-        browserPool.detachAll(shellWindow);
-        mainLogger.info('main.sessions:resume.detachedAwaitingRenderer', { id: validatedId });
-      }
-      try {
-        await view.webContents.loadURL(restoreUrl);
-      } catch (err) {
-        mainLogger.warn('main.sessions:resume.restoreUrl.failed', {
-          id: validatedId,
-          restoreUrl,
-          error: (err as Error).message,
-        });
-        try { await view.webContents.loadURL('about:blank'); }
-        catch { /* keep going; runEngine will surface target failures */ }
-      }
-      webContents = view.webContents;
-    }
-
-    const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
-    await stampConfiguredSessionModel(validatedId, engineId, 'resume');
-    const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
-    if (resumeAttachments.length > 0) {
-      mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length });
-    }
-    captureEvent('session_resumed', {
-      engine: engineId,
-      prompt_length: validatedPrompt.length,
-      attachments_count: resumeAttachments.length,
-    });
-
-    steerQueues.set(validatedId, []);
-    runEngine({
-      engineId,
-      harnessDir: harnessDir(),
-      sessionId: validatedId,
-      prompt: validatedPrompt,
-      attachments: resumeAttachments.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
-      webContents,
-      cdpPort: resolvedCdp.port,
-      signal: abortController.signal,
-      resumeSessionId: sessionManager.getEngineSessionId(validatedId),
-      onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
-      onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
-      onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
-      onEvent: (event) => {
-        if (event.type === 'done') {
-          sessionManager.appendOutput(validatedId, event);
-          sessionManager.completeSession(validatedId);
-        } else if (event.type === 'error') {
-          sessionManager.failSession(validatedId, event.message);
-          browserPool.destroy(validatedId, shellWindow ?? undefined);
-        } else {
-          sessionManager.appendOutput(validatedId, event);
-        }
-      },
-    }).catch((err: Error) => {
-      mainLogger.error('main.sessions:resume.agentError', { id: validatedId, error: err.message });
-      sessionManager.failSession(validatedId, err.message);
-      browserPool.destroy(validatedId, shellWindow ?? undefined);
-    }).finally(() => {
-      steerQueues.delete(validatedId);
-      mainLogger.info('main.sessions:resume.agentFinished', { id: validatedId, poolStats: browserPool.getStats() });
-    });
-
-    return { resumed: true };
+    return resumeSessionWithAgent(validatedId, validatedPrompt, resumeAttachments, 'resume');
   });
 
   ipcMain.handle('sessions:rerun', async (_event, id: string) => {
@@ -1070,7 +1211,8 @@ app.whenReady().then(async () => {
     if (rerunAttachments.length > 0) {
       mainLogger.info('main.sessions:rerun.attachments', { id: validatedId, count: rerunAttachments.length });
     }
-    steerQueues.set(validatedId, []);
+    queuedFollowUps.delete(validatedId);
+    const runId = beginEngineRun(validatedId);
     runEngine({
       engineId,
       harnessDir: harnessDir(),
@@ -1085,26 +1227,23 @@ app.whenReady().then(async () => {
       onSessionId: (sid) => sessionManager.setEngineSessionId(validatedId, sid),
       onModelResolved: ({ model }) => sessionManager.setSessionModel(validatedId, model),
       onAuthResolved: ({ authMode, subscriptionType }) => sessionManager.setSessionAuth(validatedId, authMode, subscriptionType),
-      onEvent: (event) => {
-        if (event.type === 'done') {
-          sessionManager.appendOutput(validatedId, event);
-          sessionManager.completeSession(validatedId);
-        } else if (event.type === 'error') {
-          sessionManager.failSession(validatedId, event.message);
-          browserPool.destroy(validatedId, shellWindow ?? undefined);
-        } else {
-          sessionManager.appendOutput(validatedId, event);
-        }
-      },
+      onEvent: (event) => handleEngineEvent(validatedId, event, runId),
     }).catch((err: Error) => {
-      mainLogger.error('main.sessions:rerun.agentError', { id: validatedId, error: err.message });
-      sessionManager.failSession(validatedId, err.message);
-      browserPool.destroy(validatedId, shellWindow ?? undefined);
+      handleEngineRunError(validatedId, err, 'main.sessions:rerun.agentError', runId);
     }).finally(() => {
-      steerQueues.delete(validatedId);
+      endEngineRun(validatedId, runId);
     });
 
     return { rerun: true };
+  });
+
+  ipcMain.handle('sessions:pause', (_event, payload: string | { id?: unknown; source?: unknown }) => {
+    const idRaw = typeof payload === 'string' ? payload : payload?.id;
+    const sourceRaw = typeof payload === 'string' ? 'button' : payload?.source;
+    const validatedId = assertString(idRaw, 'id', 100);
+    const source = sourceRaw === 'logs-escape' ? 'logs-escape' : 'button';
+    mainLogger.info('main.sessions:pause', { id: validatedId, source });
+    return pauseSessionFromMain(validatedId, source);
   });
 
   ipcMain.handle('sessions:cancel', (_event, id: string) => {
@@ -1112,7 +1251,8 @@ app.whenReady().then(async () => {
     mainLogger.info('main.sessions:cancel', { id: validatedId });
     sessionManager.cancelSession(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
-    steerQueues.delete(validatedId);
+    queuedFollowUps.delete(validatedId);
+    drainingQueuedFollowUps.delete(validatedId);
   });
 
   ipcMain.handle('sessions:halt', (_event, id: string) => {
@@ -1120,24 +1260,22 @@ app.whenReady().then(async () => {
     mainLogger.info('main.sessions:halt', { id: validatedId });
     const ctrl = sessionManager.getAbortController(validatedId);
     if (ctrl) ctrl.abort();
-    steerQueues.delete(validatedId);
+    queuedFollowUps.delete(validatedId);
+    drainingQueuedFollowUps.delete(validatedId);
   });
 
   ipcMain.handle('sessions:steer', (_event, { id, message }: { id: string; message: string }) => {
     const validatedId = assertString(id, 'id', 100);
     const validatedMsg = assertString(message, 'message', 10000);
     mainLogger.info('main.sessions:steer', { id: validatedId, messageLength: validatedMsg.length });
-    const q = steerQueues.get(validatedId);
-    if (q) {
-      q.push(validatedMsg);
-      return { queued: true };
-    }
-    return { error: 'Session not running' };
+    return queueFollowUpAfterNextTool(validatedId, validatedMsg, []);
   });
 
   ipcMain.handle('sessions:dismiss', (_event, id: string) => {
     const validatedId = assertString(id, 'id', 100);
     mainLogger.info('main.sessions:dismiss', { id: validatedId });
+    queuedFollowUps.delete(validatedId);
+    drainingQueuedFollowUps.delete(validatedId);
     sessionManager.dismissSession(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
   });
@@ -1145,6 +1283,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('sessions:delete', (_event, id: string) => {
     const validatedId = assertString(id, 'id', 100);
     mainLogger.info('main.sessions:delete', { id: validatedId });
+    queuedFollowUps.delete(validatedId);
+    drainingQueuedFollowUps.delete(validatedId);
     browserPool.destroy(validatedId, shellWindow ?? undefined);
     sessionManager.deleteSession(validatedId);
   });
