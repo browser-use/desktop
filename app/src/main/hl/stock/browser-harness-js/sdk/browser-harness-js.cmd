@@ -18,10 +18,14 @@ setlocal
 set "SCRIPT_DIR=%~dp0"
 set "BASH_SCRIPT=%SCRIPT_DIR%browser-harness-js"
 
+rem `exit /b` (no arg) propagates the *current* ERRORLEVEL. Inside a
+rem parenthesized block, `exit /b %errorlevel%` would expand at parse time
+rem and silently report 0 even if bash failed.
+
 if defined BROWSER_HARNESS_JS_BASH (
   if exist "%BROWSER_HARNESS_JS_BASH%" (
     "%BROWSER_HARNESS_JS_BASH%" "%BASH_SCRIPT%" %*
-    exit /b %errorlevel%
+    exit /b
   )
 )
 
@@ -32,7 +36,7 @@ for %%P in (
 ) do (
   if exist %%P (
     %%P "%BASH_SCRIPT%" %*
-    exit /b %errorlevel%
+    exit /b
   )
 )
 
