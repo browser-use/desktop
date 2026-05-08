@@ -28,6 +28,7 @@ const OUTPUT_PATH_RE = /(?:^|\s)(outputs\/[a-zA-Z0-9_-]{6,}\/[^\s]+)/g;
 const SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
 const SPINNER_INTERVAL_MS = 80;
 const SPINNER_IDLE_MS = 250;
+const SPINNER_IDLE_CHECK_MS = 250;
 
 function spinnerColorAnsi(engine: string | null | undefined): string {
   if (engine === 'claude-code') return '\x1b[38;2;204;120;92m';
@@ -217,7 +218,7 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       startSpinner();
     };
 
-    spin.current.idleTimer = window.setInterval(maybeStartSpinner, SPINNER_INTERVAL_MS);
+    spin.current.idleTimer = window.setInterval(maybeStartSpinner, SPINNER_IDLE_CHECK_MS);
 
     const api = window.electronAPI;
 

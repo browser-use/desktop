@@ -1,5 +1,4 @@
-import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
-import { useHydrateSession } from './useSessionsQuery';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import { STATUS_LABEL } from './constants';
 import { ContentRenderer, getPreview } from './ContentRenderer';
 import { Markdown, linkifyOutputPaths } from './Markdown';
@@ -12,7 +11,6 @@ import vscodeLogo from './vscode-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogo from './openai-logo.svg';
 import opencodeLogo from './opencode-logo-dark.svg';
-import { adaptSession } from './types';
 import type { AgentSession, OutputEntry } from './types';
 
 function formatElapsed(createdAt: number): string {
@@ -757,8 +755,6 @@ interface AgentPaneProps {
 }
 
 export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
-  useHydrateSession(session.id);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const [browserDead, setBrowserDead] = useState(false);
   const [browserMissing, setBrowserMissing] = useState(false);
@@ -769,18 +765,6 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
   // Auto-open the logs overlay once per fresh session id so users see the
   // agent's stream as soon as a task starts.
   const autoLogsTriggeredRef = useRef<Set<string>>(new Set());
-  const { entries: rawEntries } = useMemo(() => adaptSession(session), [session]);
-  const entries = useMemo<OutputEntry[]>(() => {
-    if (!session.prompt) return rawEntries;
-    const promptEntry: OutputEntry = {
-      id: `prompt-${session.id}`,
-      type: 'user_input',
-      timestamp: session.createdAt,
-      content: session.prompt,
-    };
-    return [promptEntry, ...rawEntries];
-  }, [rawEntries, session.prompt, session.id, session.createdAt]);
-
   const computeBounds = useCallback((): { x: number; y: number; width: number; height: number; slotWidth: number } | null => {
     const el = paneRef.current?.querySelector('.pane__output') as HTMLElement | null;
     if (!el) return null;
@@ -816,26 +800,6 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
     });
     return off;
   }, [session.id]);
-
-  // A running session always has a pool entry. Treat it as ready so the
-  // renderer calls viewAttach immediately — previously we also required
-  // rawEntries.length>0, which stalled the initial attach until the agent
-  // produced its first HlEvent.
-  const browserNotReady = session.status === 'draft';
-
-  const updateFrameRect = useCallback((slotWidth: number) => {
-    const paneEl = paneRef.current;
-    const outEl = paneEl?.querySelector('.pane__output') as HTMLElement | null;
-    if (!paneEl || !outEl) return;
-    const p = paneEl.getBoundingClientRect();
-    const o = outEl.getBoundingClientRect();
-    setFrameRect({
-      left: Math.round(o.left - p.left),
-      top: Math.round(o.top - p.top),
-      width: slotWidth,
-      height: Math.round(o.height),
-    });
-  }, []);
 
   const handleToggleLogs = useCallback(() => {
     const api = window.electronAPI;
@@ -1019,12 +983,6 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
       void api.takeover.hide(session.id);
     }
   }, [session.id, session.status]);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [entries.length]);
 
   const elapsed = formatElapsed(session.createdAt);
   const statusText = STATUS_LABEL[session.status] ?? session.status;
@@ -1244,7 +1202,6 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
       })()}
       <div
         className="pane__output"
-        ref={scrollRef}
       />
 
     </div>

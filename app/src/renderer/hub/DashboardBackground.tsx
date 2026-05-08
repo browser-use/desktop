@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
+const FRAME_INTERVAL_MS = 1000 / 12;
+
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
 void main() { gl_Position = vec4(a_position, 0.0, 1.0); }
@@ -78,9 +80,11 @@ export function DashboardBackground(): React.ReactElement {
     }
 
     let program: WebGLProgram | null = null;
+    let vs: WebGLShader | null = null;
+    let fs: WebGLShader | null = null;
     try {
-      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-      const fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+      vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
+      fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
       program = gl.createProgram();
       if (!program) throw new Error('createProgram failed');
       gl.attachShader(program, vs);
@@ -89,7 +93,14 @@ export function DashboardBackground(): React.ReactElement {
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         throw new Error(`Program link failed: ${gl.getProgramInfoLog(program)}`);
       }
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      vs = null;
+      fs = null;
     } catch (err) {
+      if (vs) gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+      if (program) gl.deleteProgram(program);
       console.error('[DashboardBackground] shader setup failed', err);
       return;
     }
@@ -123,35 +134,69 @@ export function DashboardBackground(): React.ReactElement {
     ro.observe(canvas);
     resize();
 
-    let raf = 0;
+    let raf: number | null = null;
+    let frameTimer: number | null = null;
     let running = true;
+    let visible = true;
     const start = performance.now();
 
+    const shouldRun = () => running && visible && !document.hidden;
+
+    const cancelScheduledFrame = () => {
+      if (frameTimer != null) {
+        window.clearTimeout(frameTimer);
+        frameTimer = null;
+      }
+      if (raf != null) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+    };
+
+    const schedule = () => {
+      if (!shouldRun()) return;
+      if (frameTimer != null || raf != null) return;
+      frameTimer = window.setTimeout(() => {
+        frameTimer = null;
+        raf = requestAnimationFrame(render);
+      }, FRAME_INTERVAL_MS);
+    };
+
     const render = () => {
-      if (!running) return;
+      raf = null;
+      if (!shouldRun()) return;
       const t = (performance.now() - start) / 1000;
       gl.uniform2f(resLoc, canvas.width, canvas.height);
       gl.uniform1f(timeLoc, t);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      raf = requestAnimationFrame(render);
+      schedule();
     };
-    raf = requestAnimationFrame(render);
+    schedule();
 
     const onVisibility = () => {
       if (document.hidden) {
-        running = false;
-        cancelAnimationFrame(raf);
-      } else if (!running) {
-        running = true;
-        raf = requestAnimationFrame(render);
+        cancelScheduledFrame();
+      } else {
+        schedule();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
 
+    const io = new IntersectionObserver(([entry]) => {
+      visible = entry?.isIntersecting ?? true;
+      if (!visible) {
+        cancelScheduledFrame();
+      } else {
+        schedule();
+      }
+    });
+    io.observe(canvas);
+
     return () => {
       running = false;
-      cancelAnimationFrame(raf);
+      cancelScheduledFrame();
       document.removeEventListener('visibilitychange', onVisibility);
+      io.disconnect();
       ro.disconnect();
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);

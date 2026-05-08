@@ -248,7 +248,6 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
 }
 
 export function LogsApp(): React.ReactElement {
-  console.log('[LogsApp] render');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [mode, setModeState] = useState<'dot' | 'normal' | 'full'>('normal');
   const [files, setFiles] = useState<FileOutputEntry[]>([]);
@@ -261,9 +260,7 @@ export function LogsApp(): React.ReactElement {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    console.log('[LogsApp] mount');
     const unsub = window.logsAPI.onActiveSessionChanged((id) => {
-      console.log('[LogsApp] active-session-changed', { id });
       setSessionId(id);
     });
     return unsub;
@@ -291,7 +288,6 @@ export function LogsApp(): React.ReactElement {
 
   useEffect(() => {
     const unsub = window.logsAPI.onModeChanged((m) => {
-      console.log('[LogsApp] mode-changed', { mode: m });
       setModeState(m);
     });
     return unsub;
