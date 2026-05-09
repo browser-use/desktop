@@ -21,6 +21,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
+import { subscribeThemeMode } from '../design/themeMode';
 
 const SCROLLBACK_LINES = 100_000;
 const OUTPUT_PATH_RE = /(?:^|\s)(outputs\/[a-zA-Z0-9_-]{6,}\/[^\s]+)/g;
@@ -45,11 +46,11 @@ function readCssVar(name: string, fallback: string): string {
 
 function buildTheme(): NonNullable<ITerminalOptions['theme']> {
   return {
-    background: readCssVar('--color-bg', '#0b0d10'),
-    foreground: readCssVar('--color-fg', '#d6d8dc'),
-    cursor: readCssVar('--color-bg', '#0b0d10'),
-    cursorAccent: readCssVar('--color-bg', '#0b0d10'),
-    selectionBackground: readCssVar('--color-selection', '#2a3340'),
+    background: readCssVar('--color-bg-base', '#0b0d10'),
+    foreground: readCssVar('--color-fg-primary', '#d6d8dc'),
+    cursor: readCssVar('--color-fg-primary', '#d6d8dc'),
+    cursorAccent: readCssVar('--color-bg-base', '#0b0d10'),
+    selectionBackground: readCssVar('--color-accent-muted', '#2a3340'),
     black: '#1a1d22',
     red: '#e06c75',
     green: '#98c379',
@@ -129,6 +130,12 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
     });
     term.loadAddon(webLinks);
     term.open(host);
+
+    // Repaint xterm with the new palette when the user flips theme.
+    // xterm.options.theme is reactive — assigning rebuilds the renderer.
+    const unsubscribeTheme = subscribeThemeMode(() => {
+      try { term.options.theme = buildTheme(); } catch { /* term disposed */ }
+    });
 
     spin.current.term = term;
 
@@ -288,6 +295,7 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       window.removeEventListener('pane:layout-change', onLayoutChange);
       try { offTerm?.(); } catch { /* noop */ }
       try { linkDisposable.dispose(); } catch { /* noop */ }
+      try { unsubscribeTheme(); } catch { /* noop */ }
       try { term.dispose(); } catch { /* noop */ }
     };
   }, [sessionId]);
