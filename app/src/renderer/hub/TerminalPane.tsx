@@ -67,7 +67,10 @@ const PALETTE_DARK = {
 };
 
 const PALETTE_LIGHT = {
-  black: '#1f2328',
+  // ANSI 'black' is also used as a bg by `\x1b[40m`. Pure-black on a paper
+  // bg looks like a punched-out hole; a mid slate reads as an intentional
+  // highlight while still feeling like the "black" color.
+  black: '#3a3d45',
   red: '#a8323a',
   green: '#3d6c2c',
   yellow: '#946800',
@@ -153,9 +156,15 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       disableStdin: true,
       convertEol: true,
       scrollback: SCROLLBACK_LINES,
-      allowTransparency: true,
-      fontWeight: isLight ? '500' : '400',
-      fontWeightBold: isLight ? '700' : '600',
+      // allowTransparency forces alpha-blended glyph rendering which thins
+      // strokes. Off in light mode where halation already steals weight.
+      allowTransparency: !isLight,
+      // Bump weights aggressively in light mode and let xterm auto-darken
+      // any low-contrast cells (per its minimumContrastRatio doc) so we
+      // never render anaemic glyphs on paper.
+      fontWeight: isLight ? '600' : '400',
+      fontWeightBold: isLight ? '800' : '600',
+      minimumContrastRatio: isLight ? 7 : 1,
       smoothScrollDuration: 0,
     });
 
@@ -172,19 +181,27 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
     const unsubscribeTheme = subscribeThemeMode((_mode, resolved) => {
       try {
         term.options.theme = buildTheme();
-        term.options.fontWeight = resolved === 'light' ? '500' : '400';
-        term.options.fontWeightBold = resolved === 'light' ? '700' : '600';
+        term.options.fontWeight = resolved === 'light' ? '600' : '400';
+        term.options.fontWeightBold = resolved === 'light' ? '800' : '600';
+        term.options.minimumContrastRatio = resolved === 'light' ? 7 : 1;
+        term.options.allowTransparency = resolved !== 'light';
       } catch { /* term disposed */ }
     });
 
     spin.current.term = term;
 
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => { try { webgl.dispose(); } catch { /* already disposed */ } });
-      term.loadAddon(webgl);
-    } catch (err) {
-      console.warn('[TerminalPane] webgl addon unavailable', err);
+    // Skip the WebGL addon in light mode — its glyph atlas uses subpixel
+    // alpha-blending that thins strokes on a paper bg. The default DOM
+    // renderer is heavier per-glyph and reads correctly. Dark mode keeps
+    // WebGL for performance on large outputs.
+    if (!isLight) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => { try { webgl.dispose(); } catch { /* already disposed */ } });
+        term.loadAddon(webgl);
+      } catch (err) {
+        console.warn('[TerminalPane] webgl addon unavailable', err);
+      }
     }
 
     const linkDisposable: IDisposable = term.registerLinkProvider({
