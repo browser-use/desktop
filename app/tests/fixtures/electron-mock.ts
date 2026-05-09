@@ -293,6 +293,7 @@ function createMockWebContents() {
 export const WebContentsView = class {
   webContents: ReturnType<typeof createMockWebContents>;
   private _bounds = { x: 0, y: 0, width: 0, height: 0 };
+  private _bg = '#00000000';
 
   constructor(_opts?: unknown) {
     this.webContents = createMockWebContents();
@@ -304,6 +305,14 @@ export const WebContentsView = class {
 
   getBounds(): { x: number; y: number; width: number; height: number } {
     return { ...this._bounds };
+  }
+
+  setBackgroundColor(color: string): void {
+    this._bg = color;
+  }
+
+  getBackgroundColor(): string {
+    return this._bg;
   }
 };
 
