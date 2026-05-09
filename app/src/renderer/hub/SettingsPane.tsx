@@ -41,14 +41,16 @@ interface SegmentedControlProps<T extends string> {
 }
 
 function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel }: SegmentedControlProps<T>): React.ReactElement {
+  // Plain toggle-button group with aria-pressed, not role="radio". The radio
+  // pattern requires roving tabindex + arrow-key nav; for a 3-option theme
+  // picker that's overkill and a partial implementation is worse than none.
   return (
-    <div className="settings-pane__segmented" role="radiogroup" aria-label={ariaLabel}>
+    <div className="settings-pane__segmented" role="group" aria-label={ariaLabel}>
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
-          role="radio"
-          aria-checked={value === opt.value}
+          aria-pressed={value === opt.value}
           className={`settings-pane__segment${value === opt.value ? ' settings-pane__segment--active' : ''}`}
           title={opt.hint}
           onClick={() => onChange(opt.value)}

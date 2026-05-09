@@ -39,6 +39,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     downloadOutput: (filePath: string): Promise<{ opened: boolean }> =>
       ipcRenderer.invoke('sessions:download-output', filePath),
   },
+  // Theme bridge — initThemeMode() in the renderer hydrates from main and
+  // listens for live broadcasts so the logs window flips with the rest of
+  // the app. Without this, it'd fall back to a per-origin localStorage that
+  // is missing on first launch and out-of-sync after settings changes.
+  settings: {
+    theme: {
+      get: (): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:get'),
+      set: (mode: 'light' | 'dark' | 'system'): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:set', mode),
+      onChange: (cb: (event: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => void): (() => void) => {
+        const handler = (_evt: unknown, payload: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => cb(payload);
+        ipcRenderer.on('theme:changed', handler);
+        return () => ipcRenderer.removeListener('theme:changed', handler);
+      },
+    },
+  },
   on: {
     sessionOutputTerm: (cb: (id: string, bytes: string) => void): (() => void) => {
       debugLog('[logs-preload] subscribe sessionOutputTerm');

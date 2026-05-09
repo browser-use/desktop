@@ -640,6 +640,12 @@ export class BrowserPool {
       return false;
     }
 
+    // Re-apply the resolved theme bg every attach. While detached, the view
+    // isn't a child of any window's contentView, so it misses the
+    // theme-broadcast loop in themeMode.applyBackgroundToAllWindows() and
+    // would otherwise paint with whatever bg it had at create time.
+    try { entry.view.setBackgroundColor(getWindowBackgroundColor()); } catch { /* noop */ }
+
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
       const currentZoom = this.currentZoomForBounds(entry, bounds);
