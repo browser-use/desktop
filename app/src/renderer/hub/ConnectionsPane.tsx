@@ -3,7 +3,8 @@ import anthropicLogo from './anthropic-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogoDark from './openai-logo.svg';
 import openaiLogoLight from './openai-logo-light.svg';
-import codexLogo from './codex-logo.svg';
+import codexLogoDark from './codex-logo.svg';
+import codexLogoLight from './openai-logo-light.svg';
 import opencodeLogoDark from './opencode-logo-dark.svg';
 import opencodeLogoLight from './opencode-logo-light.svg';
 import kimiLogoDark from './kimi-color.svg';
@@ -104,6 +105,7 @@ export function ConnectionsPane({
 }: ConnectionsPaneProps): React.ReactElement {
   const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
   const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
+  const codexLogo = useThemedAsset(codexLogoDark, codexLogoLight);
   const browserCodeProviderLogos = useBrowserCodeProviderLogos();
   const [waStatus, setWaStatus] = useState<WaStatus>('disconnected');
   const [waIdentity, setWaIdentity] = useState<string | null>(null);
