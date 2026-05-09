@@ -163,7 +163,7 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       // any low-contrast cells (per its minimumContrastRatio doc) so we
       // never render anaemic glyphs on paper.
       fontWeight: isLight ? '500' : '400',
-      fontWeightBold: isLight ? '600' : '600',
+      fontWeightBold: isLight ? '700' : '600',
       minimumContrastRatio: isLight ? 7 : 1,
       smoothScrollDuration: 0,
     });
@@ -182,7 +182,7 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       try {
         term.options.theme = buildTheme();
         term.options.fontWeight = resolved === 'light' ? '500' : '400';
-        term.options.fontWeightBold = resolved === 'light' ? '800' : '600';
+        term.options.fontWeightBold = resolved === 'light' ? '700' : '600';
         term.options.minimumContrastRatio = resolved === 'light' ? 7 : 1;
         term.options.allowTransparency = resolved !== 'light';
       } catch { /* term disposed */ }

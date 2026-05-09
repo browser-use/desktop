@@ -82,7 +82,7 @@ export function setThemeMode(mode: ThemeMode): { mode: ThemeMode; resolved: Reso
   if (!VALID.has(mode)) throw new TypeError(`invalid theme mode: ${mode}`);
   writeMode(mode);
   const resolved = resolveThemeMode(mode);
-  applyBackgroundToAllWindows(resolved);
+  applyBackgroundToAllWindows(mode, resolved);
   broadcastThemeChange(mode, resolved);
   mainLogger.info('theme.set', { mode, resolved });
   return { mode, resolved };
@@ -95,11 +95,12 @@ function isTransparentBg(value: string | undefined): boolean {
   return !!value && value.length === 9 && value.endsWith('00');
 }
 
-function applyBackgroundToAllWindows(resolved: ResolvedThemeMode): void {
-  // Tell Chromium the user's preferred color scheme. Embedded sites that
-  // honour `@media (prefers-color-scheme)` will now flip with the app.
-  // Sites with their own theme override won't change — that's expected.
-  nativeTheme.themeSource = resolved;
+function applyBackgroundToAllWindows(mode: ThemeMode, resolved: ResolvedThemeMode): void {
+  // Tell Chromium the user's preferred color scheme. Pass the user's mode
+  // (not the resolved one) so 'system' actually delegates to the OS — if
+  // we wrote the resolved value, Chromium would freeze on whatever it
+  // resolved to at the moment and stop tracking OS dark/light flips.
+  nativeTheme.themeSource = mode;
 
   const color = WINDOW_BG[resolved];
   for (const win of BrowserWindow.getAllWindows()) {
@@ -143,15 +144,15 @@ function broadcastThemeChange(mode: ThemeMode, resolved: ResolvedThemeMode): voi
 
 /** Watch for OS-level dark/light flips when user picked 'system'. */
 export function startSystemThemeWatcher(): void {
-  // Seed Chromium with the resolved mode at boot so prefers-color-scheme
-  // matches in WebContentsViews loaded before any user-driven flip — this
-  // is what the takeover overlay's idle bg query depends on.
-  nativeTheme.themeSource = resolveThemeMode();
+  // Seed Chromium with the user's mode (not the resolved one) so
+  // prefers-color-scheme matches in WebContentsViews loaded before any
+  // user-driven flip, AND so 'system' actually delegates to the OS.
+  nativeTheme.themeSource = readMode();
 
   nativeTheme.on('updated', () => {
     if (readMode() === 'system') {
       const resolved = resolveThemeMode();
-      applyBackgroundToAllWindows(resolved);
+      applyBackgroundToAllWindows('system', resolved);
       broadcastThemeChange('system', resolved);
     }
   });
