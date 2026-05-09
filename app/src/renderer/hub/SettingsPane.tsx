@@ -283,6 +283,81 @@ function AppSection(): React.ReactElement {
   );
 }
 
+type TabsPosition = 'side' | 'top';
+
+function readTabsPosition(): TabsPosition {
+  try {
+    return window.localStorage.getItem('hub-tabs-position') === 'top' ? 'top' : 'side';
+  } catch {
+    return 'side';
+  }
+}
+
+function LayoutSection(): React.ReactElement {
+  const [position, setPosition] = useState<TabsPosition>(readTabsPosition);
+
+  const choose = useCallback((next: TabsPosition) => {
+    setPosition(next);
+    try { window.localStorage.setItem('hub-tabs-position', next); } catch { /* ignore */ }
+    // HubApp listens for this and dispatches pane:layout-change AFTER React
+    // commits the new DOM, so AgentPane re-measures the correct bounds.
+    window.dispatchEvent(new CustomEvent('hub:tabs-position-change', { detail: { position: next } }));
+  }, []);
+
+  return (
+    <div className="settings-card layout-section">
+      <div className="layout-section__header">
+        <div className="settings-pane__label">Tab layout</div>
+        <div className="settings-pane__sublabel">
+          Pick where the agent session tabs live. Top reclaims sidebar width for the browser viewport.
+        </div>
+      </div>
+      <div className="layout-picker" role="radiogroup" aria-label="Tab layout">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={position === 'side'}
+          className={`layout-picker__card${position === 'side' ? ' layout-picker__card--selected' : ''}`}
+          onClick={() => choose('side')}
+        >
+          <div className="layout-picker__mockup layout-picker__mockup--side" aria-hidden="true">
+            <div className="layout-picker__mockup-header" />
+            <div className="layout-picker__mockup-tabs">
+              <span className="layout-picker__mockup-row layout-picker__mockup-row--active" />
+              <span className="layout-picker__mockup-row" />
+              <span className="layout-picker__mockup-row" />
+              <span className="layout-picker__mockup-row" />
+            </div>
+            <div className="layout-picker__mockup-viewport" />
+          </div>
+          <div className="layout-picker__label">Side</div>
+          <div className="layout-picker__desc">Vertical sidebar on the left. Roomy session labels.</div>
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={position === 'top'}
+          className={`layout-picker__card${position === 'top' ? ' layout-picker__card--selected' : ''}`}
+          onClick={() => choose('top')}
+        >
+          <div className="layout-picker__mockup layout-picker__mockup--top" aria-hidden="true">
+            <div className="layout-picker__mockup-header" />
+            <div className="layout-picker__mockup-tabs">
+              <span className="layout-picker__mockup-chip layout-picker__mockup-chip--active" />
+              <span className="layout-picker__mockup-chip" />
+              <span className="layout-picker__mockup-chip" />
+              <span className="layout-picker__mockup-chip" />
+            </div>
+            <div className="layout-picker__mockup-viewport" />
+          </div>
+          <div className="layout-picker__label">Top</div>
+          <div className="layout-picker__desc">Horizontal terminal-style strip. Wider browser viewport.</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PrivacySection(): React.ReactElement {
   const [telemetry, setTelemetry] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -580,6 +655,7 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
               <h2 className="settings-section-header__title">Application</h2>
             </div>
             <AppSection />
+            <LayoutSection />
           </section>
 
           <section id="settings-appearance" className="settings-page__section">

@@ -22,7 +22,10 @@ const DEFAULT_EMULATED_VIEWPORT_WIDTH = 1440;
 // Cap how wide we let the emulated viewport grow. Past this, sites like
 // X/Twitter shift to an "ultra-wide" centered layout that leaves a fat
 // dead band on one side. Above the cap we letterbox (centered) instead.
-const MAX_EMULATED_VIEWPORT_WIDTH = 1600;
+// 1920 fits common desktop monitors without triggering ultra-wide layouts;
+// 1600 was too low and produced ~100px gutters on wide windows (e.g. when
+// the user picks the top-tabs layout, which reclaims the sidebar's width).
+const MAX_EMULATED_VIEWPORT_WIDTH = 1920;
 
 interface PoolEntry {
   sessionId: string;
@@ -660,10 +663,46 @@ export class BrowserPool {
 
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
+      // Guard against transient zero/non-finite bounds (e.g. a frame fired
+      // mid-relayout when the pane has 0 width/height). Without this, the
+      // aspect-ratio recompute below would feed NaN/Infinity through the
+      // emulation + clamp + setBounds path. Skip entirely; ResizeObserver
+      // will fire again with a valid rect.
+      const validShape = Number.isFinite(bounds.width) && Number.isFinite(bounds.height)
+        && bounds.width > 0 && bounds.height > 0;
+      if (!validShape) {
+        browserLogger.debug('BrowserPool.attach.skipInvalidBounds', { sessionId, bounds });
+        return true;
+      }
+      // Recompute aspect-matched emulated width — the hub layout may have
+      // changed shape (e.g. user toggled top tabs, reclaiming the sidebar
+      // width) and the cached width would leave dead bands on the sides.
+      const aspectWidth = Math.round(EMULATED_VIEWPORT_HEIGHT * bounds.width / bounds.height);
+      const nextEmulatedWidth = Math.max(MIN_EMULATED_VIEWPORT_WIDTH, Math.min(MAX_EMULATED_VIEWPORT_WIDTH, aspectWidth));
+      if (nextEmulatedWidth !== entry.emulatedWidth) {
+        entry.emulatedWidth = nextEmulatedWidth;
+        try {
+          entry.view.webContents.enableDeviceEmulation({
+            screenSize: { width: nextEmulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
+            viewSize:   { width: nextEmulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
+            deviceScaleFactor: 1,
+            viewPosition: { x: 0, y: 0 },
+            screenPosition: 'desktop',
+            fitToView: false,
+            offset: { x: 0, y: 0 },
+            scale: 1,
+          } as Parameters<typeof entry.view.webContents.enableDeviceEmulation>[0]);
+        } catch (err) {
+          browserLogger.warn('BrowserPool.attach.reEmulate.error', { sessionId, error: (err as Error).message });
+        }
+        // Aspect changed — refit the zoom so the new emulated viewport fills
+        // the new physical rect. Past this point the user's manual zoom is
+        // intentionally clobbered (this branch only fires on real layout
+        // shape changes, not casual window resizes).
+        try { entry.view.webContents.setZoomFactor(this.zoomForBounds(bounds)); } catch { /* ignore */ }
+      }
       const currentZoom = this.currentZoomForBounds(entry, bounds);
       entry.view.setBounds(this.fitBoundsToView(entry.emulatedWidth, bounds, currentZoom));
-      // Don't touch zoom here — user's manual zoom (Cmd+=/Cmd+-) should
-      // persist across attach cycles.
       return true;
     }
 

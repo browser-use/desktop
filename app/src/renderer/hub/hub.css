@@ -4347,6 +4347,345 @@ button:focus:not(:focus-visible) {
   min-width: 0;
 }
 
+.hub-body[data-tabs-position='top'] {
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------------------
+   TABSTRIP — horizontal terminal-style chip strip (alt to .sidebar)
+   Differentiation from Chrome: flat rectangular chips, leading status glyph,
+   bottom underline for active (no rounded trapezoid, no left accent bar),
+   inline live progress fill on running chip.
+--------------------------------------------------------------------------- */
+
+.tabstrip {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: 36px;
+  padding: 4px 6px 0;
+  gap: 2px;
+  background: var(--color-bg-sunken);
+  font-size: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.tabstrip__chips {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabstrip__chips::-webkit-scrollbar {
+  display: none;
+}
+
+.tabstrip__chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  min-width: 140px;
+  max-width: 280px;
+  height: 100%;
+  padding: 0 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  color: var(--color-fg-tertiary);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  transition:
+    background-color 140ms var(--ease-out),
+    color 140ms var(--ease-out);
+}
+
+.tabstrip__chip:hover {
+  background: var(--color-surface-interactive-hover);
+  color: var(--color-fg-primary);
+}
+
+.tabstrip__chip--active {
+  background: var(--color-surface-interactive-active, var(--color-surface-raised));
+  color: var(--color-fg-primary);
+}
+
+.tabstrip__chip-fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(var(--highlight-rgb), 0.08) 0%, rgba(var(--highlight-rgb), 0) 100%);
+  pointer-events: none;
+  animation: tabstrip-fill 2.4s linear infinite;
+  transform-origin: left center;
+  border-radius: 8px 8px 0 0;
+  z-index: 0;
+}
+
+.tabstrip__chip[data-status='running'] .tabstrip__chip-dot {
+  animation: tabstrip-dot-pulse 1.6s var(--ease-out) infinite;
+}
+
+@keyframes tabstrip-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor, 0 0 0 1.5px var(--color-bg-sunken); }
+  50%      { box-shadow: 0 0 0 3px transparent, 0 0 0 1.5px var(--color-bg-sunken); }
+}
+
+@keyframes tabstrip-fill {
+  0%   { transform: scaleX(0); opacity: 0.0; }
+  20%  { opacity: 0.9; }
+  100% { transform: scaleX(1); opacity: 0.0; }
+}
+
+.tabstrip__chip-icon,
+.tabstrip__chip-title {
+  position: relative;
+  z-index: 1;
+}
+
+.tabstrip__chip-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tabstrip__chip-icon img {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.tabstrip__chip-icon-fallback {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-fg-tertiary);
+}
+
+.tabstrip__chip-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-bg-sunken);
+  box-sizing: content-box;
+}
+
+.tabstrip__chip--active .tabstrip__chip-dot {
+  border-color: var(--color-surface-raised);
+}
+
+.tabstrip__chip-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabstrip__new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  align-self: center;
+  margin: 0 4px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+
+.tabstrip__new:hover {
+  background: var(--color-surface-interactive-hover);
+  border-color: var(--color-border-subtle);
+  color: var(--color-fg-primary);
+}
+
+/* When tabs are on top, hide the side .sidebar even if rendered (defensive) */
+.hub-body[data-tabs-position='top'] .sidebar {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   LAYOUT PICKER (Settings → Application) — two visual mini-mockup cards
+--------------------------------------------------------------------------- */
+
+.layout-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.layout-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layout-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+}
+
+.layout-picker__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-fg-tertiary);
+  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+.layout-picker__card:hover {
+  border-color: var(--color-border-default);
+  color: var(--color-fg-secondary);
+}
+
+.layout-picker__card--selected {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-interactive);
+  color: var(--color-fg-primary);
+}
+
+.layout-picker__mockup {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  background: var(--color-bg-sunken);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.layout-picker__mockup-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Side variant — left rail with stacked rows */
+.layout-picker__mockup--side .layout-picker__mockup-tabs {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  bottom: 0;
+  width: 36px;
+  background: var(--color-surface-raised);
+  border-right: 1px solid var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 5px;
+  align-items: stretch;
+}
+
+.layout-picker__mockup-row {
+  display: block;
+  height: 6px;
+  border-radius: 2px;
+  background: rgba(var(--highlight-rgb), 0.12);
+}
+
+.layout-picker__mockup-row--active {
+  background: rgba(var(--highlight-rgb), 0.48);
+}
+
+.layout-picker__mockup--side .layout-picker__mockup-viewport {
+  position: absolute;
+  top: 10px;
+  left: 36px;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(var(--highlight-rgb), 0.06), transparent);
+}
+
+/* Top variant — horizontal strip with chips */
+.layout-picker__mockup--top .layout-picker__mockup-tabs {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  height: 14px;
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border-subtle);
+  display: flex;
+  gap: 3px;
+  padding: 3px 4px;
+  align-items: stretch;
+}
+
+.layout-picker__mockup-chip {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 2px;
+  background: rgba(var(--highlight-rgb), 0.12);
+}
+
+.layout-picker__mockup-chip--active {
+  background: rgba(var(--highlight-rgb), 0.48);
+}
+
+.layout-picker__mockup--top .layout-picker__mockup-viewport {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(var(--highlight-rgb), 0.06), transparent);
+}
+
+.layout-picker__label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: inherit;
+}
+
+.layout-picker__desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-fg-tertiary);
+  line-height: 1.4;
+}
+
+.layout-picker__card--selected .layout-picker__desc {
+  color: var(--color-fg-secondary);
+}
+
 .hub-main {
   display: flex;
   flex-direction: column;
