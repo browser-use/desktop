@@ -51,7 +51,7 @@ export class BrowserPool {
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
-  private onCancelShortcut?: (sessionId: string) => boolean | void;
+  private onInterruptShortcut?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT, opts: { idleFreezeDelayMs?: number } = {}) {
@@ -76,8 +76,8 @@ export class BrowserPool {
 
   /** Register a listener for Ctrl+C inside an attached browser view. Returning
    *  true means the keypress was handled and should not continue into the page. */
-  setOnCancelShortcut(listener: (sessionId: string) => boolean | void): void {
-    this.onCancelShortcut = listener;
+  setOnInterruptShortcut(listener: (sessionId: string) => boolean | void): void {
+    this.onInterruptShortcut = listener;
   }
 
   private notifyGone(sessionId: string): void {
@@ -92,9 +92,9 @@ export class BrowserPool {
     }
   }
 
-  private notifyCancelShortcut(sessionId: string): boolean {
-    try { return this.onCancelShortcut?.(sessionId) === true; } catch (err) {
-      browserLogger.warn('BrowserPool.notifyCancelShortcut.listenerError', { sessionId, error: (err as Error).message });
+  private notifyInterruptShortcut(sessionId: string): boolean {
+    try { return this.onInterruptShortcut?.(sessionId) === true; } catch (err) {
+      browserLogger.warn('BrowserPool.notifyInterruptShortcut.listenerError', { sessionId, error: (err as Error).message });
       return false;
     }
   }
@@ -206,7 +206,7 @@ export class BrowserPool {
         !input.meta &&
         !input.alt
       ) {
-        const handled = this.notifyCancelShortcut(sessionId);
+        const handled = this.notifyInterruptShortcut(sessionId);
         if (handled) event.preventDefault();
       }
     });
