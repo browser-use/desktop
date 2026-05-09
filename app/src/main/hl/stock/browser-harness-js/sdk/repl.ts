@@ -34,7 +34,12 @@ async function connectToAssignedTarget(): Promise<{ targetId: string; port: numb
   if (!session.isConnected()) {
     await session.connect({ port, targetId });
   } else {
-    await session.use(targetId).catch(() => {});
+    try {
+      await session.use(targetId);
+    } catch {
+      session.close();
+      await session.connect({ port, targetId });
+    }
   }
 
   await Promise.all([

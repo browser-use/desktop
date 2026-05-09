@@ -124,10 +124,16 @@ export class Session implements Transport {
       const timer = setTimeout(() => finish(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
       ws.addEventListener('open', () => finish());
       ws.addEventListener('error', (e) => finish(new Error(`WS error: ${(e as any)?.message ?? 'connect failed (likely 403, permission not granted, or port closed)'}`)));
-      ws.addEventListener('message', (e) => this.onMessage(String(e.data)));
+      ws.addEventListener('message', (e) => {
+        if (this.ws === ws) this.onMessage(String(e.data));
+      });
       ws.addEventListener('close', () => {
-        for (const [, p] of this.pending) p.reject(new Error('CDP socket closed'));
-        this.pending.clear();
+        if (this.ws === ws) {
+          this.ws = undefined;
+          this.activeSessionId = undefined;
+          for (const [, p] of this.pending) p.reject(new Error('CDP socket closed'));
+          this.pending.clear();
+        }
         finish(new Error('WS closed before open (likely 403 or port closed)'));
       });
       this.ws = ws;
@@ -139,7 +145,12 @@ export class Session implements Transport {
   }
 
   close(): void {
-    this.ws?.close();
+    const ws = this.ws;
+    this.ws = undefined;
+    this.activeSessionId = undefined;
+    for (const [, p] of this.pending) p.reject(new Error('CDP socket closed'));
+    this.pending.clear();
+    ws?.close();
   }
 
   /**
