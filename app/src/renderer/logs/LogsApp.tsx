@@ -372,11 +372,15 @@ export function LogsApp(): React.ReactElement {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const sessionIsCancellable = sessionStatus === 'running' || sessionStatus === 'stuck' || sessionStatus === 'paused';
-      if (e.key.toLowerCase() === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && sessionId && sessionIsCancellable) {
+      const sessionIsRunning = sessionStatus === 'running' || sessionStatus === 'stuck';
+      const sessionIsPaused = sessionStatus === 'paused';
+      if (e.key.toLowerCase() === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && sessionId && (sessionIsRunning || sessionIsPaused)) {
         e.preventDefault();
-        void window.electronAPI?.sessions.cancel(sessionId).catch((err) => {
-          console.error('[LogsApp] cancel failed', err);
+        const action = sessionIsPaused
+          ? window.electronAPI?.sessions.cancel(sessionId)
+          : window.electronAPI?.sessions.pause(sessionId);
+        void action?.catch((err) => {
+          console.error(`[LogsApp] ${sessionIsPaused ? 'cancel' : 'pause'} failed`, err);
         });
         return;
       }
