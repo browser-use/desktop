@@ -215,7 +215,7 @@ describe('SessionManager persistence', () => {
     manager.destroy();
   });
 
-  it('pauses a running session without completing it and resumes the same provider conversation', () => {
+  it('pauses a running session without aborting the live run and resumes it in place', () => {
     const manager = new SessionManager(tempDbPath());
     const id = manager.createSession('Open example.com');
     const runningController = manager.startSession(id);
@@ -225,7 +225,7 @@ describe('SessionManager persistence', () => {
     const paused = manager.getSession(id);
 
     expect(result).toEqual({ paused: true });
-    expect(runningController.signal.aborted).toBe(true);
+    expect(runningController.signal.aborted).toBe(false);
     expect(paused?.status).toBe('paused');
     expect(paused?.error).toBeUndefined();
     expect(paused?.canResume).toBe(true);
@@ -235,13 +235,17 @@ describe('SessionManager persistence', () => {
     });
     expect(manager.getEngineSessionId(id)).toBe('thread-123');
 
-    const resumeController = manager.resumeSession(id, 'Continue from where you left off.');
+    const resumeResult = manager.resumePausedSession(id);
     const resumed = manager.getSession(id);
 
-    expect(resumeController.signal.aborted).toBe(false);
+    expect(resumeResult).toEqual({ resumed: true });
+    expect(runningController.signal.aborted).toBe(false);
     expect(resumed?.status).toBe('running');
     expect(resumed?.error).toBeUndefined();
-    expect(resumed?.output.at(-1)).toEqual({ type: 'user_input', text: 'Continue from where you left off.' });
+    expect(resumed?.output.at(-1)).toMatchObject({
+      type: 'notify',
+      message: 'Agent paused. Resume when you are ready.',
+    });
     expect(manager.getEngineSessionId(id)).toBe('thread-123');
 
     manager.destroy();

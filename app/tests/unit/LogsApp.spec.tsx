@@ -63,6 +63,7 @@ function installApis(): void {
           engine: 'codex',
           output: [],
         })),
+        cancel: vi.fn(async () => undefined),
         pause: vi.fn(async () => ({ paused: true })),
         listEditors: vi.fn(async () => []),
         openInEditor: vi.fn(),
@@ -140,7 +141,53 @@ describe('LogsApp focus behavior', () => {
     act(() => root.unmount());
   });
 
-  it('pauses the active running session on Escape instead of minimizing logs', async () => {
+  it('cancels the active session on Ctrl+C instead of minimizing logs', async () => {
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.cancel).toHaveBeenCalledWith('session-1');
+    expect(window.electronAPI.sessions.pause).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('keeps Ctrl+C available when the selected session is not cancellable', async () => {
+    vi.mocked(window.electronAPI.sessions.get).mockResolvedValueOnce({
+      id: 'session-1',
+      prompt: 'done',
+      status: 'stopped',
+      engine: 'codex',
+      output: [],
+      createdAt: Date.now(),
+    });
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.cancel).not.toHaveBeenCalled();
+    expect(window.electronAPI.sessions.pause).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('minimizes logs on Escape instead of pausing the active session', async () => {
     const { root } = renderLogsApp();
 
     await act(async () => {
@@ -152,8 +199,9 @@ describe('LogsApp focus behavior', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
 
-    expect(window.electronAPI.sessions.pause).toHaveBeenCalledWith('session-1');
-    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+    expect(window.electronAPI.sessions.cancel).not.toHaveBeenCalled();
+    expect(window.electronAPI.sessions.pause).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).toHaveBeenCalledWith('dot');
 
     act(() => root.unmount());
   });

@@ -249,7 +249,6 @@ function SessionRow({
               role="menuitem"
               onMouseDown={preventMouseFocus}
               onClick={() => handleAction('pause')}
-              disabled={s.canResume !== true}
               tabIndex={-1}
             >
               Pause

@@ -19,6 +19,7 @@ import { spawnCli } from './cliSpawn';
 import { registerResourceOwner, unregisterResourceOwner } from '../../resourceMonitor';
 import type {
   EngineAdapter,
+  EngineRunControl,
   ParseContext,
   RunEngineOptions,
   SpawnContext,
@@ -268,9 +269,15 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     { path: harnessSkillAbs, basename: path.basename(harnessSkillAbs), target: 'tools', hash: hashFile(harnessSkillAbs) ?? null },
   ];
 
+  const useProcessGroup = process.platform !== 'win32';
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawnCli(adapter.binaryName, args, { cwd: opts.harnessDir, env, stdio: [stdinMode, 'pipe', 'pipe'] });
+    child = spawnCli(adapter.binaryName, args, {
+      cwd: opts.harnessDir,
+      env,
+      stdio: [stdinMode, 'pipe', 'pipe'],
+      detached: useProcessGroup,
+    });
     registerResourceOwner(child.pid, {
       kind: 'agent',
       component: adapter.id,
@@ -282,6 +289,64 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     opts.onEvent({ type: 'error', message: `spawn_failed: ${(err as Error).message}` });
     return;
   }
+
+  let controlState: 'running' | 'paused' | 'terminated' = 'running';
+  const signalRun = (signal: NodeJS.Signals): { ok: boolean; error?: string } => {
+    if (!child.pid) return { ok: false, error: 'Agent process is not available yet.' };
+    try {
+      if (useProcessGroup) {
+        process.kill(-child.pid, signal);
+      } else {
+        child.kill(signal);
+      }
+      return { ok: true };
+    } catch (err) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr.code === 'ESRCH') return { ok: false, error: 'Agent process has already exited.' };
+      return { ok: false, error: nodeErr.message };
+    }
+  };
+  const control: EngineRunControl = {
+    pid: child.pid,
+    canSuspend: useProcessGroup,
+    pause: () => {
+      if (!useProcessGroup) return { error: 'Pausing an in-flight agent is not supported on Windows yet.' };
+      if (controlState === 'terminated') return { error: 'Agent process has already exited.' };
+      if (controlState === 'paused') return { paused: true };
+      const result = signalRun('SIGSTOP');
+      if (!result.ok) return { error: result.error ?? 'Failed to pause agent process.' };
+      controlState = 'paused';
+      engineLogger.info('engines.run.control.pause', {
+        engineId: adapter.id,
+        sessionId: opts.sessionId,
+        pid: child.pid,
+      });
+      return { paused: true };
+    },
+    resume: () => {
+      if (!useProcessGroup) return { error: 'Resuming an in-flight agent is not supported on Windows yet.' };
+      if (controlState === 'terminated') return { error: 'Agent process has already exited.' };
+      if (controlState === 'running') return { resumed: true };
+      const result = signalRun('SIGCONT');
+      if (!result.ok) return { error: result.error ?? 'Failed to resume agent process.' };
+      controlState = 'running';
+      engineLogger.info('engines.run.control.resume', {
+        engineId: adapter.id,
+        sessionId: opts.sessionId,
+        pid: child.pid,
+      });
+      return { resumed: true };
+    },
+    terminate: () => {
+      if (controlState === 'terminated') return;
+      if (controlState === 'paused' && useProcessGroup) {
+        signalRun('SIGCONT');
+      }
+      controlState = 'terminated';
+      signalRun('SIGTERM');
+    },
+  };
+  opts.onRunControl?.(control);
 
   if (stdinPayload != null) {
     // Attach error listener BEFORE writing — if the child exits early (bad
@@ -306,11 +371,11 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     abortKillTimer = null;
   };
   const onAbort = () => {
-    try { child.kill('SIGTERM'); } catch { /* already dead */ }
+    control.terminate();
     clearAbortKillTimer();
     abortKillTimer = setTimeout(() => {
       if (child.exitCode !== null || child.signalCode !== null) return;
-      try { child.kill('SIGKILL'); } catch { /* already dead */ }
+      signalRun('SIGKILL');
     }, 1500);
     abortKillTimer.unref?.();
   };
@@ -514,6 +579,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
 
   await new Promise<void>((resolve) => {
     child.on('close', (code, sig) => {
+      controlState = 'terminated';
       unregisterResourceOwner(child.pid);
       opts.signal?.removeEventListener('abort', onAbort);
       clearAbortKillTimer();
@@ -546,6 +612,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       resolve();
     });
     child.on('error', (err) => {
+      controlState = 'terminated';
       unregisterResourceOwner(child.pid);
       opts.signal?.removeEventListener('abort', onAbort);
       clearAbortKillTimer();

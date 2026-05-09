@@ -247,18 +247,6 @@ export class SessionManager extends EventEmitter {
       mainLogger.warn('SessionManager.pauseSession', { id, status: session.status, reason: 'not_pausable' });
       return { error };
     }
-    if (!this.engineSessionIds.has(id)) {
-      const error = 'Session is still starting and cannot be resumed yet. Try again in a moment.';
-      mainLogger.warn('SessionManager.pauseSession', { id, reason: 'missing_engine_session_id' });
-      return { error };
-    }
-
-    const ctrl = this.abortControllers.get(id);
-    if (ctrl) {
-      ctrl.abort();
-      this.abortControllers.delete(id);
-    }
-
     this.clearStuckTimer(id);
     session.status = 'paused';
     session.error = undefined;
@@ -274,6 +262,32 @@ export class SessionManager extends EventEmitter {
     });
     this.emitEvent('session-updated', { ...session });
     return { paused: true };
+  }
+
+  resumePausedSession(id: string): { resumed?: boolean; error?: string } {
+    const session = this.sessions.get(id);
+    if (!session) {
+      mainLogger.warn('SessionManager.resumePausedSession', { id, reason: 'not_found' });
+      return { error: 'Session not found' };
+    }
+    if (session.status !== 'paused') {
+      const error = `Session ${id} is ${session.status}, expected paused`;
+      mainLogger.warn('SessionManager.resumePausedSession', { id, status: session.status, reason: 'not_paused' });
+      return { error };
+    }
+
+    session.status = 'running';
+    session.error = undefined;
+    session.canResume = true;
+    this.db.updateSessionStatus(id, 'running');
+    this.resetStuckTimer(id);
+    mainLogger.info('SessionManager.resumePausedSession', {
+      id,
+      engine: session.engine ?? this.getSessionEngine(id),
+      model: session.model ?? null,
+    });
+    this.emitEvent('session-updated', { ...session });
+    return { resumed: true };
   }
 
   appendOutput(id: string, event: HlEvent): void {
@@ -468,7 +482,7 @@ export class SessionManager extends EventEmitter {
 
   deleteSession(id: string): void {
     const session = this.sessions.get(id);
-    if (session && (session.status === 'running' || session.status === 'stuck')) {
+    if (session && (session.status === 'running' || session.status === 'stuck' || session.status === 'paused')) {
       this.cancelSession(id);
     }
     this.clearStuckTimer(id);

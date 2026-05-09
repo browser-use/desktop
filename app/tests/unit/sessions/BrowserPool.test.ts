@@ -73,26 +73,41 @@ describe('BrowserPool — creation', () => {
     expect(pool.getView('nonexistent')).toBeNull();
   });
 
-  it('notifies when Escape is pressed inside a browser view and prevents the page keypress when handled', () => {
+  it('notifies when Ctrl+C is pressed inside a browser view and prevents the page keypress when handled', () => {
     const view = pool.create('s1');
-    const onEscape = vi.fn(() => true);
+    const onCancelShortcut = vi.fn(() => true);
     const preventDefault = vi.fn();
-    pool.setOnEscape(onEscape);
+    pool.setOnCancelShortcut(onCancelShortcut);
 
     (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
       'before-input-event',
       { preventDefault },
-      { type: 'keyDown', key: 'Escape', control: false, meta: false, alt: false },
+      { type: 'keyDown', key: 'c', control: true, meta: false, alt: false },
     );
 
-    expect(onEscape).toHaveBeenCalledWith('s1');
+    expect(onCancelShortcut).toHaveBeenCalledWith('s1');
     expect(preventDefault).toHaveBeenCalled();
   });
 
-  it('lets Escape through to the page when the app does not handle it', () => {
+  it('lets Ctrl+C through to the page when the app does not handle it', () => {
     const view = pool.create('s1');
     const preventDefault = vi.fn();
-    pool.setOnEscape(() => false);
+    pool.setOnCancelShortcut(() => false);
+
+    (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
+      'before-input-event',
+      { preventDefault },
+      { type: 'keyDown', key: 'c', control: true, meta: false, alt: false },
+    );
+
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('does not treat Escape as the browser-view cancel shortcut', () => {
+    const view = pool.create('s1');
+    const onCancelShortcut = vi.fn(() => true);
+    const preventDefault = vi.fn();
+    pool.setOnCancelShortcut(onCancelShortcut);
 
     (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
       'before-input-event',
@@ -100,6 +115,7 @@ describe('BrowserPool — creation', () => {
       { type: 'keyDown', key: 'Escape', control: false, meta: false, alt: false },
     );
 
+    expect(onCancelShortcut).not.toHaveBeenCalled();
     expect(preventDefault).not.toHaveBeenCalled();
   });
 });

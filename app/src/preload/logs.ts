@@ -28,8 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revealOutput: (filePath: string): Promise<{ revealed: boolean }> =>
       ipcRenderer.invoke('sessions:reveal-output', filePath),
     get: (id: string): Promise<unknown> => ipcRenderer.invoke('sessions:get', id),
+    cancel: (id: string): Promise<void> =>
+      ipcRenderer.invoke('sessions:cancel', { id, source: 'logs-ctrl-c' }),
     pause: (id: string): Promise<{ paused?: boolean; error?: string }> =>
-      ipcRenderer.invoke('sessions:pause', { id, source: 'logs-escape' }),
+      ipcRenderer.invoke('sessions:pause', id),
     listEditors: (): Promise<Array<{ id: string; name: string }>> =>
       ipcRenderer.invoke('sessions:list-editors'),
     openInEditor: (editorId: string, filePath: string): Promise<{ opened: boolean }> =>

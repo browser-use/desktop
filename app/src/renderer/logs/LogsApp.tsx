@@ -372,14 +372,16 @@ export function LogsApp(): React.ReactElement {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const sessionIsCancellable = sessionStatus === 'running' || sessionStatus === 'stuck' || sessionStatus === 'paused';
+      if (e.key.toLowerCase() === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && sessionId && sessionIsCancellable) {
+        e.preventDefault();
+        void window.electronAPI?.sessions.cancel(sessionId).catch((err) => {
+          console.error('[LogsApp] cancel failed', err);
+        });
+        return;
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck')) {
-          void window.electronAPI?.sessions.pause(sessionId).catch((err) => {
-            console.error('[LogsApp] pause failed', err);
-          });
-          return;
-        }
         if (mode === 'dot') return;
         // Step down one size per Esc press: full → normal → dot. Jumping
         // full → dot in one keystroke skips the card view the user most
