@@ -96,6 +96,11 @@ function isTransparentBg(value: string | undefined): boolean {
 }
 
 function applyBackgroundToAllWindows(resolved: ResolvedThemeMode): void {
+  // Tell Chromium the user's preferred color scheme. Embedded sites that
+  // honour `@media (prefers-color-scheme)` will now flip with the app.
+  // Sites with their own theme override won't change — that's expected.
+  nativeTheme.themeSource = resolved;
+
   const color = WINDOW_BG[resolved];
   for (const win of BrowserWindow.getAllWindows()) {
     try {
