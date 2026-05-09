@@ -88,10 +88,14 @@ const PALETTE_LIGHT = {
 function buildTheme(): NonNullable<ITerminalOptions['theme']> {
   const isLight = document.documentElement.dataset.mode === 'light';
   const palette = isLight ? PALETTE_LIGHT : PALETTE_DARK;
+  // Light mode uses a slate foreground (not pure black) so SGR reverse
+  // video doesn't paint pure-black highlights — the resulting bg is the
+  // foreground color, which felt aggressive at #16171b.
+  const foreground = isLight ? '#2c2e36' : readCssVar('--color-fg-primary', '#d6d8dc');
   return {
     background: readCssVar('--color-bg-base', '#0b0d10'),
-    foreground: readCssVar('--color-fg-primary', '#d6d8dc'),
-    cursor: readCssVar('--color-fg-primary', '#d6d8dc'),
+    foreground,
+    cursor: foreground,
     cursorAccent: readCssVar('--color-bg-base', '#0b0d10'),
     selectionBackground: readCssVar('--color-accent-muted', '#2a3340'),
     ...palette,
@@ -135,6 +139,10 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
     const host = hostRef.current;
     if (!host) return;
 
+    // Halation effect: dark text on light reads as visually thinner than
+    // the same weight inverted on dark. Bump the regular weight when the
+    // app is in light mode so glyphs don't look anaemic on paper.
+    const isLight = document.documentElement.dataset.mode === 'light';
     const term = new Terminal({
       fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: 12,
@@ -146,8 +154,8 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       convertEol: true,
       scrollback: SCROLLBACK_LINES,
       allowTransparency: true,
-      fontWeight: '400',
-      fontWeightBold: '600',
+      fontWeight: isLight ? '500' : '400',
+      fontWeightBold: isLight ? '700' : '600',
       smoothScrollDuration: 0,
     });
 
@@ -161,8 +169,12 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
 
     // Repaint xterm with the new palette when the user flips theme.
     // xterm.options.theme is reactive — assigning rebuilds the renderer.
-    const unsubscribeTheme = subscribeThemeMode(() => {
-      try { term.options.theme = buildTheme(); } catch { /* term disposed */ }
+    const unsubscribeTheme = subscribeThemeMode((_mode, resolved) => {
+      try {
+        term.options.theme = buildTheme();
+        term.options.fontWeight = resolved === 'light' ? '500' : '400';
+        term.options.fontWeightBold = resolved === 'light' ? '700' : '600';
+      } catch { /* term disposed */ }
     });
 
     spin.current.term = term;

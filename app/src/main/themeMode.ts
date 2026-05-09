@@ -143,6 +143,11 @@ function broadcastThemeChange(mode: ThemeMode, resolved: ResolvedThemeMode): voi
 
 /** Watch for OS-level dark/light flips when user picked 'system'. */
 export function startSystemThemeWatcher(): void {
+  // Seed Chromium with the resolved mode at boot so prefers-color-scheme
+  // matches in WebContentsViews loaded before any user-driven flip — this
+  // is what the takeover overlay's idle bg query depends on.
+  nativeTheme.themeSource = resolveThemeMode();
+
   nativeTheme.on('updated', () => {
     if (readMode() === 'system') {
       const resolved = resolveThemeMode();
