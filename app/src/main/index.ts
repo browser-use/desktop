@@ -420,7 +420,6 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   registerConsentHandlers();
   registerTelemetryHandlers();
-  registerThemeHandlers();
   startSystemThemeWatcher();
   registerChannelHandlers(channelRouter, whatsAppAdapter);
   whatsAppAdapter.onStatusChange((status, detail) => {
@@ -1635,6 +1634,11 @@ ipcMain.handle('shell:get-platform', () => {
   mainLogger.debug('main.shell:get-platform', { platform: process.platform });
   return process.platform;
 });
+
+// Theme IPC must be ready before any renderer can call `theme:get`. A
+// startup race (second-instance, dev-server reload) can spin up a window
+// before the whenReady() block runs — register at module load instead.
+registerThemeHandlers();
 
 // ---------------------------------------------------------------------------
 // Application menu

@@ -78,18 +78,36 @@ export function setThemeMode(mode: ThemeMode): { mode: ThemeMode; resolved: Reso
   return { mode, resolved };
 }
 
+function isTransparentBg(value: string | undefined): boolean {
+  // Electron returns "#rrggbbaa" — alpha "00" means fully transparent.
+  // The pill window on macOS uses `#00000000` and MUST keep that bg or it
+  // loses transparency.
+  return !!value && value.length === 9 && value.endsWith('00');
+}
+
 function applyBackgroundToAllWindows(resolved: ResolvedThemeMode): void {
   const color = WINDOW_BG[resolved];
   for (const win of BrowserWindow.getAllWindows()) {
     try {
-      win.setBackgroundColor(color);
+      const winBg = win.getBackgroundColor?.();
+      if (!isTransparentBg(winBg)) {
+        win.setBackgroundColor(color);
+        // Windows-only: WCO title bar color is set once at creation, so
+        // also push the new bg to the overlay or it goes stale on flip.
+        if (process.platform === 'win32') {
+          try {
+            win.setTitleBarOverlay?.({ color, symbolColor: '#e6eaee', height: 32 });
+          } catch {
+            // Window may not have a title bar overlay configured (e.g. pill).
+          }
+        }
+      }
       // Existing WebContentsView children (e.g. browser session views) also
       // need updating so they don't paint dark on the next attach.
       for (const child of win.contentView.children) {
         const setter = (child as { setBackgroundColor?: (c: string) => void }).setBackgroundColor;
-        // Don't touch fully-transparent overlays (e.g. takeover overlay).
         const bg = (child as { getBackgroundColor?: () => string }).getBackgroundColor?.();
-        if (bg && bg.length === 9 && bg.endsWith('00')) continue;
+        if (isTransparentBg(bg)) continue;
         setter?.call(child, color);
       }
     } catch (err) {
