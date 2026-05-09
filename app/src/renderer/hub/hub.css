@@ -4408,7 +4408,7 @@ button:focus:not(:focus-visible) {
 }
 
 .tabstrip__chip:hover {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--color-surface-interactive-hover);
   color: var(--color-fg-primary);
 }
 
@@ -4423,7 +4423,7 @@ button:focus:not(:focus-visible) {
   bottom: 0;
   height: 100%;
   width: 100%;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 100%);
+  background: linear-gradient(90deg, rgba(var(--highlight-rgb), 0.08) 0%, rgba(var(--highlight-rgb), 0) 100%);
   pointer-events: none;
   animation: tabstrip-fill 2.4s linear infinite;
   transform-origin: left center;
@@ -4518,7 +4518,7 @@ button:focus:not(:focus-visible) {
 }
 
 .tabstrip__new:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-surface-interactive-hover);
   border-color: var(--color-border-subtle);
   color: var(--color-fg-primary);
 }
@@ -4568,13 +4568,13 @@ button:focus:not(:focus-visible) {
 }
 
 .layout-picker__card:hover {
-  border-color: var(--color-border-default, rgba(255, 255, 255, 0.16));
+  border-color: var(--color-border-default);
   color: var(--color-fg-secondary);
 }
 
 .layout-picker__card--selected {
-  border-color: var(--color-fg-primary, rgba(255, 255, 255, 0.85));
-  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-interactive);
   color: var(--color-fg-primary);
 }
 
@@ -4618,11 +4618,11 @@ button:focus:not(:focus-visible) {
   display: block;
   height: 6px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--highlight-rgb), 0.12);
 }
 
 .layout-picker__mockup-row--active {
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(var(--highlight-rgb), 0.48);
 }
 
 .layout-picker__mockup--side .layout-picker__mockup-viewport {
@@ -4631,7 +4631,7 @@ button:focus:not(:focus-visible) {
   left: 36px;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent);
+  background: linear-gradient(135deg, rgba(var(--highlight-rgb), 0.06), transparent);
 }
 
 /* Top variant — horizontal strip with chips */
@@ -4654,11 +4654,11 @@ button:focus:not(:focus-visible) {
   flex: 1 1 0;
   min-width: 0;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(var(--highlight-rgb), 0.12);
 }
 
 .layout-picker__mockup-chip--active {
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(var(--highlight-rgb), 0.48);
 }
 
 .layout-picker__mockup--top .layout-picker__mockup-viewport {
@@ -4667,7 +4667,7 @@ button:focus:not(:focus-visible) {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent);
+  background: linear-gradient(135deg, rgba(var(--highlight-rgb), 0.06), transparent);
 }
 
 .layout-picker__label {

@@ -73,6 +73,8 @@ function keyButton(container: HTMLElement): HTMLButtonElement {
 
 describe('SettingsPane shortcut recorder', () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    delete document.documentElement.dataset.mode;
     installElectronApi();
   });
 
@@ -114,6 +116,37 @@ describe('SettingsPane shortcut recorder', () => {
 
     expect(browserSyncTab?.textContent).toBe('Browser Sync');
 
+    act(() => root.unmount());
+  });
+
+  it('keeps the tab layout picker working alongside the appearance picker', () => {
+    const layoutEvents: string[] = [];
+    const onLayoutChange = (event: Event) => {
+      layoutEvents.push((event as CustomEvent<{ position: string }>).detail.position);
+    };
+    window.addEventListener('hub:tabs-position-change', onLayoutChange);
+
+    const { container, root } = renderSettingsPane(vi.fn(async () => true));
+    const lightButton = Array.from(container.querySelectorAll<HTMLButtonElement>('.settings-pane__segment'))
+      .find((button) => button.textContent === 'Light');
+    const topLayoutButton = Array.from(container.querySelectorAll<HTMLButtonElement>('.layout-picker__card'))
+      .find((button) => button.textContent?.includes('Top'));
+
+    if (!lightButton) throw new Error('Missing light appearance option');
+    if (!topLayoutButton) throw new Error('Missing top tab layout option');
+
+    act(() => {
+      lightButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      topLayoutButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(window.localStorage.getItem('browser-use:theme-mode')).toBe('light');
+    expect(document.documentElement.dataset.mode).toBe('light');
+    expect(window.localStorage.getItem('hub-tabs-position')).toBe('top');
+    expect(topLayoutButton.getAttribute('aria-checked')).toBe('true');
+    expect(layoutEvents).toEqual(['top']);
+
+    window.removeEventListener('hub:tabs-position-change', onLayoutChange);
     act(() => root.unmount());
   });
 
