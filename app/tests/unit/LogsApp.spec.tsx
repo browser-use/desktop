@@ -141,7 +141,35 @@ describe('LogsApp focus behavior', () => {
     act(() => root.unmount());
   });
 
-  it('cancels the active session on Ctrl+C instead of minimizing logs', async () => {
+  it('pauses the active running session on Ctrl+C instead of minimizing logs', async () => {
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.pause).toHaveBeenCalledWith('session-1');
+    expect(window.electronAPI.sessions.cancel).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('cancels the active session on Ctrl+C when it is already paused', async () => {
+    vi.mocked(window.electronAPI.sessions.get).mockResolvedValueOnce({
+      id: 'session-1',
+      prompt: 'paused',
+      status: 'paused',
+      engine: 'codex',
+      output: [],
+      createdAt: Date.now(),
+      canResume: true,
+    });
     const { root } = renderLogsApp();
 
     await act(async () => {

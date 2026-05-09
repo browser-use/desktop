@@ -75,9 +75,9 @@ describe('BrowserPool — creation', () => {
 
   it('notifies when Ctrl+C is pressed inside a browser view and prevents the page keypress when handled', () => {
     const view = pool.create('s1');
-    const onCancelShortcut = vi.fn(() => true);
+    const onInterruptShortcut = vi.fn(() => true);
     const preventDefault = vi.fn();
-    pool.setOnCancelShortcut(onCancelShortcut);
+    pool.setOnInterruptShortcut(onInterruptShortcut);
 
     (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
       'before-input-event',
@@ -85,14 +85,14 @@ describe('BrowserPool — creation', () => {
       { type: 'keyDown', key: 'c', control: true, meta: false, alt: false },
     );
 
-    expect(onCancelShortcut).toHaveBeenCalledWith('s1');
+    expect(onInterruptShortcut).toHaveBeenCalledWith('s1');
     expect(preventDefault).toHaveBeenCalled();
   });
 
   it('lets Ctrl+C through to the page when the app does not handle it', () => {
     const view = pool.create('s1');
     const preventDefault = vi.fn();
-    pool.setOnCancelShortcut(() => false);
+    pool.setOnInterruptShortcut(() => false);
 
     (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
       'before-input-event',
@@ -103,11 +103,11 @@ describe('BrowserPool — creation', () => {
     expect(preventDefault).not.toHaveBeenCalled();
   });
 
-  it('does not treat Escape as the browser-view cancel shortcut', () => {
+  it('does not treat Escape as the browser-view interrupt shortcut', () => {
     const view = pool.create('s1');
-    const onCancelShortcut = vi.fn(() => true);
+    const onInterruptShortcut = vi.fn(() => true);
     const preventDefault = vi.fn();
-    pool.setOnCancelShortcut(onCancelShortcut);
+    pool.setOnInterruptShortcut(onInterruptShortcut);
 
     (view!.webContents as unknown as { emit: (event: string, ...args: unknown[]) => boolean }).emit(
       'before-input-event',
@@ -115,7 +115,7 @@ describe('BrowserPool — creation', () => {
       { type: 'keyDown', key: 'Escape', control: false, meta: false, alt: false },
     );
 
-    expect(onCancelShortcut).not.toHaveBeenCalled();
+    expect(onInterruptShortcut).not.toHaveBeenCalled();
     expect(preventDefault).not.toHaveBeenCalled();
   });
 });

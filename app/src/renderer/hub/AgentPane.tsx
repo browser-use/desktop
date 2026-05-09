@@ -1013,16 +1013,20 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
   );
 
   useEffect(() => {
-    if (!focused || (!isRunningLike && !isPaused) || !onCancel) return;
+    if (!focused || (!isRunningLike && !isPaused) || (!onPause && !onCancel)) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.key.toLowerCase() !== 'c' || !e.ctrlKey || e.metaKey || e.altKey) return;
       e.preventDefault();
       e.stopPropagation();
-      onCancel(session.id);
+      if (isPaused) {
+        onCancel?.(session.id);
+      } else {
+        onPause?.(session.id);
+      }
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [focused, isPaused, isRunningLike, onCancel, session.id]);
+  }, [focused, isPaused, isRunningLike, onCancel, onPause, session.id]);
 
   return (
     <div
