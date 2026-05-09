@@ -2,6 +2,92 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ConnectionsPane, type SettingsProviderFocusRequest } from './ConnectionsPane';
 import type { ActionId, KeyBinding } from './keybindings';
 import { fallbackShortcutPlatform, keyboardEventToShortcut } from '../../shared/hotkeys';
+import { useThemeMode } from '../design/useThemeMode';
+import type { ThemeMode } from '../design/themeMode';
+
+/**
+ * Generic settings primitives. Add a new option type and every section that
+ * uses it (Appearance, future Density / Accent / etc.) gets the same UI.
+ */
+interface SegmentedOption<T extends string> {
+  value: T;
+  label: string;
+  hint?: string;
+}
+
+interface SettingsRowProps {
+  label: string;
+  sublabel?: string;
+  children: React.ReactNode;
+}
+
+function SettingsRow({ label, sublabel, children }: SettingsRowProps): React.ReactElement {
+  return (
+    <div className="settings-pane__row">
+      <div>
+        <div className="settings-pane__label">{label}</div>
+        {sublabel && <div className="settings-pane__sublabel">{sublabel}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+interface SegmentedControlProps<T extends string> {
+  value: T;
+  options: ReadonlyArray<SegmentedOption<T>>;
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}
+
+function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel }: SegmentedControlProps<T>): React.ReactElement {
+  return (
+    <div className="settings-pane__segmented" role="radiogroup" aria-label={ariaLabel}>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          role="radio"
+          aria-checked={value === opt.value}
+          className={`settings-pane__segment${value === opt.value ? ' settings-pane__segment--active' : ''}`}
+          title={opt.hint}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const APPEARANCE_OPTIONS: ReadonlyArray<SegmentedOption<ThemeMode>> = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System', hint: 'Follow your operating system' },
+];
+
+function AppearanceSection(): React.ReactElement {
+  const { mode, setMode, resolved } = useThemeMode();
+  return (
+    <div className="settings-card">
+      <SettingsRow
+        label="Theme"
+        sublabel={
+          mode === 'system'
+            ? `Following your system (${resolved}).`
+            : 'Choose how Browser Use looks across windows.'
+        }
+      >
+        <SegmentedControl
+          value={mode}
+          options={APPEARANCE_OPTIONS}
+          onChange={setMode}
+          ariaLabel="Theme"
+        />
+      </SettingsRow>
+    </div>
+  );
+}
 
 type ElectronPrivacyAPI = {
   get: () => Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }>;
@@ -264,6 +350,7 @@ export type SettingsSectionId =
   | 'settings-browser-sync'
   | 'settings-shortcuts'
   | 'settings-privacy'
+  | 'settings-appearance'
   | 'settings-application';
 
 export interface SettingsOpenIntent {
@@ -274,6 +361,7 @@ export interface SettingsOpenIntent {
 
 const SETTINGS_TABS: Array<{ id: SettingsSectionId; label: string }> = [
   { id: 'settings-application', label: 'Application' },
+  { id: 'settings-appearance', label: 'Appearance' },
   { id: 'settings-model-providers', label: 'Model providers' },
   { id: 'settings-connections', label: 'Connections' },
   { id: 'settings-browser-sync', label: 'Browser Sync' },
@@ -485,6 +573,13 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
               <h2 className="settings-section-header__title">Application</h2>
             </div>
             <AppSection />
+          </section>
+
+          <section id="settings-appearance" className="settings-page__section">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Appearance</h2>
+            </div>
+            <AppearanceSection />
           </section>
 
           <ConnectionsPane
