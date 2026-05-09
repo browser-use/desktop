@@ -1191,6 +1191,15 @@ export function ConnectionsPane({
 
       </section>
 
+      {/*
+        Cookie sync is unsupported on Windows: Chromium 127+ uses App-Bound
+        Encryption (v20) tied to the original user-data-dir, so a temp-copy
+        profile decrypts to nothing, and launching headless against the real
+        profile is blocked by the Chromium DevTools hardening that refuses
+        --remote-debugging-port for the default user-data-dir. Hide the
+        section entirely on win32 until we have a native v20 decryption path.
+      */}
+      {window.electronAPI?.shell?.platform !== 'win32' && (
       <section
         id={browserSyncSectionId}
         className={embedded ? 'settings-page__section' : 'conn-pane__group'}
@@ -1220,6 +1229,7 @@ export function ConnectionsPane({
         </div>
       )}
       </section>
+      )}
     </div>
   );
 }

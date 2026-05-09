@@ -14,7 +14,7 @@ declare global {
       onModeChanged: (cb: (mode: 'dot' | 'normal' | 'full') => void) => () => void;
       onActiveSessionChanged: (cb: (id: string | null) => void) => () => void;
       onFocusFollowUp: (cb: () => void) => () => void;
-      followUp: (sessionId: string, prompt: string) => Promise<{ resumed?: boolean; error?: string }>;
+      followUp: (sessionId: string, prompt: string) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
     };
   }
 }
@@ -372,6 +372,14 @@ export function LogsApp(): React.ReactElement {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const sessionIsCancellable = sessionStatus === 'running' || sessionStatus === 'stuck' || sessionStatus === 'paused';
+      if (e.key.toLowerCase() === 'c' && e.ctrlKey && !e.metaKey && !e.altKey && sessionId && sessionIsCancellable) {
+        e.preventDefault();
+        void window.electronAPI?.sessions.cancel(sessionId).catch((err) => {
+          console.error('[LogsApp] cancel failed', err);
+        });
+        return;
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         if (mode === 'dot') return;
@@ -383,7 +391,7 @@ export function LogsApp(): React.ReactElement {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mode]);
+  }, [mode, sessionId, sessionStatus]);
 
   const onExpandFromDot = useCallback(() => { window.logsAPI.setMode('normal'); }, []);
   const preventButtonFocus = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
@@ -525,7 +533,7 @@ export function LogsApp(): React.ReactElement {
             ref={inputRef}
             className="logs-followup__input"
             value={input}
-            placeholder={sessionId ? 'Follow up…' : 'No session'}
+            placeholder={sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck') ? 'Queue follow-up…' : sessionId ? 'Follow up…' : 'No session'}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onInputKeyDown}
             rows={1}

@@ -42,11 +42,21 @@ describe('bootstrapHarness browser-harness-js materialization', () => {
     bootstrapHarness();
 
     const cli = path.join(browserHarnessJsDir(), 'sdk', 'browser-harness-js');
+    const cliCmd = path.join(browserHarnessJsDir(), 'sdk', 'browser-harness-js.cmd');
     expect(fs.existsSync(helpersPath())).toBe(true);
     expect(fs.readFileSync(skillPath(), 'utf-8')).toContain('Browser Harness JS');
     expect(fs.existsSync(toolsPath())).toBe(false);
     expect(fs.existsSync(cli)).toBe(true);
-    expect(fs.statSync(cli).mode & 0o111).not.toBe(0);
+    // Windows launcher ships alongside the bash script so Codex can find it
+    // via PATHEXT (.CMD) instead of hitting the no-handler popup on the
+    // extensionless bash file.
+    expect(fs.existsSync(cliCmd)).toBe(true);
+    expect(fs.readFileSync(cliCmd, 'utf-8')).toContain('bash.exe');
     expect(fs.existsSync(path.join(interactionSkillsDir(), 'screenshots.md'))).toBe(true);
+    // Executable-bit assert: skipped on Windows because NTFS permission
+    // mapping doesn't expose POSIX exec bits the way the test asserts.
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(cli).mode & 0o111).not.toBe(0);
+    }
   });
 });

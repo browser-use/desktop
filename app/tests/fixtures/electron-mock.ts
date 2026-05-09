@@ -244,6 +244,27 @@ let webContentsIdCounter = 1;
 
 function createMockWebContents() {
   const id = webContentsIdCounter++;
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  const on = (event: string, handler: (...args: unknown[]) => void): void => {
+    const set = listeners.get(event) ?? new Set<(...args: unknown[]) => void>();
+    set.add(handler);
+    listeners.set(event, set);
+  };
+  const off = (event: string, handler: (...args: unknown[]) => void): void => {
+    listeners.get(event)?.delete(handler);
+  };
+  const once = (event: string, handler: (...args: unknown[]) => void): void => {
+    const wrapper = (...args: unknown[]): void => {
+      off(event, wrapper);
+      handler(...args);
+    };
+    on(event, wrapper);
+  };
+  const emit = (event: string, ...args: unknown[]): boolean => {
+    const handlers = Array.from(listeners.get(event) ?? []);
+    for (const handler of handlers) handler(...args);
+    return handlers.length > 0;
+  };
   return {
     id,
     getURL: (): string => 'about:blank',
@@ -255,9 +276,10 @@ function createMockWebContents() {
     setBackgroundThrottling: (_throttle: boolean): void => undefined,
     loadURL: (_url: string): Promise<void> => Promise.resolve(),
     close: (): void => undefined,
-    on: (): void => undefined,
-    off: (): void => undefined,
-    once: (): void => undefined,
+    on,
+    off,
+    once,
+    emit,
     debugger: {
       attach: (): void => undefined,
       sendCommand: (): Promise<unknown> => Promise.resolve({}),

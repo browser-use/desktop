@@ -49,6 +49,7 @@ export class BrowserPool {
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
+  private onCancelShortcut?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT, opts: { idleFreezeDelayMs?: number } = {}) {
@@ -71,6 +72,12 @@ export class BrowserPool {
     this.onNavigate = listener;
   }
 
+  /** Register a listener for Ctrl+C inside an attached browser view. Returning
+   *  true means the keypress was handled and should not continue into the page. */
+  setOnCancelShortcut(listener: (sessionId: string) => boolean | void): void {
+    this.onCancelShortcut = listener;
+  }
+
   private notifyGone(sessionId: string): void {
     try { this.onGone?.(sessionId); } catch (err) {
       browserLogger.warn('BrowserPool.notifyGone.listenerError', { sessionId, error: (err as Error).message });
@@ -80,6 +87,13 @@ export class BrowserPool {
   private notifyNavigate(sessionId: string, url: string): void {
     try { this.onNavigate?.(sessionId, url); } catch (err) {
       browserLogger.warn('BrowserPool.notifyNavigate.listenerError', { sessionId, error: (err as Error).message });
+    }
+  }
+
+  private notifyCancelShortcut(sessionId: string): boolean {
+    try { return this.onCancelShortcut?.(sessionId) === true; } catch (err) {
+      browserLogger.warn('BrowserPool.notifyCancelShortcut.listenerError', { sessionId, error: (err as Error).message });
+      return false;
     }
   }
 
@@ -185,6 +199,18 @@ export class BrowserPool {
       ).catch(() => { /* frame may have navigated away */ });
     };
     view.webContents.on('dom-ready', hideWebdriver);
+    view.webContents.on('before-input-event', (event, input) => {
+      if (
+        input.type === 'keyDown' &&
+        input.key.toLowerCase() === 'c' &&
+        input.control &&
+        !input.meta &&
+        !input.alt
+      ) {
+        const handled = this.notifyCancelShortcut(sessionId);
+        if (handled) event.preventDefault();
+      }
+    });
 
     view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
 

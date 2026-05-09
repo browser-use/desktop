@@ -506,6 +506,11 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('settings-application');
   const platform = window.electronAPI?.shell?.platform ?? fallbackShortcutPlatform();
+  // Cookie sync is unsupported on Windows (Chromium ABE + DevTools hardening),
+  // so the Browser Sync tab + section are hidden on win32.
+  const tabs = platform === 'win32'
+    ? SETTINGS_TABS.filter((tab) => tab.id !== 'settings-browser-sync')
+    : SETTINGS_TABS;
 
   const scrollToSection = useCallback((id: SettingsSectionId, behavior: ScrollBehavior = 'smooth') => {
     const scroller = scrollerRef.current;
@@ -522,14 +527,14 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
   const updateActiveFromScroll = useCallback(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    let next = SETTINGS_TABS[0].id;
+    let next = tabs[0].id;
     const threshold = scroller.scrollTop + 112;
-    for (const tab of SETTINGS_TABS) {
+    for (const tab of tabs) {
       const section = scroller.querySelector<HTMLElement>(`#${tab.id}`);
       if (section && section.offsetTop <= threshold) next = tab.id;
     }
     setActiveSection(next);
-  }, []);
+  }, [tabs]);
 
   useEffect(() => {
     const sectionId = intent?.sectionId ?? (
@@ -555,7 +560,7 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
           </header>
 
           <nav className="settings-page__tabs" aria-label="Settings sections">
-            {SETTINGS_TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"

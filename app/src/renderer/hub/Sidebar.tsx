@@ -7,7 +7,7 @@ interface SidebarSession extends AgentSession {
   lastActivityAt?: number;
 }
 
-export type SidebarRowAction = 'rerun' | 'stop';
+export type SidebarRowAction = 'rerun' | 'stop' | 'pause' | 'resume';
 
 interface SidebarProps {
   sessions?: SidebarSession[];
@@ -78,6 +78,7 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   running: { color: '#3fb950', label: 'Running' },
   idle:    { color: '#d29922', label: 'Waiting for input' },
   stuck:   { color: '#f85149', label: 'Stuck' },
+  paused:  { color: '#58a6ff', label: 'Paused' },
   stopped: { color: '#6e7681', label: 'Stopped' },
   draft:   { color: '#6e7681', label: 'Draft' },
 };
@@ -165,6 +166,7 @@ function SessionRow({
   }, [menuOpen]);
 
   const isRunning = s.status === 'running' || s.status === 'stuck';
+  const isPaused = s.status === 'paused';
   const handleAction = (action: SidebarRowAction): void => {
     setMenuOpen(false);
     onAction?.(s.id, action);
@@ -226,7 +228,29 @@ function SessionRow({
           >
             Re-run
           </button>
+          {isPaused && (
+            <button
+              className="sidebar__row-menu-item"
+              role="menuitem"
+              onMouseDown={preventMouseFocus}
+              onClick={() => handleAction('resume')}
+              tabIndex={-1}
+            >
+              Resume
+            </button>
+          )}
           {isRunning && (
+            <button
+              className="sidebar__row-menu-item"
+              role="menuitem"
+              onMouseDown={preventMouseFocus}
+              onClick={() => handleAction('pause')}
+              tabIndex={-1}
+            >
+              Pause
+            </button>
+          )}
+          {(isRunning || isPaused) && (
             <button
               className="sidebar__row-menu-item"
               role="menuitem"

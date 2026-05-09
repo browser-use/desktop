@@ -29,6 +29,16 @@ export const WINDOW_BG: Record<ResolvedThemeMode, string> = {
   light: '#ede9e2',
 };
 
+/** Windows Controls Overlay symbol color — must contrast against WINDOW_BG. */
+export const WCO_SYMBOL: Record<ResolvedThemeMode, string> = {
+  dark:  '#e6eaee',
+  light: '#1a1a18',
+};
+
+export function getWcoSymbolColor(): string {
+  return WCO_SYMBOL[resolveThemeMode()];
+}
+
 function filePath(): string {
   return path.join(app.getPath('userData'), FILE);
 }
@@ -96,7 +106,7 @@ function applyBackgroundToAllWindows(resolved: ResolvedThemeMode): void {
         // also push the new bg to the overlay or it goes stale on flip.
         if (process.platform === 'win32') {
           try {
-            win.setTitleBarOverlay?.({ color, symbolColor: '#e6eaee', height: 32 });
+            win.setTitleBarOverlay?.({ color, symbolColor: WCO_SYMBOL[resolved], height: 32 });
           } catch {
             // Window may not have a title bar overlay configured (e.g. pill).
           }

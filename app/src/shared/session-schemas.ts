@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Session status
 // ---------------------------------------------------------------------------
 
-export const SessionStatusSchema = z.enum(['draft', 'running', 'stuck', 'idle', 'stopped']);
+export const SessionStatusSchema = z.enum(['draft', 'running', 'stuck', 'paused', 'idle', 'stopped']);
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 
 // ---------------------------------------------------------------------------

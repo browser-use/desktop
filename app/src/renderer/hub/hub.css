@@ -485,6 +485,10 @@
   background-color: var(--color-status-error);
 }
 
+.mem__dot--paused {
+  background-color: var(--color-accent-default);
+}
+
 .mem__dot--idle {
   background-color: var(--color-status-warning);
 }
@@ -759,6 +763,10 @@
   background-color: var(--color-fg-tertiary);
 }
 
+.pane__dot--paused {
+  background-color: var(--color-accent-default);
+}
+
 .pane__dot--idle {
   background-color: var(--color-status-warning);
 }
@@ -914,6 +922,11 @@
   cursor: not-allowed;
 }
 
+.pane__action-btn:disabled {
+  color: var(--color-fg-disabled);
+  cursor: not-allowed;
+}
+
 .pane__action-btn--icon {
   padding: var(--space-2);
 }
@@ -950,6 +963,11 @@
 }
 
 .pane__action-btn--disabled:hover {
+  color: var(--color-fg-disabled);
+  background-color: transparent;
+}
+
+.pane__action-btn:disabled:hover {
   color: var(--color-fg-disabled);
   background-color: transparent;
 }
@@ -2747,6 +2765,7 @@ button:focus:not(:focus-visible) {
 
 .cmdbar__dot--running { background-color: var(--color-status-success); }
 .cmdbar__dot--stuck { background-color: var(--color-status-error); }
+.cmdbar__dot--paused { background-color: var(--color-accent-default); }
 .cmdbar__dot--idle { background-color: var(--color-status-warning); }
 .cmdbar__dot--stopped { background-color: var(--color-fg-tertiary); }
 .cmdbar__dot--draft { background-color: var(--color-fg-disabled); }
@@ -3072,6 +3091,7 @@ button:focus:not(:focus-visible) {
 }
 .dashboard__recent-dot--stopped { background-color: var(--color-fg-tertiary); }
 .dashboard__recent-dot--stuck { background-color: var(--color-status-error); }
+.dashboard__recent-dot--paused { background-color: var(--color-accent-default); }
 .dashboard__recent-dot--idle { background-color: var(--color-status-warning); }
 
 .dashboard__recent-status {
@@ -4836,6 +4856,16 @@ button:focus:not(:focus-visible) {
 .sidebar__row-menu-item:hover {
   background: var(--color-surface-interactive-hover);
   color: var(--color-fg-primary);
+}
+
+.sidebar__row-menu-item:disabled {
+  color: var(--color-fg-disabled);
+  cursor: not-allowed;
+}
+
+.sidebar__row-menu-item:disabled:hover {
+  background: transparent;
+  color: var(--color-fg-disabled);
 }
 
 .sidebar__row-menu-item--danger {

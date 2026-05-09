@@ -8,7 +8,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { mainLogger, rendererLogger } from './logger';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
-import { getWindowBackgroundColor } from './themeMode';
+import { getWindowBackgroundColor, getWcoSymbolColor } from './themeMode';
 
 declare const SHELL_VITE_DEV_SERVER_URL: string | undefined;
 
@@ -96,7 +96,7 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     ...(process.platform === 'win32' && {
       titleBarOverlay: {
         color: incognito ? '#1a1a2e' : getWindowBackgroundColor(),
-        symbolColor: '#e6eaee',
+        symbolColor: incognito ? '#e6eaee' : getWcoSymbolColor(),
         height: 32,
       },
     }),

@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revealOutput: (filePath: string): Promise<{ revealed: boolean }> =>
       ipcRenderer.invoke('sessions:reveal-output', filePath),
     get: (id: string): Promise<unknown> => ipcRenderer.invoke('sessions:get', id),
+    cancel: (id: string): Promise<void> =>
+      ipcRenderer.invoke('sessions:cancel', { id, source: 'logs-ctrl-c' }),
+    pause: (id: string): Promise<{ paused?: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:pause', id),
     listEditors: (): Promise<Array<{ id: string; name: string }>> =>
       ipcRenderer.invoke('sessions:list-editors'),
     openInEditor: (editorId: string, filePath: string): Promise<{ opened: boolean }> =>
@@ -115,7 +119,7 @@ contextBridge.exposeInMainWorld('logsAPI', {
   // Follow-up input from inside the logs window — routes through the same
   // sessions:resume IPC the pane's FollowUpInput uses so replies land in
   // the same session without the main hub needing focus.
-  followUp: (sessionId: string, prompt: string): Promise<{ resumed?: boolean; error?: string }> =>
+  followUp: (sessionId: string, prompt: string): Promise<{ resumed?: boolean; queued?: boolean; error?: string }> =>
     ipcRenderer.invoke('sessions:resume', { id: sessionId, prompt }),
 });
 
