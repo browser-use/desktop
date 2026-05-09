@@ -13,8 +13,8 @@ const PALETTE = {
     mix: 0.55,
   },
   light: {
-    bg:  [0.929, 0.914, 0.886] as const, /* matches --color-bg-base #ede9e2 */
-    dot: [0.30,  0.40,  0.58]  as const, /* slate-blue, deeper for paper bg */
+    bg:  [0.957, 0.957, 0.965] as const, /* matches --color-bg-base #f4f4f6 */
+    dot: [0.30,  0.40,  0.58]  as const, /* slate-blue, deeper for light bg */
     mix: 0.55,
   },
 };

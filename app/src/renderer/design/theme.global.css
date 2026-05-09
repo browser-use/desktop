@@ -234,40 +234,43 @@
 =========================================================================== */
 
 [data-mode="light"] {
-  /* Warm-grey light scale (paper, not bleach). 0 = brightest, 12 = darkest text */
-  --slate-0:  #f4f2ee;
-  --slate-1:  #efece7;
-  --slate-2:  #ebe8e2;
-  --slate-3:  #e4e1da;
-  --slate-4:  #ddd9d1;
-  --slate-5:  #d3cfc5;
-  --slate-6:  #c2bdb1;
-  --slate-7:  #e4e1da;
-  --slate-8:  #d3cfc5;
-  --slate-9:  #b1aca0;
-  --slate-10: #6b6a64;
-  --slate-11: #46453f;
-  --slate-12: #1a1a18;
+  /* Neutral cool-grey scale. 0 = brightest, 12 = darkest text. */
+  --slate-0:  #ffffff;
+  --slate-1:  #f8f8fa;
+  --slate-2:  #f4f4f6;
+  --slate-3:  #ededf0;
+  --slate-4:  #e4e4e7;
+  --slate-5:  #d8d8dc;
+  --slate-6:  #c4c4c9;
+  --slate-7:  #ededf0;
+  --slate-8:  #d8d8dc;
+  --slate-9:  #b4b4ba;
+  --slate-10: #6c6e75;
+  --slate-11: #44464d;
+  --slate-12: #16171b;
 
-  /* Backgrounds — paper-toned, no pure white */
-  --color-bg-base:     #ede9e2;
-  --color-bg-elevated: #f4f1ec;
-  --color-bg-overlay:  #f7f4ef;
-  --color-bg-sunken:   #e4e0d8;
+  /* Backgrounds — light, neutral cool greys. Three-tier hierarchy:
+     - base    (#f7f7f9): the page
+     - elevated(#fcfcfd): cards, inputs — pop above the page, not white
+     - sunken  (#ececef): sidebar / recessed surfaces — clearly sits lower */
+  --color-bg-base:     #f7f7f9;
+  --color-bg-elevated: #fcfcfd;
+  --color-bg-overlay:  #fcfcfd;
+  --color-bg-sunken:   #ececef;
 
   /* Foregrounds — WCAG AA on bg-base */
-  --color-fg-primary:   #1a1a18;
-  --color-fg-secondary: #46453f;
-  --color-fg-tertiary:  #6b6a64;
-  --color-fg-disabled:  #b1aca0;
-  --color-fg-inverse:   #f4f1ec;
+  --color-fg-primary:   #16171b;
+  --color-fg-secondary: #44464d;
+  --color-fg-tertiary:  #6c6e75;
+  --color-fg-disabled:  #b4b4ba;
+  --color-fg-inverse:   #f4f4f6;
 
   /* Borders */
-  --color-border-subtle:  #e0dcd3;
-  --color-border-default: #cfcabd;
-  --color-border-strong:  #b1aca0;
+  --color-border-subtle:  #e4e4e7;
+  --color-border-default: #d2d3d8;
+  --color-border-strong:  #b4b4ba;
 
-  /* Accent — same hue, darker for AA contrast on white */
+  /* Accent — slightly darker for AA contrast on light surfaces */
   --color-accent-default: #4e6378;
   --color-accent-hover:   #5e7589;
   --color-accent-dim:     #3f5364;
@@ -280,33 +283,33 @@
   --color-surface-interactive-active: rgba(0, 0, 0, 0.10);
 
   /* Modal scrim */
-  --color-modal-scrim: rgba(20, 21, 26, 0.40);
+  --color-modal-scrim: rgba(22, 23, 27, 0.40);
 
   /* Light shadows — barely-there. Use border-default for separation, this
-     is just the faintest lift. Anything stronger reads as harsh on paper. */
+     is just the faintest lift. Anything stronger reads as harsh. */
   --shadow-xs: none;
-  --shadow-sm: 0 1px 2px rgba(60, 50, 30, 0.012);
-  --shadow-md: 0 4px 12px rgba(60, 50, 30, 0.018);
-  --shadow-lg: 0 10px 28px rgba(60, 50, 30, 0.025);
-  --shadow-xl: 0 20px 56px rgba(60, 50, 30, 0.035);
+  --shadow-sm: 0 1px 2px rgba(40, 40, 50, 0.04);
+  --shadow-md: 0 4px 12px rgba(40, 40, 50, 0.06);
+  --shadow-lg: 0 10px 28px rgba(40, 40, 50, 0.08);
+  --shadow-xl: 0 20px 56px rgba(40, 40, 50, 0.10);
 
   --glow-accent-sm: 0 0 10px rgba(78, 99, 120, 0.08);
   --glow-accent-md: 0 0 20px rgba(78, 99, 120, 0.12);
   --glow-accent-lg: 0 0 36px rgba(78, 99, 120, 0.18);
   --glow-accent:    var(--glow-accent-sm);
 
-  /* Mode-aware RGB triplets:
-     - shadow-rgb is a warm taupe so cards drop softly on cream bg.
-     - highlight-rgb flips to a dark warm tone — inset highlights and
-       white-tint dividers should be subtle dark tints in light mode. */
-  --shadow-rgb:    140, 125, 100;
-  --highlight-rgb: 30, 25, 20;
+  /* Mode-aware RGB triplets. shadow-rgb is intentionally LIGHT in light
+     mode so the per-callsite alphas (0.3 - 0.5, calibrated for dark mode)
+     still produce barely-there shadows instead of harsh dark blocks.
+     Going darker here lights the page on fire. */
+  --shadow-rgb:    150, 155, 165;
+  --highlight-rgb: 22, 23, 27;
 
-  /* Floating surfaces — paper-toned glass instead of dark glass. */
-  --color-menu-bg:    rgba(244, 241, 236, 0.97);
-  --color-overlay-bg: rgba(237, 233, 226, 0.92);
-  --color-glass-top:    rgba(220, 217, 210, 0.97);
-  --color-glass-bottom: rgba(212, 209, 201, 0.98);
+  /* Floating surfaces — neutral grey glass. */
+  --color-menu-bg:    rgba(244, 244, 246, 0.97);
+  --color-overlay-bg: rgba(234, 234, 236, 0.92);
+  --color-glass-top:    rgba(225, 225, 230, 0.97);
+  --color-glass-bottom: rgba(216, 216, 220, 0.98);
 }
 
 /* ===========================================================================
