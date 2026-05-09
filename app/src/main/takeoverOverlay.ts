@@ -72,6 +72,16 @@ function overlayHtml(sessionId: string): string {
   body[data-mode="idle"] .button { display: none; }
   body[data-mode="idle"] .label { opacity: 1; }
 
+  /* Idle paints over the (possibly stale-bg) browser view beneath, so it
+     gets a theme-coloured fallback fill. Active stays transparent so the
+     glow + chip composite over real page content. nativeTheme.themeSource
+     in main drives the prefers-color-scheme query here. */
+  body[data-mode="idle"] { background: #131318; }
+  @media (prefers-color-scheme: light) {
+    body[data-mode="idle"] { background: #f4f4f6; }
+    body[data-mode="idle"] .label { color: rgba(40, 40, 50, 0.55); }
+  }
+
   .overlay {
     position: absolute;
     inset: 0;

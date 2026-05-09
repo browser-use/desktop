@@ -44,29 +44,57 @@ function readCssVar(name: string, fallback: string): string {
   } catch { return fallback; }
 }
 
+// ANSI palettes per resolved theme. The dark palette is One Dark; the light
+// palette is darker variants of the same hues so colored output stays
+// readable on a paper bg without going neon.
+const PALETTE_DARK = {
+  black: '#1a1d22',
+  red: '#e06c75',
+  green: '#98c379',
+  yellow: '#e5c07b',
+  blue: '#61afef',
+  magenta: '#c678dd',
+  cyan: '#56b6c2',
+  white: '#abb2bf',
+  brightBlack: '#5c6370',
+  brightRed: '#ff7b86',
+  brightGreen: '#b0e08c',
+  brightYellow: '#f2d08a',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d48cee',
+  brightCyan: '#7dd3fc',
+  brightWhite: '#e6eaee',
+};
+
+const PALETTE_LIGHT = {
+  black: '#1f2328',
+  red: '#a8323a',
+  green: '#3d6c2c',
+  yellow: '#946800',
+  blue: '#2c5fb3',
+  magenta: '#7a3da1',
+  cyan: '#1d6f87',
+  white: '#46464d',
+  brightBlack: '#6c6e75',
+  brightRed: '#c2434b',
+  brightGreen: '#4a8038',
+  brightYellow: '#a87a00',
+  brightBlue: '#3a6fc1',
+  brightMagenta: '#8a4cb1',
+  brightCyan: '#2a7e95',
+  brightWhite: '#1a1a1a',
+};
+
 function buildTheme(): NonNullable<ITerminalOptions['theme']> {
+  const isLight = document.documentElement.dataset.mode === 'light';
+  const palette = isLight ? PALETTE_LIGHT : PALETTE_DARK;
   return {
     background: readCssVar('--color-bg-base', '#0b0d10'),
     foreground: readCssVar('--color-fg-primary', '#d6d8dc'),
     cursor: readCssVar('--color-fg-primary', '#d6d8dc'),
     cursorAccent: readCssVar('--color-bg-base', '#0b0d10'),
     selectionBackground: readCssVar('--color-accent-muted', '#2a3340'),
-    black: '#1a1d22',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#e5c07b',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#abb2bf',
-    brightBlack: '#5c6370',
-    brightRed: '#ff7b86',
-    brightGreen: '#b0e08c',
-    brightYellow: '#f2d08a',
-    brightBlue: '#79c0ff',
-    brightMagenta: '#d48cee',
-    brightCyan: '#7dd3fc',
-    brightWhite: '#e6eaee',
+    ...palette,
   };
 }
 

@@ -51,6 +51,13 @@ export const globalShortcut = {
   unregisterAll: (): void => undefined,
 };
 
+export const nativeTheme = {
+  shouldUseDarkColors: true,
+  themeSource: 'system' as 'system' | 'light' | 'dark',
+  on: (_event: string, _handler: () => void): void => undefined,
+  off: (_event: string, _handler: () => void): void => undefined,
+};
+
 export const screen = {
   getAllDisplays: () => [
     { bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
@@ -327,6 +334,7 @@ export default {
   ipcMain,
   BrowserWindow,
   globalShortcut,
+  nativeTheme,
   screen,
   nativeImage,
   shell,
