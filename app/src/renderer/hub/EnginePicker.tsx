@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import claudeLogoSrc from './claude-logo.svg?raw';
-import openaiLogoSrc from './openai-logo.svg?raw';
-import opencodeLogoSrc from './opencode-logo-dark.svg?raw';
+import openaiLogoDarkSrc from './openai-logo.svg?raw';
+import openaiLogoLightSrc from './openai-logo-light.svg?raw';
+import opencodeLogoDarkSrc from './opencode-logo-dark.svg?raw';
+import opencodeLogoLightSrc from './opencode-logo-light.svg?raw';
 import { BrowserCodeProviderSubmenu } from './BrowserCodeModelPicker';
+import { useThemedAsset } from '../design/useThemedAsset';
 import { pollInstalledStatus } from '../shared/installStatus';
 
 export interface EngineInfo {
@@ -19,6 +22,8 @@ export interface EngineStatus {
 }
 
 function EngineLogo({ id }: { id: string }): React.ReactElement {
+  const openaiLogoSrc = useThemedAsset(openaiLogoDarkSrc, openaiLogoLightSrc);
+  const opencodeLogoSrc = useThemedAsset(opencodeLogoDarkSrc, opencodeLogoLightSrc);
   if (id === 'claude-code') {
     return <span className="engine-logo" dangerouslySetInnerHTML={{ __html: claudeLogoSrc as string }} />;
   }

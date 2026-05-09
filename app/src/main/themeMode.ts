@@ -1,0 +1,164 @@
+/**
+ * Main-process theme-mode store + helpers.
+ *
+ * Renderers persist their preference here so the main process can:
+ *   1. Set BrowserWindow.backgroundColor at creation time, eliminating the
+ *      black flash users saw when swapping views (the OS shows the window's
+ *      native bg before the renderer has painted).
+ *   2. Update existing windows on theme change via win.setBackgroundColor().
+ *
+ * Persisted to <userData>/theme.json. Defaults to 'dark' (matches the legacy
+ * baked-in window backgrounds).
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { app, nativeTheme, BrowserWindow } from 'electron';
+import { mainLogger } from './logger';
+
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type ResolvedThemeMode = 'light' | 'dark';
+
+const FILE = 'theme.json';
+const VALID = new Set<ThemeMode>(['light', 'dark', 'system']);
+const DEFAULT_MODE: ThemeMode = 'dark';
+
+/** Hex bg colors per resolved mode — must match --color-bg-base in CSS. */
+export const WINDOW_BG: Record<ResolvedThemeMode, string> = {
+  dark:  '#131318',
+  light: '#f4f4f6',
+};
+
+/** Windows Controls Overlay symbol color — must contrast against WINDOW_BG. */
+export const WCO_SYMBOL: Record<ResolvedThemeMode, string> = {
+  dark:  '#e6eaee',
+  light: '#1a1a18',
+};
+
+export function getWcoSymbolColor(): string {
+  return WCO_SYMBOL[resolveThemeMode()];
+}
+
+function filePath(): string {
+  return path.join(app.getPath('userData'), FILE);
+}
+
+function readMode(): ThemeMode {
+  try {
+    const raw = fs.readFileSync(filePath(), 'utf-8');
+    const parsed = JSON.parse(raw) as { mode?: string };
+    if (parsed.mode && VALID.has(parsed.mode as ThemeMode)) {
+      return parsed.mode as ThemeMode;
+    }
+  } catch {
+    // file missing or invalid — fall through.
+  }
+  return DEFAULT_MODE;
+}
+
+function writeMode(mode: ThemeMode): void {
+  try {
+    fs.mkdirSync(path.dirname(filePath()), { recursive: true });
+    fs.writeFileSync(filePath(), JSON.stringify({ mode }, null, 2), 'utf-8');
+  } catch (err) {
+    mainLogger.error('theme.set-failed', { error: (err as Error).message });
+  }
+}
+
+export function getThemeMode(): ThemeMode {
+  return readMode();
+}
+
+export function resolveThemeMode(mode: ThemeMode = readMode()): ResolvedThemeMode {
+  if (mode === 'system') return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return mode;
+}
+
+export function getWindowBackgroundColor(): string {
+  return WINDOW_BG[resolveThemeMode()];
+}
+
+export function setThemeMode(mode: ThemeMode): { mode: ThemeMode; resolved: ResolvedThemeMode } {
+  if (!VALID.has(mode)) throw new TypeError(`invalid theme mode: ${mode}`);
+  writeMode(mode);
+  // Push themeSource FIRST so nativeTheme.shouldUseDarkColors reflects the
+  // new mode before we resolve. Otherwise switching from an explicit
+  // light/dark to 'system' would resolve against the previous frozen
+  // value and broadcast the wrong theme transiently.
+  nativeTheme.themeSource = mode;
+  const resolved = resolveThemeMode(mode);
+  applyBackgroundToAllWindows(mode, resolved);
+  broadcastThemeChange(mode, resolved);
+  mainLogger.info('theme.set', { mode, resolved });
+  return { mode, resolved };
+}
+
+function isTransparentBg(value: string | undefined): boolean {
+  // Electron returns "#rrggbbaa" — alpha "00" means fully transparent.
+  // The pill window on macOS uses `#00000000` and MUST keep that bg or it
+  // loses transparency.
+  return !!value && value.length === 9 && value.endsWith('00');
+}
+
+function applyBackgroundToAllWindows(mode: ThemeMode, resolved: ResolvedThemeMode): void {
+  // Tell Chromium the user's preferred color scheme. Pass the user's mode
+  // (not the resolved one) so 'system' actually delegates to the OS — if
+  // we wrote the resolved value, Chromium would freeze on whatever it
+  // resolved to at the moment and stop tracking OS dark/light flips.
+  nativeTheme.themeSource = mode;
+
+  const color = WINDOW_BG[resolved];
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      const winBg = win.getBackgroundColor?.();
+      if (!isTransparentBg(winBg)) {
+        win.setBackgroundColor(color);
+        // Windows-only: WCO title bar color is set once at creation, so
+        // also push the new bg to the overlay or it goes stale on flip.
+        if (process.platform === 'win32') {
+          try {
+            win.setTitleBarOverlay?.({ color, symbolColor: WCO_SYMBOL[resolved], height: 32 });
+          } catch {
+            // Window may not have a title bar overlay configured (e.g. pill).
+          }
+        }
+      }
+      // Existing WebContentsView children (e.g. browser session views) also
+      // need updating so they don't paint dark on the next attach.
+      for (const child of win.contentView.children) {
+        const setter = (child as { setBackgroundColor?: (c: string) => void }).setBackgroundColor;
+        const bg = (child as { getBackgroundColor?: () => string }).getBackgroundColor?.();
+        if (isTransparentBg(bg)) continue;
+        setter?.call(child, color);
+      }
+    } catch (err) {
+      mainLogger.warn('theme.apply-bg-failed', { error: (err as Error).message });
+    }
+  }
+}
+
+function broadcastThemeChange(mode: ThemeMode, resolved: ResolvedThemeMode): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      win.webContents.send('theme:changed', { mode, resolved });
+    } catch {
+      // window may be loading or destroyed — best effort.
+    }
+  }
+}
+
+/** Watch for OS-level dark/light flips when user picked 'system'. */
+export function startSystemThemeWatcher(): void {
+  // Seed Chromium with the user's mode (not the resolved one) so
+  // prefers-color-scheme matches in WebContentsViews loaded before any
+  // user-driven flip, AND so 'system' actually delegates to the OS.
+  nativeTheme.themeSource = readMode();
+
+  nativeTheme.on('updated', () => {
+    if (readMode() === 'system') {
+      const resolved = resolveThemeMode();
+      applyBackgroundToAllWindows('system', resolved);
+      broadcastThemeChange('system', resolved);
+    }
+  });
+}

@@ -21,6 +21,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
+import { subscribeThemeMode } from '../design/themeMode';
 
 const SCROLLBACK_LINES = 100_000;
 const OUTPUT_PATH_RE = /(?:^|\s)(outputs\/[a-zA-Z0-9_-]{6,}\/[^\s]+)/g;
@@ -43,29 +44,64 @@ function readCssVar(name: string, fallback: string): string {
   } catch { return fallback; }
 }
 
+// ANSI palettes per resolved theme. The dark palette is One Dark; the light
+// palette is darker variants of the same hues so colored output stays
+// readable on a paper bg without going neon.
+const PALETTE_DARK = {
+  black: '#1a1d22',
+  red: '#e06c75',
+  green: '#98c379',
+  yellow: '#e5c07b',
+  blue: '#61afef',
+  magenta: '#c678dd',
+  cyan: '#56b6c2',
+  white: '#abb2bf',
+  brightBlack: '#5c6370',
+  brightRed: '#ff7b86',
+  brightGreen: '#b0e08c',
+  brightYellow: '#f2d08a',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d48cee',
+  brightCyan: '#7dd3fc',
+  brightWhite: '#e6eaee',
+};
+
+const PALETTE_LIGHT = {
+  // ANSI 'black' is also used as a bg by `\x1b[40m`. Pure-black on a paper
+  // bg looks like a punched-out hole; a mid slate reads as an intentional
+  // highlight while still feeling like the "black" color.
+  black: '#3a3d45',
+  red: '#a8323a',
+  green: '#3d6c2c',
+  yellow: '#946800',
+  blue: '#2c5fb3',
+  magenta: '#7a3da1',
+  cyan: '#1d6f87',
+  white: '#46464d',
+  brightBlack: '#6c6e75',
+  brightRed: '#c2434b',
+  brightGreen: '#4a8038',
+  brightYellow: '#a87a00',
+  brightBlue: '#3a6fc1',
+  brightMagenta: '#8a4cb1',
+  brightCyan: '#2a7e95',
+  brightWhite: '#1a1a1a',
+};
+
 function buildTheme(): NonNullable<ITerminalOptions['theme']> {
+  const isLight = document.documentElement.dataset.mode === 'light';
+  const palette = isLight ? PALETTE_LIGHT : PALETTE_DARK;
+  // Light mode uses a slate foreground (not pure black) so SGR reverse
+  // video doesn't paint pure-black highlights — the resulting bg is the
+  // foreground color, which felt aggressive at #16171b.
+  const foreground = isLight ? '#2c2e36' : readCssVar('--color-fg-primary', '#d6d8dc');
   return {
-    background: readCssVar('--color-bg', '#0b0d10'),
-    foreground: readCssVar('--color-fg', '#d6d8dc'),
-    cursor: readCssVar('--color-bg', '#0b0d10'),
-    cursorAccent: readCssVar('--color-bg', '#0b0d10'),
-    selectionBackground: readCssVar('--color-selection', '#2a3340'),
-    black: '#1a1d22',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#e5c07b',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#abb2bf',
-    brightBlack: '#5c6370',
-    brightRed: '#ff7b86',
-    brightGreen: '#b0e08c',
-    brightYellow: '#f2d08a',
-    brightBlue: '#79c0ff',
-    brightMagenta: '#d48cee',
-    brightCyan: '#7dd3fc',
-    brightWhite: '#e6eaee',
+    background: readCssVar('--color-bg-base', '#0b0d10'),
+    foreground,
+    cursor: foreground,
+    cursorAccent: readCssVar('--color-bg-base', '#0b0d10'),
+    selectionBackground: readCssVar('--color-accent-muted', '#2a3340'),
+    ...palette,
   };
 }
 
@@ -106,6 +142,10 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
     const host = hostRef.current;
     if (!host) return;
 
+    // Halation effect: dark text on light reads as visually thinner than
+    // the same weight inverted on dark. Bump the regular weight when the
+    // app is in light mode so glyphs don't look anaemic on paper.
+    const isLight = document.documentElement.dataset.mode === 'light';
     const term = new Terminal({
       fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: 12,
@@ -116,9 +156,15 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       disableStdin: true,
       convertEol: true,
       scrollback: SCROLLBACK_LINES,
-      allowTransparency: true,
-      fontWeight: '400',
-      fontWeightBold: '600',
+      // allowTransparency forces alpha-blended glyph rendering which thins
+      // strokes. Off in light mode where halation already steals weight.
+      allowTransparency: !isLight,
+      // Bump weights aggressively in light mode and let xterm auto-darken
+      // any low-contrast cells (per its minimumContrastRatio doc) so we
+      // never render anaemic glyphs on paper.
+      fontWeight: isLight ? '500' : '400',
+      fontWeightBold: isLight ? '700' : '600',
+      minimumContrastRatio: isLight ? 7 : 1,
       smoothScrollDuration: 0,
     });
 
@@ -130,14 +176,32 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
     term.loadAddon(webLinks);
     term.open(host);
 
+    // Repaint xterm with the new palette when the user flips theme.
+    // xterm.options.theme is reactive — assigning rebuilds the renderer.
+    const unsubscribeTheme = subscribeThemeMode((_mode, resolved) => {
+      try {
+        term.options.theme = buildTheme();
+        term.options.fontWeight = resolved === 'light' ? '500' : '400';
+        term.options.fontWeightBold = resolved === 'light' ? '700' : '600';
+        term.options.minimumContrastRatio = resolved === 'light' ? 7 : 1;
+        term.options.allowTransparency = resolved !== 'light';
+      } catch { /* term disposed */ }
+    });
+
     spin.current.term = term;
 
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => { try { webgl.dispose(); } catch { /* already disposed */ } });
-      term.loadAddon(webgl);
-    } catch (err) {
-      console.warn('[TerminalPane] webgl addon unavailable', err);
+    // Skip the WebGL addon in light mode — its glyph atlas uses subpixel
+    // alpha-blending that thins strokes on a paper bg. The default DOM
+    // renderer is heavier per-glyph and reads correctly. Dark mode keeps
+    // WebGL for performance on large outputs.
+    if (!isLight) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => { try { webgl.dispose(); } catch { /* already disposed */ } });
+        term.loadAddon(webgl);
+      } catch (err) {
+        console.warn('[TerminalPane] webgl addon unavailable', err);
+      }
     }
 
     const linkDisposable: IDisposable = term.registerLinkProvider({
@@ -288,6 +352,7 @@ export function TerminalPane({ sessionId, engine, isActive }: TerminalPaneProps)
       window.removeEventListener('pane:layout-change', onLayoutChange);
       try { offTerm?.(); } catch { /* noop */ }
       try { linkDisposable.dispose(); } catch { /* noop */ }
+      try { unsubscribeTheme(); } catch { /* noop */ }
       try { term.dispose(); } catch { /* noop */ }
     };
   }, [sessionId]);

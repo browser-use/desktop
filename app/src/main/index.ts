@@ -77,6 +77,8 @@ import { loadBrowserCodeConfig } from './identity/authStore';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
 import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
+import { registerThemeHandlers } from './themeIpc';
+import { startSystemThemeWatcher } from './themeMode';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
@@ -424,6 +426,7 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   registerConsentHandlers();
   registerTelemetryHandlers();
+  startSystemThemeWatcher();
   registerChannelHandlers(channelRouter, whatsAppAdapter);
   whatsAppAdapter.onStatusChange((status, detail) => {
     const target = shellWindow ?? onboardingWindow;
@@ -1869,6 +1872,11 @@ ipcMain.handle('shell:get-platform', () => {
   mainLogger.debug('main.shell:get-platform', { platform: process.platform });
   return process.platform;
 });
+
+// Theme IPC must be ready before any renderer can call `theme:get`. A
+// startup race (second-instance, dev-server reload) can spin up a window
+// before the whenReady() block runs — register at module load instead.
+registerThemeHandlers();
 
 // ---------------------------------------------------------------------------
 // Application menu
