@@ -158,11 +158,13 @@ export function AppPopup(): React.ReactElement {
     });
   }, [request]);
 
+  const contentKey = request?.id ?? 'empty';
   return (
     <div ref={contentRef} className={`app-popup app-popup--${request?.kind ?? 'empty'}`}>
-      {request?.kind === 'menu' && <GenericMenu request={request} />}
+      {request?.kind === 'menu' && <GenericMenu key={contentKey} request={request} />}
       {request?.kind === 'engine-picker' && (
         <EnginePickerMenuContent
+          key={contentKey}
           value={request.value}
           onChange={emitEngineSelect}
           onClose={closeFromContent}
@@ -170,11 +172,12 @@ export function AppPopup(): React.ReactElement {
       )}
       {request?.kind === 'browsercode-model-picker' && (
         <BrowserCodeModelMenuContent
+          key={contentKey}
           onChanged={emitBrowserCodeChange}
           onClose={closeFromContent}
         />
       )}
-      {request?.kind === 'memory-indicator' && <MemoryIndicatorContent />}
+      {request?.kind === 'memory-indicator' && <MemoryIndicatorContent key={contentKey} />}
     </div>
   );
 }

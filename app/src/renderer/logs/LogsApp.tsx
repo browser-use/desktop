@@ -99,6 +99,9 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
       closeAppPopup(popupId);
       return;
     }
+    const resolvedEditors = editors.length > 0
+      ? editors
+      : await getEditors().then((list) => { setEditors(list); return list; }).catch(() => [] as Array<{ id: string; name: string }>);
     const nextId = await openAnchoredAppPopup(
       button,
       {
@@ -106,7 +109,7 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
         placement: 'top-start',
         width: 220,
         items: [
-          ...editors.map((editor) => ({
+          ...resolvedEditors.map((editor) => ({
             id: `editor:${editor.id}`,
             label: `Open in ${editor.name}`,
             icon: { type: 'editor' as const, id: editor.id },
@@ -115,7 +118,7 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
             id: 'reveal',
             label: 'Reveal in Finder',
             icon: { type: 'finder' as const },
-            separatorBefore: editors.length > 0,
+            separatorBefore: resolvedEditors.length > 0,
           },
         ],
       },

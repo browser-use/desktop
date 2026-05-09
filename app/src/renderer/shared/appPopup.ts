@@ -57,6 +57,7 @@ export async function openAnchoredAppPopup(
   ensureListeners();
 
   const id = request.id ?? popupId();
+  let disposed = false;
   const onPointerDown = (event: MouseEvent): void => {
     if (anchor.contains(event.target as Node)) return;
     closeAppPopup(id);
@@ -65,6 +66,7 @@ export async function openAnchoredAppPopup(
     if (event.key === 'Escape') closeAppPopup(id);
   };
   const cleanup = (): void => {
+    disposed = true;
     window.removeEventListener('mousedown', onPointerDown, true);
     window.removeEventListener('keydown', onKeyDown, true);
   };
@@ -76,7 +78,9 @@ export async function openAnchoredAppPopup(
       id,
       anchor: rectFromElement(anchor),
     } as AppPopupOpenRequest);
+    if (disposed) return null;
     window.setTimeout(() => {
+      if (disposed) return;
       window.addEventListener('mousedown', onPointerDown, true);
       window.addEventListener('keydown', onKeyDown, true);
     }, 0);
