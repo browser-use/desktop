@@ -1,6 +1,23 @@
 import React, { useEffect, useRef } from 'react';
+import { subscribeThemeMode, resolveThemeMode, getThemeMode } from '../design/themeMode';
 
 const FRAME_INTERVAL_MS = 1000 / 12;
+
+// Theme-paired palette for the WebGL dashboard background. Hardcoded floats
+// (not CSS vars) because GLSL uniforms can't read from the cascade — but
+// they're paired with the light/dark token philosophy in theme.global.css.
+const PALETTE = {
+  dark: {
+    bg:  [0.055, 0.055, 0.067] as const,
+    dot: [0.32,  0.38,  0.52]  as const,
+    mix: 0.55,
+  },
+  light: {
+    bg:  [0.929, 0.914, 0.886] as const, /* matches --color-bg-base #ede9e2 */
+    dot: [0.30,  0.40,  0.58]  as const, /* slate-blue, deeper for paper bg */
+    mix: 0.55,
+  },
+};
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_position;
@@ -12,6 +29,9 @@ precision mediump float;
 out vec4 fragColor;
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform vec3 u_bg;
+uniform vec3 u_dot;
+uniform float u_mix;
 
 // Sine band: density 0..1 from perpendicular distance to a sine curve across the width.
 float sineBand(vec2 uv, float aspect, float t) {
@@ -47,9 +67,7 @@ void main() {
   // Kill dots where density is basically zero so the edges fade cleanly.
   dotMask *= smoothstep(0.02, 0.12, density);
 
-  vec3 dotColor = vec3(0.32, 0.38, 0.52);
-  vec3 bg = vec3(0.055, 0.055, 0.067);
-  fragColor = vec4(mix(bg, dotColor, dotMask * 0.55), 1.0);
+  fragColor = vec4(mix(u_bg, u_dot, dotMask * u_mix), 1.0);
 }
 `;
 
@@ -73,7 +91,7 @@ export function DashboardBackground(): React.ReactElement {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: false });
     if (!gl) {
       console.warn('[DashboardBackground] WebGL2 unavailable');
       return;
@@ -115,8 +133,28 @@ export function DashboardBackground(): React.ReactElement {
 
     const resLoc = gl.getUniformLocation(program, 'u_resolution');
     const timeLoc = gl.getUniformLocation(program, 'u_time');
+    const bgLoc  = gl.getUniformLocation(program, 'u_bg');
+    const dotLoc = gl.getUniformLocation(program, 'u_dot');
+    const mixLoc = gl.getUniformLocation(program, 'u_mix');
 
     gl.useProgram(program);
+
+    let palette = PALETTE[resolveThemeMode(getThemeMode())];
+    const applyPalette = () => {
+      gl.uniform3f(bgLoc,  palette.bg[0],  palette.bg[1],  palette.bg[2]);
+      gl.uniform3f(dotLoc, palette.dot[0], palette.dot[1], palette.dot[2]);
+      gl.uniform1f(mixLoc, palette.mix);
+      // Pre-fill the framebuffer with the bg color so the first composited
+      // frame already matches the theme — no black flash before render().
+      gl.clearColor(palette.bg[0], palette.bg[1], palette.bg[2], 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    };
+    applyPalette();
+    const unsubscribeTheme = subscribeThemeMode((_mode, resolved) => {
+      palette = PALETTE[resolved];
+      applyPalette();
+      schedule();
+    });
 
     const dpr = 1;
 
@@ -195,6 +233,7 @@ export function DashboardBackground(): React.ReactElement {
     return () => {
       running = false;
       cancelScheduledFrame();
+      unsubscribeTheme();
       document.removeEventListener('visibilitychange', onVisibility);
       io.disconnect();
       ro.disconnect();
