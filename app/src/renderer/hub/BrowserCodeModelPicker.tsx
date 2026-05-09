@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import kimiLogo from './kimi-color.svg';
+import kimiLogoDark from './kimi-color.svg';
+import kimiLogoLight from './kimi-light.svg';
 import minimaxLogo from './minimax-color.svg';
 import qwenLogo from './qwen-color.svg';
+import { useThemedAsset } from '../design/useThemedAsset';
 
 interface BrowserCodeProvider {
   id: string;
@@ -40,6 +42,7 @@ function ChevronIcon(): React.ReactElement {
 }
 
 function ProviderMark({ providerId }: { providerId: string }): React.ReactElement {
+  const kimiLogo = useThemedAsset(kimiLogoDark, kimiLogoLight);
   if (providerId === 'minimax') {
     return <img className="browsercode-model-picker__logo" src={minimaxLogo} alt="" />;
   }

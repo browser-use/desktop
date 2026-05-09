@@ -9,8 +9,11 @@ import { TerminalPane } from './TerminalPane';
 import cursorLogoSrc from './cursor-logo.svg?raw';
 import vscodeLogo from './vscode-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
-import openaiLogo from './openai-logo.svg';
-import opencodeLogo from './opencode-logo-dark.svg';
+import openaiLogoDark from './openai-logo.svg';
+import openaiLogoLight from './openai-logo-light.svg';
+import opencodeLogoDark from './opencode-logo-dark.svg';
+import opencodeLogoLight from './opencode-logo-light.svg';
+import { useThemedAsset } from '../design/useThemedAsset';
 import type { AgentSession, OutputEntry } from './types';
 
 function formatElapsed(createdAt: number): string {
@@ -755,6 +758,8 @@ interface AgentPaneProps {
 }
 
 export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+  const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
+  const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
   const paneRef = useRef<HTMLDivElement>(null);
   const [browserDead, setBrowserDead] = useState(false);
   const [browserMissing, setBrowserMissing] = useState(false);

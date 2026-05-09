@@ -1,12 +1,16 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import anthropicLogo from './anthropic-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
-import openaiLogo from './openai-logo.svg';
+import openaiLogoDark from './openai-logo.svg';
+import openaiLogoLight from './openai-logo-light.svg';
 import codexLogo from './codex-logo.svg';
-import opencodeLogo from './opencode-logo-dark.svg';
-import kimiLogo from './kimi-color.svg';
+import opencodeLogoDark from './opencode-logo-dark.svg';
+import opencodeLogoLight from './opencode-logo-light.svg';
+import kimiLogoDark from './kimi-color.svg';
+import kimiLogoLight from './kimi-light.svg';
 import qwenLogo from './qwen-color.svg';
 import minimaxLogo from './minimax-color.svg';
+import { useThemedAsset } from '../design/useThemedAsset';
 import { CookieBrowser, type CookieBrowserApi } from '../shared/CookieBrowser';
 import { pollInstalledStatus } from '../shared/installStatus';
 
@@ -41,11 +45,14 @@ interface BrowserCodeStatus {
   providers: BrowserCodeProvider[];
 }
 
-const BROWSER_CODE_PROVIDER_LOGOS: Record<string, string> = {
-  moonshotai: kimiLogo,
-  alibaba: qwenLogo,
-  minimax: minimaxLogo,
-};
+function useBrowserCodeProviderLogos(): Record<string, string> {
+  const kimiLogo = useThemedAsset(kimiLogoDark, kimiLogoLight);
+  return {
+    moonshotai: kimiLogo,
+    alibaba: qwenLogo,
+    minimax: minimaxLogo,
+  };
+}
 
 function ConnectionActionSkeleton(): React.ReactElement {
   return (
@@ -95,6 +102,9 @@ export function ConnectionsPane({
   browserSyncSectionId,
   focusBrowserCodeProvider,
 }: ConnectionsPaneProps): React.ReactElement {
+  const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
+  const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
+  const browserCodeProviderLogos = useBrowserCodeProviderLogos();
   const [waStatus, setWaStatus] = useState<WaStatus>('disconnected');
   const [waIdentity, setWaIdentity] = useState<string | null>(null);
   const [waDetail, setWaDetail] = useState<string | undefined>();
@@ -853,7 +863,7 @@ export function ConnectionsPane({
           const entry = browserCodeStatus.keys[provider.id];
           const connected = !!entry;
           const isEditing = editingProviderId === provider.id;
-          const logo = BROWSER_CODE_PROVIDER_LOGOS[provider.id] ?? opencodeLogo;
+          const logo = browserCodeProviderLogos[provider.id] ?? opencodeLogo;
           return (
             <div key={provider.id} className="conn-card__sub">
               <div className="conn-card__sub-header">
