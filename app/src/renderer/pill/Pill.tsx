@@ -227,8 +227,6 @@ export function Pill(): React.ReactElement {
   const [sessions, setSessions] = useState<SessionLite[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const [engine, setEngine] = useState<string>(() => loadStoredEngine());
-  const [engineMenuOpen, setEngineMenuOpen] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<Array<{ name: string; mime: string; bytes: Uint8Array }>>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [validFavicons, setValidFavicons] = useState<Set<string>>(new Set());
@@ -504,7 +502,7 @@ export function Pill(): React.ReactElement {
               }}
             />
             <div className="cmdbar__engine-picker">
-              <EnginePicker value={engine} onChange={handleEngineChange} onOpenChange={setEngineMenuOpen} />
+              <EnginePicker value={engine} onChange={handleEngineChange} />
             </div>
             <button
               className="cmdbar__send"
