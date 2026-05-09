@@ -9,6 +9,7 @@ import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { mainLogger, rendererLogger } from './logger';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
+import { getWindowBackgroundColor } from './themeMode';
 
 const log = {
   info: (c: string, x: object) => mainLogger.info(c, x as Record<string, unknown>),
@@ -219,7 +220,7 @@ export function createLogsWindow(): BrowserWindow {
     maximizable: false,
     fullscreenable: false,
     minimizable: false,
-    backgroundColor: '#0b0d10',
+    backgroundColor: getWindowBackgroundColor(),
     roundedCorners: true,
     skipTaskbar: true,
     show: false,

@@ -7,11 +7,14 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Pill } from './Pill';
 import { ErrorBoundary } from '../components/empty/ErrorBoundary';
+import '../design/theme.global.css';
 import '../design/empty-states.css';
 import './pill.css';
+import { initThemeMode } from '../design/themeMode';
 
 // Apply shell theme (dark Linear+Obsidian) — pill uses same palette
 document.documentElement.dataset.theme = 'shell';
+initThemeMode();
 
 window.addEventListener('error', (e) => {
   console.error('renderer.error', { message: e.message, file: e.filename, line: e.lineno });
