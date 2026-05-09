@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type { AgentSession, SessionStatus } from './types';
 import { orderSessionsForSidebar } from './sessionOrdering';
+import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
 
 interface SidebarSession extends AgentSession {
   primarySite?: string | null;
@@ -150,36 +151,47 @@ function SessionRow({
   const dot = STATUS_DOT[s.status];
   const favicon = faviconUrl(s.primarySite);
   const last = s.lastActivityAt ?? s.createdAt;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    window.addEventListener('mousedown', onDocClick);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDocClick);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
+  const [popupId, setPopupId] = useState<string | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const isRunning = s.status === 'running' || s.status === 'stuck';
   const isPaused = s.status === 'paused';
   const handleAction = (action: SidebarRowAction): void => {
-    setMenuOpen(false);
     onAction?.(s.id, action);
+  };
+  const toggleMenu = async (): Promise<void> => {
+    const button = menuButtonRef.current;
+    if (!button) return;
+    if (popupId) {
+      closeAppPopup(popupId);
+      return;
+    }
+    const nextId = await openAnchoredAppPopup(
+      button,
+      {
+        kind: 'menu',
+        placement: 'bottom-end',
+        width: 148,
+        items: [
+          { id: 'rerun', label: 'Re-run' },
+          ...(isPaused ? [{ id: 'resume', label: 'Resume' }] : []),
+          ...(isRunning ? [{ id: 'pause', label: 'Pause' }] : []),
+          ...((isRunning || isPaused) ? [{ id: 'stop', label: 'Stop', tone: 'danger' as const }] : []),
+        ],
+      },
+      {
+        onAction: (action) => {
+          if (action.kind === 'menu-select') handleAction(action.itemId as SidebarRowAction);
+        },
+        onClosed: () => setPopupId(null),
+      },
+    );
+    if (nextId) setPopupId(nextId);
   };
 
   return (
     <div
-      ref={rootRef}
-      className={`sidebar__row-wrapper${menuOpen ? ' sidebar__row-wrapper--menu-open' : ''}`}
+      className={`sidebar__row-wrapper${popupId ? ' sidebar__row-wrapper--menu-open' : ''}`}
     >
       <button
         type="button"
@@ -205,67 +217,21 @@ function SessionRow({
 
       {onAction && (
         <button
+          ref={menuButtonRef}
           type="button"
           className="sidebar__row-menu-btn"
           onMouseDown={preventMouseFocus}
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpen((v) => !v);
+            void toggleMenu();
           }}
           tabIndex={-1}
           aria-label="Session actions"
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          aria-expanded={Boolean(popupId)}
         >
           <MoreIcon />
         </button>
-      )}
-
-      {menuOpen && (
-        <div className="sidebar__row-menu" role="menu">
-          <button
-            className="sidebar__row-menu-item"
-            role="menuitem"
-            onMouseDown={preventMouseFocus}
-            onClick={() => handleAction('rerun')}
-            tabIndex={-1}
-          >
-            Re-run
-          </button>
-          {isPaused && (
-            <button
-              className="sidebar__row-menu-item"
-              role="menuitem"
-              onMouseDown={preventMouseFocus}
-              onClick={() => handleAction('resume')}
-              tabIndex={-1}
-            >
-              Resume
-            </button>
-          )}
-          {isRunning && (
-            <button
-              className="sidebar__row-menu-item"
-              role="menuitem"
-              onMouseDown={preventMouseFocus}
-              onClick={() => handleAction('pause')}
-              tabIndex={-1}
-            >
-              Pause
-            </button>
-          )}
-          {(isRunning || isPaused) && (
-            <button
-              className="sidebar__row-menu-item"
-              role="menuitem"
-              onMouseDown={preventMouseFocus}
-              onClick={() => handleAction('stop')}
-              tabIndex={-1}
-            >
-              Stop
-            </button>
-          )}
-        </div>
       )}
     </div>
   );

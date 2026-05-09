@@ -15,3 +15,7 @@ declare const ONBOARDING_VITE_NAME: string | undefined;
 // Logs renderer globals injected by Forge VitePlugin (renderer name = "logs")
 declare const LOGS_VITE_DEV_SERVER_URL: string | undefined;
 declare const LOGS_VITE_NAME: string | undefined;
+
+// Popup renderer globals injected by Forge VitePlugin (renderer name = "popup")
+declare const POPUP_VITE_DEV_SERVER_URL: string | undefined;
+declare const POPUP_VITE_NAME: string | undefined;

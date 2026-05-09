@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { TerminalPane } from '../hub/TerminalPane';
-// Reuse the hub's editor-logo assets so the logs window's "Open in ..." menu
-// matches the hub's FileOutputRow visually.
-import cursorLogoSrc from '../hub/cursor-logo.svg?raw';
-import vscodeLogo from '../hub/vscode-logo.svg';
+import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
 
 declare global {
   interface Window {
@@ -50,65 +46,6 @@ function formatSize(n?: number): string {
   return `${(n / 1024 / 1024).toFixed(1)}MB`;
 }
 
-function EditorIcon({ id }: { id: string }): React.ReactElement {
-  if (id === 'cursor') {
-    return (
-      <span
-        className="logs-editor-logo logs-editor-logo--cursor"
-        dangerouslySetInnerHTML={{ __html: cursorLogoSrc as string }}
-      />
-    );
-  }
-  if (id === 'vscode' || id === 'vscode-insiders') {
-    return <img src={vscodeLogo} alt="" width={13} height={13} />;
-  }
-  if (id === 'zed' || id === 'zed-preview') {
-    return (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" fill="#9a62ff" />
-        <path d="M8 8h8L8 16h8" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (id === 'windsurf') {
-    return (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M4 16c4-3 6-3 8 0s6 3 8 0" stroke="#39c4b5" strokeWidth="2" strokeLinecap="round" fill="none" />
-        <path d="M4 10c4-3 6-3 8 0s6 3 8 0" stroke="#39c4b5" strokeWidth="2" strokeLinecap="round" fill="none" />
-      </svg>
-    );
-  }
-  if (id === 'sublime') {
-    return (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M5 5v14l14-4V1L5 5Z" fill="#FF9800" />
-      </svg>
-    );
-  }
-  if (['webstorm', 'intellij', 'intellij-ce', 'pycharm', 'pycharm-ce', 'rider', 'goland'].includes(id)) {
-    return (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="2" y="2" width="20" height="20" rx="3" fill="#000" />
-        <path d="M7 17h6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <rect x="1.5" y="2.5" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M5 11.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FinderIcon(): React.ReactElement {
-  return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path d="M2 4.5v6A1.5 1.5 0 003.5 12h7A1.5 1.5 0 0012 10.5V5.5A1.5 1.5 0 0010.5 4H7L5.5 2.5h-2A1.5 1.5 0 002 4z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 // Editor list is fetched once per logs-window lifetime; filter out
 // blocklisted entries defensively on the renderer.
 const EDITOR_BLOCKLIST = new Set(['xcode']);
@@ -123,42 +60,10 @@ function getEditors(): Promise<Array<{ id: string; name: string }>> {
 
 function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
   const [editors, setEditors] = useState<Array<{ id: string; name: string }>>([]);
-  const [menuOpen, setMenuOpen] = useState(false);
-  // Anchor coordinates for the portal-rendered menu. We render the menu via
-  // createPortal so it escapes `.logs-files` (which has overflow-x: auto and
-  // therefore clips on Y too — the menu would otherwise be invisible).
-  const [menuAnchor, setMenuAnchor] = useState<{ left: number; bottom: number } | null>(null);
+  const [popupId, setPopupId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuPortalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { void getEditors().then(setEditors).catch(() => setEditors([])); }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const insideButton = buttonRef.current?.contains(target);
-      const insideMenu = menuPortalRef.current?.contains(target);
-      if (!insideButton && !insideMenu) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [menuOpen]);
-
-  const openMenu = useCallback(() => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      // Place the menu's bottom 4px above the button's top, left-aligned to
-      // the button. Coordinates are viewport-relative; portal renders into
-      // document.body so they map directly.
-      setMenuAnchor({ left: rect.left, bottom: window.innerHeight - rect.top + 4 });
-    }
-    setMenuOpen(true);
-  }, []);
-  const toggleMenu = useCallback(() => {
-    if (menuOpen) setMenuOpen(false);
-    else openMenu();
-  }, [menuOpen, openMenu]);
 
   const onOpenInEditor = useCallback(async (editorId: string) => {
     console.log('[LogsApp file] onOpenInEditor click', { editorId, path: entry.path });
@@ -166,7 +71,6 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
       console.warn('[LogsApp file] entry.path is falsy; aborting');
       return;
     }
-    setMenuOpen(false);
     const api = window.electronAPI?.sessions?.openInEditor;
     if (!api) {
       console.error('[LogsApp file] window.electronAPI.sessions.openInEditor is undefined — preload bridge missing');
@@ -184,10 +88,51 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
 
   const onReveal = useCallback(async () => {
     if (!entry.path) return;
-    setMenuOpen(false);
     try { await window.electronAPI?.sessions.revealOutput(entry.path); }
     catch (err) { console.error('[LogsApp file] reveal failed', err); }
   }, [entry.path]);
+
+  const toggleMenu = useCallback(async () => {
+    const button = buttonRef.current;
+    if (!button) return;
+    if (popupId) {
+      closeAppPopup(popupId);
+      return;
+    }
+    const resolvedEditors = editors.length > 0
+      ? editors
+      : await getEditors().then((list) => { setEditors(list); return list; }).catch(() => [] as Array<{ id: string; name: string }>);
+    const nextId = await openAnchoredAppPopup(
+      button,
+      {
+        kind: 'menu',
+        placement: 'top-start',
+        width: 220,
+        items: [
+          ...resolvedEditors.map((editor) => ({
+            id: `editor:${editor.id}`,
+            label: `Open in ${editor.name}`,
+            icon: { type: 'editor' as const, id: editor.id },
+          })),
+          {
+            id: 'reveal',
+            label: 'Reveal in Finder',
+            icon: { type: 'finder' as const },
+            separatorBefore: resolvedEditors.length > 0,
+          },
+        ],
+      },
+      {
+        onAction: (action) => {
+          if (action.kind !== 'menu-select') return;
+          if (action.itemId.startsWith('editor:')) void onOpenInEditor(action.itemId.slice('editor:'.length));
+          if (action.itemId === 'reveal') void onReveal();
+        },
+        onClosed: () => setPopupId(null),
+      },
+    );
+    if (nextId) setPopupId(nextId);
+  }, [editors, onOpenInEditor, onReveal, popupId]);
 
   return (
     <div className="logs-file-row-wrap">
@@ -195,10 +140,10 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
         ref={buttonRef}
         type="button"
         className="logs-file-row"
-        onClick={(e) => { e.stopPropagation(); toggleMenu(); }}
+        onClick={(e) => { e.stopPropagation(); void toggleMenu(); }}
         title={entry.path}
         aria-haspopup="menu"
-        aria-expanded={menuOpen}
+        aria-expanded={Boolean(popupId)}
       >
         <svg width="11" height="11" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path
@@ -213,36 +158,6 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
         <span className="logs-file-row__size">{formatSize(entry.size)}</span>
         <span className="logs-file-row__caret">{'▾'}</span>
       </button>
-      {menuOpen && menuAnchor && createPortal(
-        <div
-          ref={menuPortalRef}
-          className="logs-file-menu"
-          role="menu"
-          style={{ position: 'fixed', left: menuAnchor.left, bottom: menuAnchor.bottom }}
-        >
-          {editors.map((ed) => (
-            <button
-              key={ed.id}
-              role="menuitem"
-              className="logs-file-menu__item"
-              onClick={() => onOpenInEditor(ed.id)}
-            >
-              <span className="logs-file-menu__icon"><EditorIcon id={ed.id} /></span>
-              <span>Open in {ed.name}</span>
-            </button>
-          ))}
-          {editors.length > 0 && <div className="logs-file-menu__sep" />}
-          <button
-            role="menuitem"
-            className="logs-file-menu__item"
-            onClick={onReveal}
-          >
-            <span className="logs-file-menu__icon"><FinderIcon /></span>
-            <span>Reveal in Finder</span>
-          </button>
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }

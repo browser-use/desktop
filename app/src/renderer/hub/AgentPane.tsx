@@ -3,17 +3,13 @@ import { STATUS_LABEL } from './constants';
 import { ContentRenderer, getPreview } from './ContentRenderer';
 import { Markdown, linkifyOutputPaths } from './Markdown';
 import { TerminalPane } from './TerminalPane';
-// Inline the SVG source so `fill="currentColor"` in the logos picks up the
-// menu's CSS color. `<img src=...>` renders in its own graphics context and
-// can't inherit text color.
-import cursorLogoSrc from './cursor-logo.svg?raw';
-import vscodeLogo from './vscode-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogoDark from './openai-logo.svg';
 import openaiLogoLight from './openai-logo-light.svg';
 import opencodeLogoDark from './opencode-logo-dark.svg';
 import opencodeLogoLight from './opencode-logo-light.svg';
 import { useThemedAsset } from '../design/useThemedAsset';
+import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
 import type { AgentSession, OutputEntry } from './types';
 
 function formatElapsed(createdAt: number): string {
@@ -219,74 +215,12 @@ function formatFileSize(n: number | undefined): string {
   return `${(n / 1024 / 1024).toFixed(1)}MB`;
 }
 
-function EditorIcon({ id }: { id: string }): React.ReactElement {
-  if (id === 'cursor') {
-    return (
-      <span
-        className="editor-logo editor-logo--cursor"
-        dangerouslySetInnerHTML={{ __html: cursorLogoSrc as string }}
-      />
-    );
-  }
-  if (id === 'vscode' || id === 'vscode-insiders') {
-    return <img src={vscodeLogo} alt="" width={14} height={14} />;
-  }
-  if (id === 'zed' || id === 'zed-preview') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" fill="#9a62ff" />
-        <path d="M8 8h8L8 16h8" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (id === 'windsurf') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M4 16c4-3 6-3 8 0s6 3 8 0" stroke="#39c4b5" strokeWidth="2" strokeLinecap="round" fill="none" />
-        <path d="M4 10c4-3 6-3 8 0s6 3 8 0" stroke="#39c4b5" strokeWidth="2" strokeLinecap="round" fill="none" />
-      </svg>
-    );
-  }
-  if (id === 'sublime') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M5 5v14l14-4V1L5 5Z" fill="#FF9800" />
-      </svg>
-    );
-  }
-  // JetBrains family — generic ring
-  if (['webstorm', 'intellij', 'intellij-ce', 'pycharm', 'pycharm-ce', 'rider', 'goland'].includes(id)) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="2" y="2" width="20" height="20" rx="3" fill="#000" />
-        <path d="M7 17h6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  // Fallback: generic monitor icon.
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <rect x="1.5" y="2.5" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M5 11.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function FileOutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
   const [editors, setEditors] = useState<Array<{ id: string; name: string }>>([]);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [popupId, setPopupId] = useState<string | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { getEditors().then(setEditors).catch(() => setEditors([])); }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [menuOpen]);
 
   const onOpenInEditor = useCallback(async (editorId: string) => {
     console.log('[file_output] onOpenInEditor click', { editorId, path: entry.tool });
@@ -294,7 +228,6 @@ function FileOutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
       console.warn('[file_output] onOpenInEditor: entry.tool is falsy; aborting');
       return;
     }
-    setMenuOpen(false);
     const api = window.electronAPI?.sessions?.openInEditor;
     if (!api) {
       console.error('[file_output] window.electronAPI.sessions.openInEditor is undefined — preload bridge missing');
@@ -312,19 +245,50 @@ function FileOutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
     }
   }, [entry.tool]);
 
-  const onOpenWithDefault = useCallback(async () => {
-    if (!entry.tool) return;
-    setMenuOpen(false);
-    try { await window.electronAPI?.sessions?.downloadOutput?.(entry.tool); }
-    catch (err) { console.error('[file_output] openWithDefault failed', err); }
-  }, [entry.tool]);
-
   const onRevealInFinder = useCallback(async () => {
     if (!entry.tool) return;
-    setMenuOpen(false);
     try { await window.electronAPI?.sessions?.revealOutput?.(entry.tool); }
     catch (err) { console.error('[file_output] reveal failed', err); }
   }, [entry.tool]);
+
+  const toggleMenu = useCallback(async () => {
+    const button = buttonRef.current;
+    if (!button) return;
+    if (popupId) {
+      closeAppPopup(popupId);
+      return;
+    }
+    const nextId = await openAnchoredAppPopup(
+      button,
+      {
+        kind: 'menu',
+        placement: 'top-end',
+        width: 220,
+        items: [
+          ...editors.map((editor) => ({
+            id: `editor:${editor.id}`,
+            label: `Open in ${editor.name}`,
+            icon: { type: 'editor' as const, id: editor.id },
+          })),
+          {
+            id: 'reveal',
+            label: 'Reveal in Finder',
+            icon: { type: 'finder' as const },
+            separatorBefore: editors.length > 0,
+          },
+        ],
+      },
+      {
+        onAction: (action) => {
+          if (action.kind !== 'menu-select') return;
+          if (action.itemId.startsWith('editor:')) void onOpenInEditor(action.itemId.slice('editor:'.length));
+          if (action.itemId === 'reveal') void onRevealInFinder();
+        },
+        onClosed: () => setPopupId(null),
+      },
+    );
+    if (nextId) setPopupId(nextId);
+  }, [editors, onOpenInEditor, onRevealInFinder, popupId]);
 
   return (
     <div className="step step--file-output">
@@ -337,44 +301,16 @@ function FileOutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
       <span className="step__skill-label">Produced file</span>
       <span className="step__skill-topic" title={entry.tool}>{entry.content}</span>
       <span className="step__file-size">{formatFileSize(entry.fileSize)}</span>
-      <div className="step__file-ide" ref={menuRef}>
+      <div className="step__file-ide">
         <button
+          ref={buttonRef}
           className="step__file-download step__file-ide-toggle"
-          onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
+          onClick={(e) => { e.stopPropagation(); void toggleMenu(); }}
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          aria-expanded={Boolean(popupId)}
         >
           Open in {'\u25BE'}
         </button>
-        {menuOpen && (
-          <div className="step__file-ide-menu" role="menu">
-            {editors.map((ed) => (
-              <button
-                key={ed.id}
-                role="menuitem"
-                className="step__file-ide-menu-item"
-                onClick={() => onOpenInEditor(ed.id)}
-              >
-                <span className="step__file-ide-menu-icon"><EditorIcon id={ed.id} /></span>
-                <span>{ed.name}</span>
-              </button>
-            ))}
-            {editors.length > 0 && <div className="step__file-ide-menu-sep" />}
-            <button
-              role="menuitem"
-              className="step__file-ide-menu-item"
-              onClick={onRevealInFinder}
-              title="Show the file in Finder without opening it"
-            >
-              <span className="step__file-ide-menu-icon">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M2 4.5v6A1.5 1.5 0 003.5 12h7A1.5 1.5 0 0012 10.5V5.5A1.5 1.5 0 0010.5 4H7L5.5 2.5h-2A1.5 1.5 0 002 4z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                </svg>
-              </span>
-              <span>Reveal in Finder</span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
