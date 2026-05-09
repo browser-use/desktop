@@ -119,6 +119,14 @@ export interface EngineAdapter {
 
 // ── runEngine input ─────────────────────────────────────────────────────────
 
+export interface EngineRunControl {
+  readonly pid?: number;
+  readonly canSuspend: boolean;
+  pause(): { paused?: boolean; error?: string };
+  resume(): { resumed?: boolean; error?: string };
+  terminate(): void;
+}
+
 export interface RunEngineOptions {
   engineId: string;
   prompt: string;
@@ -129,6 +137,7 @@ export interface RunEngineOptions {
   attachments?: Array<{ name: string; mime: string; bytes: Buffer | Uint8Array }>;
   resumeSessionId?: string;
   signal?: AbortSignal;
+  onRunControl?: (control: EngineRunControl) => void;
   onEvent: (e: HlEvent) => void;
   onSessionId?: (id: string) => void;
   /** Fired when the runner can identify the model that this spawn is using. */

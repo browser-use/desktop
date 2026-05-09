@@ -1,5 +1,6 @@
-import { WebContentsView, type BrowserWindow, type WebContents } from 'electron';
+import { WebContentsView, nativeTheme, type BrowserWindow, type WebContents } from 'electron';
 import { browserLogger } from '../logger';
+import { getWindowBackgroundColor } from '../themeMode';
 import type { TabInfo } from './types';
 
 const DEFAULT_BROWSER_WIDTH = 1280;
@@ -51,12 +52,25 @@ export class BrowserPool {
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
+  private onInterruptShortcut?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT, opts: { idleFreezeDelayMs?: number } = {}) {
     this.maxConcurrent = maxConcurrent;
     this.idleFreezeDelayMs = opts.idleFreezeDelayMs ?? readIdleFreezeDelayMs();
     browserLogger.info('BrowserPool.init', { maxConcurrent });
+
+    // Repaint every pooled view (attached AND detached) when the theme
+    // flips. themeMode.applyBackgroundToAllWindows only walks attached
+    // contentView children, so a session sitting at "Browser not started
+    // yet" while the user toggles theme would otherwise carry stale bg
+    // until next attach.
+    nativeTheme.on('updated', () => {
+      const color = getWindowBackgroundColor();
+      for (const entry of this.entries.values()) {
+        try { entry.view.setBackgroundColor(color); } catch { /* view destroyed */ }
+      }
+    });
   }
 
   /** Register a listener that fires when a session's WebContents is gone
@@ -73,6 +87,12 @@ export class BrowserPool {
     this.onNavigate = listener;
   }
 
+  /** Register a listener for Ctrl+C inside an attached browser view. Returning
+   *  true means the keypress was handled and should not continue into the page. */
+  setOnInterruptShortcut(listener: (sessionId: string) => boolean | void): void {
+    this.onInterruptShortcut = listener;
+  }
+
   private notifyGone(sessionId: string): void {
     try { this.onGone?.(sessionId); } catch (err) {
       browserLogger.warn('BrowserPool.notifyGone.listenerError', { sessionId, error: (err as Error).message });
@@ -82,6 +102,13 @@ export class BrowserPool {
   private notifyNavigate(sessionId: string, url: string): void {
     try { this.onNavigate?.(sessionId, url); } catch (err) {
       browserLogger.warn('BrowserPool.notifyNavigate.listenerError', { sessionId, error: (err as Error).message });
+    }
+  }
+
+  private notifyInterruptShortcut(sessionId: string): boolean {
+    try { return this.onInterruptShortcut?.(sessionId) === true; } catch (err) {
+      browserLogger.warn('BrowserPool.notifyInterruptShortcut.listenerError', { sessionId, error: (err as Error).message });
+      return false;
     }
   }
 
@@ -136,6 +163,9 @@ export class BrowserPool {
         backgroundThrottling: true,
       },
     });
+    // Without this, attach/detach during view swaps briefly paints black
+    // (Chromium's default before the page commits its first frame).
+    view.setBackgroundColor(getWindowBackgroundColor());
     browserLogger.info('BrowserPool.startup.constructed', {
       sessionId,
       component: 'BrowserPool',
@@ -184,6 +214,18 @@ export class BrowserPool {
       ).catch(() => { /* frame may have navigated away */ });
     };
     view.webContents.on('dom-ready', hideWebdriver);
+    view.webContents.on('before-input-event', (event, input) => {
+      if (
+        input.type === 'keyDown' &&
+        input.key.toLowerCase() === 'c' &&
+        input.control &&
+        !input.meta &&
+        !input.alt
+      ) {
+        const handled = this.notifyInterruptShortcut(sessionId);
+        if (handled) event.preventDefault();
+      }
+    });
 
     view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
 
@@ -612,6 +654,12 @@ export class BrowserPool {
       browserLogger.warn('BrowserPool.attach.notFound', { sessionId });
       return false;
     }
+
+    // Re-apply the resolved theme bg every attach. While detached, the view
+    // isn't a child of any window's contentView, so it misses the
+    // theme-broadcast loop in themeMode.applyBackgroundToAllWindows() and
+    // would otherwise paint with whatever bg it had at create time.
+    try { entry.view.setBackgroundColor(getWindowBackgroundColor()); } catch { /* noop */ }
 
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });

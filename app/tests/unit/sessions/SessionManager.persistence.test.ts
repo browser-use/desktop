@@ -214,4 +214,77 @@ describe('SessionManager persistence', () => {
 
     manager.destroy();
   });
+
+  it('pauses a running session without aborting the live run and resumes it in place', () => {
+    const manager = new SessionManager(tempDbPath());
+    const id = manager.createSession('Open example.com');
+    const runningController = manager.startSession(id);
+    manager.setEngineSessionId(id, 'thread-123');
+
+    const result = manager.pauseSession(id);
+    const paused = manager.getSession(id);
+
+    expect(result).toEqual({ paused: true });
+    expect(runningController.signal.aborted).toBe(false);
+    expect(paused?.status).toBe('paused');
+    expect(paused?.error).toBeUndefined();
+    expect(paused?.canResume).toBe(true);
+    expect(paused?.output.at(-1)).toMatchObject({
+      type: 'notify',
+      message: 'Agent paused. Resume when you are ready.',
+    });
+    expect(manager.getEngineSessionId(id)).toBe('thread-123');
+
+    const resumeResult = manager.resumePausedSession(id);
+    const resumed = manager.getSession(id);
+
+    expect(resumeResult).toEqual({ resumed: true });
+    expect(runningController.signal.aborted).toBe(false);
+    expect(resumed?.status).toBe('running');
+    expect(resumed?.error).toBeUndefined();
+    expect(resumed?.output.at(-1)).toMatchObject({
+      type: 'notify',
+      message: 'Agent paused. Resume when you are ready.',
+    });
+    expect(manager.getEngineSessionId(id)).toBe('thread-123');
+
+    manager.destroy();
+  });
+
+  it('keeps paused sessions paused after restart', () => {
+    const dbPath = tempDbPath();
+    const first = new SessionManager(dbPath);
+    const id = first.createSession('Open example.com');
+
+    first.startSession(id);
+    first.setEngineSessionId(id, 'thread-123');
+    first.pauseSession(id);
+    first.destroy();
+
+    const second = new SessionManager(dbPath);
+    const session = second.getSession(id);
+
+    expect(session?.status).toBe('paused');
+    expect(session?.canResume).toBe(true);
+    expect(second.getEngineSessionId(id)).toBe('thread-123');
+
+    second.destroy();
+  });
+
+  it('lets stop terminate a paused session distinctly from pause', () => {
+    const manager = new SessionManager(tempDbPath());
+    const id = manager.createSession('Open example.com');
+
+    manager.startSession(id);
+    manager.setEngineSessionId(id, 'thread-123');
+    manager.pauseSession(id);
+    manager.cancelSession(id);
+
+    const session = manager.getSession(id);
+    expect(session?.status).toBe('stopped');
+    expect(session?.error).toBe('Cancelled by user');
+    expect(manager.getAbortController(id)).toBeUndefined();
+
+    manager.destroy();
+  });
 });

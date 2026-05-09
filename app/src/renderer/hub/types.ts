@@ -1,4 +1,4 @@
-export type SessionStatus = 'draft' | 'running' | 'stuck' | 'stopped' | 'idle';
+export type SessionStatus = 'draft' | 'running' | 'stuck' | 'paused' | 'stopped' | 'idle';
 
 export type HlEvent =
   | { type: 'thinking';    text: string }

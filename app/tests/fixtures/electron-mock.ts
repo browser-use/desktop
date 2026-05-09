@@ -51,6 +51,13 @@ export const globalShortcut = {
   unregisterAll: (): void => undefined,
 };
 
+export const nativeTheme = {
+  shouldUseDarkColors: true,
+  themeSource: 'system' as 'system' | 'light' | 'dark',
+  on: (_event: string, _handler: () => void): void => undefined,
+  off: (_event: string, _handler: () => void): void => undefined,
+};
+
 export const screen = {
   getAllDisplays: () => [
     { bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
@@ -244,6 +251,27 @@ let webContentsIdCounter = 1;
 
 function createMockWebContents() {
   const id = webContentsIdCounter++;
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  const on = (event: string, handler: (...args: unknown[]) => void): void => {
+    const set = listeners.get(event) ?? new Set<(...args: unknown[]) => void>();
+    set.add(handler);
+    listeners.set(event, set);
+  };
+  const off = (event: string, handler: (...args: unknown[]) => void): void => {
+    listeners.get(event)?.delete(handler);
+  };
+  const once = (event: string, handler: (...args: unknown[]) => void): void => {
+    const wrapper = (...args: unknown[]): void => {
+      off(event, wrapper);
+      handler(...args);
+    };
+    on(event, wrapper);
+  };
+  const emit = (event: string, ...args: unknown[]): boolean => {
+    const handlers = Array.from(listeners.get(event) ?? []);
+    for (const handler of handlers) handler(...args);
+    return handlers.length > 0;
+  };
   return {
     id,
     getURL: (): string => 'about:blank',
@@ -255,9 +283,10 @@ function createMockWebContents() {
     setBackgroundThrottling: (_throttle: boolean): void => undefined,
     loadURL: (_url: string): Promise<void> => Promise.resolve(),
     close: (): void => undefined,
-    on: (): void => undefined,
-    off: (): void => undefined,
-    once: (): void => undefined,
+    on,
+    off,
+    once,
+    emit,
     debugger: {
       attach: (): void => undefined,
       sendCommand: (): Promise<unknown> => Promise.resolve({}),
@@ -271,6 +300,7 @@ function createMockWebContents() {
 export const WebContentsView = class {
   webContents: ReturnType<typeof createMockWebContents>;
   private _bounds = { x: 0, y: 0, width: 0, height: 0 };
+  private _bg = '#00000000';
 
   constructor(_opts?: unknown) {
     this.webContents = createMockWebContents();
@@ -282,6 +312,14 @@ export const WebContentsView = class {
 
   getBounds(): { x: number; y: number; width: number; height: number } {
     return { ...this._bounds };
+  }
+
+  setBackgroundColor(color: string): void {
+    this._bg = color;
+  }
+
+  getBackgroundColor(): string {
+    return this._bg;
   }
 };
 
@@ -296,6 +334,7 @@ export default {
   ipcMain,
   BrowserWindow,
   globalShortcut,
+  nativeTheme,
   screen,
   nativeImage,
   shell,

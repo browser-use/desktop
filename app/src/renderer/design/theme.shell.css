@@ -315,3 +315,82 @@
 [data-theme="shell"] .status-dot[data-status="error"] {
   background-color: var(--color-status-error);
 }
+
+/* ===========================================================================
+   LIGHT MODE — overrides only the semantic tokens. Components keep using
+   --color-bg-base / --color-fg-primary / etc., so nothing else changes.
+
+   Activate by setting <html data-theme="shell" data-mode="light">.
+   Default mode is dark — no [data-mode="dark"] block needed because the
+   shell defaults above already cover it.
+=========================================================================== */
+
+[data-theme="shell"][data-mode="light"] {
+  /* -- Light slate scale: 0 = brightest, 12 = darkest text -- */
+  --slate-0:  #ffffff;
+  --slate-1:  #fafafb;
+  --slate-2:  #f5f5f7;
+  --slate-3:  #ebebef;
+  --slate-4:  #e2e2e7;
+  --slate-5:  #d6d6dd;
+  --slate-6:  #c5c5cf;
+  --slate-7:  #ececf0;
+  --slate-8:  #d8d8de;
+  --slate-9:  #b6b6be;
+  --slate-10: #6e737d;
+  --slate-11: #4a4f58;
+  --slate-12: #14151a;
+
+  /* -- Backgrounds -- */
+  --color-bg-base:     #f7f7f9;
+  --color-bg-elevated: #ffffff;
+  --color-bg-overlay:  #ffffff;
+  --color-bg-sunken:   #ececf0;
+
+  /* -- Foregrounds (WCAG AA against bg-base) -- */
+  --color-fg-primary:   #14151a;
+  --color-fg-secondary: #4a4f58;
+  --color-fg-tertiary:  #6e737d;
+  --color-fg-disabled:  #b6b6be;
+  --color-fg-inverse:   #ffffff;
+
+  /* -- Borders -- */
+  --color-border-subtle:  #ececf0;
+  --color-border-default: #d8d8de;
+  --color-border-strong:  #b6b6be;
+
+  /* -- Accent (same hue, slightly darker for AA contrast on white) -- */
+  --color-accent-default: #4e6378;
+  --color-accent-hover:   #5e7589;
+  --color-accent-dim:     #3f5364;
+  --color-accent-muted:   rgba(78, 99, 120, 0.08);
+  --color-accent-glow:    rgba(78, 99, 120, 0.16);
+  --color-accent-subtle:  rgba(78, 99, 120, 0.08);
+
+  /* -- Surfaces -- */
+  --color-surface-glass:        rgba(255, 255, 255, 0.85);
+  --color-surface-scrim:        rgba(0, 0, 0, 0.40);
+  --color-surface-interactive:        rgba(0, 0, 0, 0.04);
+  --color-surface-interactive-hover:  rgba(0, 0, 0, 0.07);
+  --color-surface-interactive-active: rgba(0, 0, 0, 0.10);
+  --color-modal-scrim: rgba(20, 21, 26, 0.40);
+
+  /* -- Shell-specific tab/pill -- */
+  --color-tab-bg:        #ececf0;
+  --color-tab-active-bg: #ffffff;
+  --color-tab-hover-bg:  #e2e2e7;
+  --color-pill-bg:       #ffffff;
+  --color-pill-border:   #d8d8de;
+
+  /* -- Light mode benefits from soft shadows; reintroduce them -- */
+  --shadow-xs: 0 1px 1px rgba(20, 21, 26, 0.04);
+  --shadow-sm: 0 1px 3px rgba(20, 21, 26, 0.06);
+  --shadow-md: 0 6px 18px rgba(20, 21, 26, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 21, 26, 0.10);
+  --shadow-xl: 0 20px 56px rgba(20, 21, 26, 0.12);
+
+  --glow-accent-sm: 0 0 8px rgba(78, 99, 120, 0.12);
+  --glow-accent-md: 0 0 16px rgba(78, 99, 120, 0.20);
+  --glow-accent-lg: 0 0 32px rgba(78, 99, 120, 0.30);
+  --glow-accent:    var(--glow-accent-sm);
+}

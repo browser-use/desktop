@@ -15,9 +15,11 @@ import '@/renderer/design/theme.global.css';
 import '../design/empty-states.css';
 import '@/renderer/components/base/components.css';
 import './hub.css';
+import { initThemeMode } from '@/renderer/design/themeMode';
 
 // Apply shell theme — hub uses the same dark palette
 document.documentElement.dataset.theme = 'shell';
+initThemeMode();
 
 window.addEventListener('error', (e) => {
   console.error('[hub] renderer.error', { message: e.message, file: e.filename, line: e.lineno });

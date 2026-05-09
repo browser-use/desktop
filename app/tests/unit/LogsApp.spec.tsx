@@ -63,6 +63,8 @@ function installApis(): void {
           engine: 'codex',
           output: [],
         })),
+        cancel: vi.fn(async () => undefined),
+        pause: vi.fn(async () => ({ paused: true })),
         listEditors: vi.fn(async () => []),
         openInEditor: vi.fn(),
         revealOutput: vi.fn(),
@@ -135,6 +137,99 @@ describe('LogsApp focus behavior', () => {
     });
 
     expect(document.activeElement).toBe(container.querySelector('.logs-followup__input'));
+
+    act(() => root.unmount());
+  });
+
+  it('pauses the active running session on Ctrl+C instead of minimizing logs', async () => {
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.pause).toHaveBeenCalledWith('session-1');
+    expect(window.electronAPI.sessions.cancel).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('cancels the active session on Ctrl+C when it is already paused', async () => {
+    vi.mocked(window.electronAPI.sessions.get).mockResolvedValueOnce({
+      id: 'session-1',
+      prompt: 'paused',
+      status: 'paused',
+      engine: 'codex',
+      output: [],
+      createdAt: Date.now(),
+      canResume: true,
+    });
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.cancel).toHaveBeenCalledWith('session-1');
+    expect(window.electronAPI.sessions.pause).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('keeps Ctrl+C available when the selected session is not cancellable', async () => {
+    vi.mocked(window.electronAPI.sessions.get).mockResolvedValueOnce({
+      id: 'session-1',
+      prompt: 'done',
+      status: 'stopped',
+      engine: 'codex',
+      output: [],
+      createdAt: Date.now(),
+    });
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.cancel).not.toHaveBeenCalled();
+    expect(window.electronAPI.sessions.pause).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it('minimizes logs on Escape instead of pausing the active session', async () => {
+    const { root } = renderLogsApp();
+
+    await act(async () => {
+      activeSessionChangedHandler?.('session-1');
+      await Promise.resolve();
+    });
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    expect(window.electronAPI.sessions.cancel).not.toHaveBeenCalled();
+    expect(window.electronAPI.sessions.pause).not.toHaveBeenCalled();
+    expect(window.logsAPI.setMode).toHaveBeenCalledWith('dot');
 
     act(() => root.unmount());
   });

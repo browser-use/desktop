@@ -9,8 +9,11 @@ import { TerminalPane } from './TerminalPane';
 import cursorLogoSrc from './cursor-logo.svg?raw';
 import vscodeLogo from './vscode-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
-import openaiLogo from './openai-logo.svg';
-import opencodeLogo from './opencode-logo-dark.svg';
+import openaiLogoDark from './openai-logo.svg';
+import openaiLogoLight from './openai-logo-light.svg';
+import opencodeLogoDark from './opencode-logo-dark.svg';
+import opencodeLogoLight from './opencode-logo-light.svg';
+import { useThemedAsset } from '../design/useThemedAsset';
 import type { AgentSession, OutputEntry } from './types';
 
 function formatElapsed(createdAt: number): string {
@@ -570,6 +573,15 @@ function ResumeIcon(): React.ReactElement {
   );
 }
 
+function PauseIcon(): React.ReactElement {
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+      <rect x="4" y="3" width="2" height="8" rx="0.6" fill="currentColor" />
+      <rect x="8" y="3" width="2" height="8" rx="0.6" fill="currentColor" />
+    </svg>
+  );
+}
+
 interface FollowUpAttachment { idx: number; name: string; mime: string; bytes: Uint8Array }
 
 async function fileToAttachment(file: File, idx: number): Promise<FollowUpAttachment> {
@@ -744,6 +756,7 @@ interface AgentPaneProps {
   focused?: boolean;
   onRerun?: (sessionId: string) => void;
   onResume?: (sessionId: string) => void;
+  onPause?: (sessionId: string) => void;
   onFollowUp?: (sessionId: string, prompt: string, attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>) => void;
   onDismiss?: (sessionId: string) => void;
   onCancel?: (sessionId: string) => void;
@@ -754,7 +767,9 @@ interface AgentPaneProps {
   cycleShortcut?: string;
 }
 
-export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+export function AgentPane({ session, focused, onRerun, onResume, onPause, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+  const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
+  const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
   const paneRef = useRef<HTMLDivElement>(null);
   const [browserDead, setBrowserDead] = useState(false);
   const [browserMissing, setBrowserMissing] = useState(false);
@@ -988,12 +1003,35 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
   const statusText = STATUS_LABEL[session.status] ?? session.status;
   const isCancellation = !!session.error && session.error.toLowerCase().includes('cancel');
   const showErrorUi = !!session.error && !isCancellation;
+  const isRunningLike = session.status === 'running' || session.status === 'stuck';
+  const isPaused = session.status === 'paused';
   const canResume = Boolean(
     onResume &&
     session.canResume === true &&
-    (session.status === 'idle' || session.status === 'stopped') &&
-    (browserDead || browserMissing || session.status === 'stopped'),
+    (
+      session.status === 'paused' ||
+      (
+        (session.status === 'idle' || session.status === 'stopped') &&
+        (browserDead || browserMissing || session.status === 'stopped')
+      )
+    ),
   );
+
+  useEffect(() => {
+    if (!focused || (!isRunningLike && !isPaused) || (!onPause && !onCancel)) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.key.toLowerCase() !== 'c' || !e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (isPaused) {
+        onCancel?.(session.id);
+      } else {
+        onPause?.(session.id);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [focused, isPaused, isRunningLike, onCancel, onPause, session.id]);
 
   return (
     <div
@@ -1088,7 +1126,17 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
               <ResumeIcon />
             </button>
           )}
-          {(session.status === 'running' || session.status === 'stuck') && onCancel && (
+          {isRunningLike && onPause && (
+            <button
+              className="pane__action-btn pane__action-btn--icon"
+              onClick={(e) => { e.stopPropagation(); onPause(session.id); }}
+              aria-label="Pause"
+              data-tip="Pause"
+            >
+              <PauseIcon />
+            </button>
+          )}
+          {(isRunningLike || isPaused) && onCancel && (
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
               onClick={(e) => { e.stopPropagation(); onCancel(session.id); }}
@@ -1098,7 +1146,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onFollowUp, onD
               <CloseIcon />
             </button>
           )}
-          {session.status !== 'running' && session.status !== 'stuck' && onDismiss && (
+          {!isRunningLike && !isPaused && onDismiss && (
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
               onClick={(e) => { e.stopPropagation(); onDismiss(session.id); }}

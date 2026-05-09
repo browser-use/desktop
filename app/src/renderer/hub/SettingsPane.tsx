@@ -2,6 +2,94 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ConnectionsPane, type SettingsProviderFocusRequest } from './ConnectionsPane';
 import type { ActionId, KeyBinding } from './keybindings';
 import { fallbackShortcutPlatform, keyboardEventToShortcut } from '../../shared/hotkeys';
+import { useThemeMode } from '../design/useThemeMode';
+import type { ThemeMode } from '../design/themeMode';
+
+/**
+ * Generic settings primitives. Add a new option type and every section that
+ * uses it (Appearance, future Density / Accent / etc.) gets the same UI.
+ */
+interface SegmentedOption<T extends string> {
+  value: T;
+  label: string;
+  hint?: string;
+}
+
+interface SettingsRowProps {
+  label: string;
+  sublabel?: string;
+  children: React.ReactNode;
+}
+
+function SettingsRow({ label, sublabel, children }: SettingsRowProps): React.ReactElement {
+  return (
+    <div className="settings-pane__row">
+      <div>
+        <div className="settings-pane__label">{label}</div>
+        {sublabel && <div className="settings-pane__sublabel">{sublabel}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+interface SegmentedControlProps<T extends string> {
+  value: T;
+  options: ReadonlyArray<SegmentedOption<T>>;
+  onChange: (value: T) => void;
+  ariaLabel: string;
+}
+
+function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel }: SegmentedControlProps<T>): React.ReactElement {
+  // Plain toggle-button group with aria-pressed, not role="radio". The radio
+  // pattern requires roving tabindex + arrow-key nav; for a 3-option theme
+  // picker that's overkill and a partial implementation is worse than none.
+  return (
+    <div className="settings-pane__segmented" role="group" aria-label={ariaLabel}>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          aria-pressed={value === opt.value}
+          className={`settings-pane__segment${value === opt.value ? ' settings-pane__segment--active' : ''}`}
+          title={opt.hint}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const APPEARANCE_OPTIONS: ReadonlyArray<SegmentedOption<ThemeMode>> = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System', hint: 'Follow your operating system' },
+];
+
+function AppearanceSection(): React.ReactElement {
+  const { mode, setMode, resolved } = useThemeMode();
+  return (
+    <div className="settings-card">
+      <SettingsRow
+        label="Theme"
+        sublabel={
+          mode === 'system'
+            ? `Following your system (${resolved}).`
+            : 'Choose how Browser Use looks across windows.'
+        }
+      >
+        <SegmentedControl
+          value={mode}
+          options={APPEARANCE_OPTIONS}
+          onChange={setMode}
+          ariaLabel="Theme"
+        />
+      </SettingsRow>
+    </div>
+  );
+}
 
 type ElectronPrivacyAPI = {
   get: () => Promise<{ telemetry: boolean; telemetryUpdatedAt: string | null; version: number }>;
@@ -339,6 +427,7 @@ export type SettingsSectionId =
   | 'settings-browser-sync'
   | 'settings-shortcuts'
   | 'settings-privacy'
+  | 'settings-appearance'
   | 'settings-application';
 
 export interface SettingsOpenIntent {
@@ -349,6 +438,7 @@ export interface SettingsOpenIntent {
 
 const SETTINGS_TABS: Array<{ id: SettingsSectionId; label: string }> = [
   { id: 'settings-application', label: 'Application' },
+  { id: 'settings-appearance', label: 'Appearance' },
   { id: 'settings-model-providers', label: 'Model providers' },
   { id: 'settings-connections', label: 'Connections' },
   { id: 'settings-browser-sync', label: 'Browser Sync' },
@@ -493,6 +583,11 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('settings-application');
   const platform = window.electronAPI?.shell?.platform ?? fallbackShortcutPlatform();
+  // Cookie sync is unsupported on Windows (Chromium ABE + DevTools hardening),
+  // so the Browser Sync tab + section are hidden on win32.
+  const tabs = platform === 'win32'
+    ? SETTINGS_TABS.filter((tab) => tab.id !== 'settings-browser-sync')
+    : SETTINGS_TABS;
 
   const scrollToSection = useCallback((id: SettingsSectionId, behavior: ScrollBehavior = 'smooth') => {
     const scroller = scrollerRef.current;
@@ -509,14 +604,14 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
   const updateActiveFromScroll = useCallback(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    let next = SETTINGS_TABS[0].id;
+    let next = tabs[0].id;
     const threshold = scroller.scrollTop + 112;
-    for (const tab of SETTINGS_TABS) {
+    for (const tab of tabs) {
       const section = scroller.querySelector<HTMLElement>(`#${tab.id}`);
       if (section && section.offsetTop <= threshold) next = tab.id;
     }
     setActiveSection(next);
-  }, []);
+  }, [tabs]);
 
   useEffect(() => {
     const sectionId = intent?.sectionId ?? (
@@ -542,7 +637,7 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
           </header>
 
           <nav className="settings-page__tabs" aria-label="Settings sections">
-            {SETTINGS_TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -561,6 +656,13 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
             </div>
             <AppSection />
             <LayoutSection />
+          </section>
+
+          <section id="settings-appearance" className="settings-page__section">
+            <div className="settings-section-header">
+              <h2 className="settings-section-header__title">Appearance</h2>
+            </div>
+            <AppearanceSection />
           </section>
 
           <ConnectionsPane

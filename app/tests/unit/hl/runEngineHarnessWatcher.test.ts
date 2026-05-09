@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { WebContents } from 'electron';
-import type { EngineAdapter, ParseContext, ParseResult, SpawnContext } from '../../../src/main/hl/engines/types';
+import type { EngineAdapter, EngineRunControl, ParseContext, ParseResult, SpawnContext } from '../../../src/main/hl/engines/types';
 import type { HlEvent } from '../../../src/shared/session-schemas';
 
 const mockState = vi.hoisted(() => {
@@ -88,6 +88,20 @@ async function runFakeEngine(engineId: string, harnessDir: string): Promise<HlEv
   return events;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor<T>(read: () => T | undefined, timeoutMs = 1000): Promise<T> {
+  const start = Date.now();
+  for (;;) {
+    const value = read();
+    if (value !== undefined) return value;
+    if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for condition');
+    await sleep(10);
+  }
+}
+
 describe('runEngine harness watcher', () => {
   let harnessDir: string;
 
@@ -154,6 +168,46 @@ describe('runEngine harness watcher', () => {
 
     expect(events.some((event) => event.type === 'tool_call')).toBe(true);
     expect(events.some((event) => event.type === 'harness_edited')).toBe(false);
+  });
+
+  test.skipIf(process.platform === 'win32')('exposes live pause and resume controls for the spawned process group', async () => {
+    const script = [
+      'let i = 0;',
+      "const interval = setInterval(() => console.log(JSON.stringify({ type: 'tick', i: ++i })), 40);",
+      "setTimeout(() => { clearInterval(interval); console.log(JSON.stringify({ type: 'done' })); }, 650);",
+    ].join('\n');
+    const engineId = registerFakeEngine(script, (line) => {
+      const event = JSON.parse(line) as { type?: string; i?: number };
+      if (event.type === 'tick') return { events: [{ type: 'thinking', text: String(event.i ?? '') }] };
+      if (event.type === 'done') return { events: [{ type: 'done', summary: 'ok', iterations: 1 }] };
+      return { events: [] };
+    });
+    const events: HlEvent[] = [];
+    let control: EngineRunControl | undefined;
+
+    const run = runEngine({
+      engineId,
+      prompt: 'test',
+      sessionId: 'test-session',
+      webContents: createWebContents() as unknown as WebContents,
+      cdpPort: 9222,
+      harnessDir,
+      onRunControl: (next) => { control = next; },
+      onEvent: (event) => events.push(event),
+    });
+
+    const runControl = await waitFor(() => control);
+    await waitFor(() => events.filter((event) => event.type === 'thinking').length >= 2 ? true : undefined);
+
+    expect(runControl.pause()).toEqual({ paused: true });
+    await sleep(120);
+    const pausedCount = events.filter((event) => event.type === 'thinking').length;
+    await sleep(160);
+    expect(events.filter((event) => event.type === 'thinking')).toHaveLength(pausedCount);
+
+    expect(runControl.resume()).toEqual({ resumed: true });
+    await run;
+    expect(events.some((event) => event.type === 'done')).toBe(true);
   });
 
   test('passes BrowserCode provider/model config through the generic spawn context', async () => {
