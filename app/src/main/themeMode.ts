@@ -81,6 +81,11 @@ export function getWindowBackgroundColor(): string {
 export function setThemeMode(mode: ThemeMode): { mode: ThemeMode; resolved: ResolvedThemeMode } {
   if (!VALID.has(mode)) throw new TypeError(`invalid theme mode: ${mode}`);
   writeMode(mode);
+  // Push themeSource FIRST so nativeTheme.shouldUseDarkColors reflects the
+  // new mode before we resolve. Otherwise switching from an explicit
+  // light/dark to 'system' would resolve against the previous frozen
+  // value and broadcast the wrong theme transiently.
+  nativeTheme.themeSource = mode;
   const resolved = resolveThemeMode(mode);
   applyBackgroundToAllWindows(mode, resolved);
   broadcastThemeChange(mode, resolved);
