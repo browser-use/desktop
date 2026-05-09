@@ -48,7 +48,7 @@ export class BrowserPool {
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
-  private onEscape?: (sessionId: string) => boolean | void;
+  private onCancelShortcut?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
 
   constructor(maxConcurrent = DEFAULT_MAX_CONCURRENT, opts: { idleFreezeDelayMs?: number } = {}) {
@@ -71,10 +71,10 @@ export class BrowserPool {
     this.onNavigate = listener;
   }
 
-  /** Register a listener for Escape inside an attached browser view. Returning
-   *  true means the Escape key was handled and should not continue into the page. */
-  setOnEscape(listener: (sessionId: string) => boolean | void): void {
-    this.onEscape = listener;
+  /** Register a listener for Ctrl+C inside an attached browser view. Returning
+   *  true means the keypress was handled and should not continue into the page. */
+  setOnCancelShortcut(listener: (sessionId: string) => boolean | void): void {
+    this.onCancelShortcut = listener;
   }
 
   private notifyGone(sessionId: string): void {
@@ -89,9 +89,9 @@ export class BrowserPool {
     }
   }
 
-  private notifyEscape(sessionId: string): boolean {
-    try { return this.onEscape?.(sessionId) === true; } catch (err) {
-      browserLogger.warn('BrowserPool.notifyEscape.listenerError', { sessionId, error: (err as Error).message });
+  private notifyCancelShortcut(sessionId: string): boolean {
+    try { return this.onCancelShortcut?.(sessionId) === true; } catch (err) {
+      browserLogger.warn('BrowserPool.notifyCancelShortcut.listenerError', { sessionId, error: (err as Error).message });
       return false;
     }
   }
@@ -198,12 +198,12 @@ export class BrowserPool {
     view.webContents.on('before-input-event', (event, input) => {
       if (
         input.type === 'keyDown' &&
-        input.key === 'Escape' &&
-        !input.control &&
+        input.key.toLowerCase() === 'c' &&
+        input.control &&
         !input.meta &&
         !input.alt
       ) {
-        const handled = this.notifyEscape(sessionId);
+        const handled = this.notifyCancelShortcut(sessionId);
         if (handled) event.preventDefault();
       }
     });

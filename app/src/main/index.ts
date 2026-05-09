@@ -179,7 +179,7 @@ const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'se
 // to <userData>/harness/ on first run, preserves user edits on subsequent runs.
 bootstrapHarness();
 const browserPool = new BrowserPool();
-let pauseBrowserSessionFromEscape: ((sessionId: string) => boolean) | null = null;
+let cancelBrowserSessionFromShortcut: ((sessionId: string) => boolean) | null = null;
 const resourceMonitorContext: ResourceMonitorContext = {
   browserSessions: () => browserPool.getStats().sessions,
   sessionInfo: (sessionId) => sessionManager.getResourceInfo(sessionId),
@@ -201,8 +201,8 @@ browserPool.setOnGone((sessionId) => {
 browserPool.setOnNavigate((sessionId, url) => {
   sessionManager.updateNavigationFromUrl(sessionId, url);
 });
-browserPool.setOnEscape((sessionId) => {
-  return pauseBrowserSessionFromEscape?.(sessionId) ?? false;
+browserPool.setOnCancelShortcut((sessionId) => {
+  return cancelBrowserSessionFromShortcut?.(sessionId) ?? false;
 });
 const accountStore = new AccountStore();
 const whatsAppAdapter = new WhatsAppAdapter();
@@ -794,7 +794,7 @@ app.whenReady().then(async () => {
 
   function pauseSessionFromMain(
     id: string,
-    source: 'button' | 'browser-escape' | 'logs-escape' | 'queued-follow-up',
+    source: 'button' | 'queued-follow-up',
     opts: { notify?: boolean } = {},
   ): { paused?: boolean; error?: string } {
     const status = sessionManager.getSessionStatus(id);
@@ -840,9 +840,27 @@ app.whenReady().then(async () => {
     return result;
   }
 
-  pauseBrowserSessionFromEscape = (sessionId) => {
-    const result = pauseSessionFromMain(sessionId, 'browser-escape');
-    return result.paused === true;
+  function cancelSessionFromMain(
+    id: string,
+    source: 'button' | 'browser-ctrl-c' | 'logs-ctrl-c',
+  ): { cancelled?: boolean; error?: string } {
+    const status = sessionManager.getSessionStatus(id);
+    if (status !== 'running' && status !== 'stuck' && status !== 'paused') {
+      return { error: `Session ${id} is ${status ?? 'unknown'}, expected running, stuck, or paused` };
+    }
+    const engine = sessionManager.getSessionEngine(id) ?? 'unknown';
+    terminateActiveRunControl(id);
+    sessionManager.cancelSession(id);
+    browserPool.destroy(id, shellWindow ?? undefined);
+    queuedFollowUps.delete(id);
+    drainingQueuedFollowUps.delete(id);
+    captureEvent('session_cancelled', { engine, source });
+    return { cancelled: true };
+  }
+
+  cancelBrowserSessionFromShortcut = (sessionId) => {
+    const result = cancelSessionFromMain(sessionId, 'browser-ctrl-c');
+    return result.cancelled === true;
   };
 
   function queueFollowUpAfterNextTool(id: string, prompt: string, attachments: ValidatedAttachment[]): { queued?: boolean; error?: string } {
@@ -1308,21 +1326,18 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('sessions:pause', (_event, payload: string | { id?: unknown; source?: unknown }) => {
     const idRaw = typeof payload === 'string' ? payload : payload?.id;
-    const sourceRaw = typeof payload === 'string' ? 'button' : payload?.source;
     const validatedId = assertString(idRaw, 'id', 100);
-    const source = sourceRaw === 'logs-escape' ? 'logs-escape' : 'button';
-    mainLogger.info('main.sessions:pause', { id: validatedId, source });
-    return pauseSessionFromMain(validatedId, source);
+    mainLogger.info('main.sessions:pause', { id: validatedId, source: 'button' });
+    return pauseSessionFromMain(validatedId, 'button');
   });
 
-  ipcMain.handle('sessions:cancel', (_event, id: string) => {
-    const validatedId = assertString(id, 'id', 100);
-    mainLogger.info('main.sessions:cancel', { id: validatedId });
-    terminateActiveRunControl(validatedId);
-    sessionManager.cancelSession(validatedId);
-    browserPool.destroy(validatedId, shellWindow ?? undefined);
-    queuedFollowUps.delete(validatedId);
-    drainingQueuedFollowUps.delete(validatedId);
+  ipcMain.handle('sessions:cancel', (_event, payload: string | { id?: unknown; source?: unknown }) => {
+    const idRaw = typeof payload === 'string' ? payload : payload?.id;
+    const sourceRaw = typeof payload === 'string' ? 'button' : payload?.source;
+    const validatedId = assertString(idRaw, 'id', 100);
+    const source = sourceRaw === 'logs-ctrl-c' ? 'logs-ctrl-c' : 'button';
+    mainLogger.info('main.sessions:cancel', { id: validatedId, source });
+    return cancelSessionFromMain(validatedId, source);
   });
 
   ipcMain.handle('sessions:halt', (_event, id: string) => {

@@ -1013,22 +1013,16 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
   );
 
   useEffect(() => {
-    if (!focused || !isRunningLike || !onPause) return;
+    if (!focused || (!isRunningLike && !isPaused) || !onCancel) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.key !== 'Escape' || e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.closest('input, textarea, select, [contenteditable="true"]')
-      ) {
-        return;
-      }
+      if (e.defaultPrevented || e.key.toLowerCase() !== 'c' || !e.ctrlKey || e.metaKey || e.altKey) return;
       e.preventDefault();
       e.stopPropagation();
-      onPause(session.id);
+      onCancel(session.id);
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [focused, isRunningLike, onPause, session.id]);
+  }, [focused, isPaused, isRunningLike, onCancel, session.id]);
 
   return (
     <div
