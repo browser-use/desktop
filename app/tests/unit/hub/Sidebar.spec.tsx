@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Sidebar } from '../../../src/renderer/hub/Sidebar';
 import type { AgentSession } from '../../../src/renderer/hub/types';
+import type { AppPopupAction, AppPopupOpenRequest } from '../../../src/shared/app-popup';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -39,6 +40,37 @@ function renderSidebar(
   return { container, root, onRowAction };
 }
 
+let lastPopupRequest: AppPopupOpenRequest | null = null;
+let popupActionHandler: ((action: AppPopupAction) => void) | null = null;
+
+function installPopupApi(): void {
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+      popup: {
+        open: vi.fn(async (request: AppPopupOpenRequest) => {
+          lastPopupRequest = request;
+          return { id: request.id ?? 'test-popup' };
+        }),
+        close: vi.fn(async () => undefined),
+        resize: vi.fn(),
+        onAction: (cb: (action: AppPopupAction) => void): (() => void) => {
+          popupActionHandler = cb;
+          return vi.fn();
+        },
+        onClosed: vi.fn(() => vi.fn()),
+      },
+    },
+  });
+}
+
+async function flush(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 function click(el: Element): void {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -51,14 +83,26 @@ function menuButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-function menuItems(container: HTMLElement): HTMLButtonElement[] {
-  return Array.from(container.querySelectorAll<HTMLButtonElement>('.sidebar__row-menu-item'));
+function popupLabels(): string[] {
+  return lastPopupRequest?.kind === 'menu'
+    ? lastPopupRequest.items.map((item) => item.label)
+    : [];
+}
+
+function selectPopupItem(itemId: string): void {
+  if (!lastPopupRequest?.id) throw new Error('Missing popup request');
+  popupActionHandler?.({
+    popupId: lastPopupRequest.id,
+    kind: 'menu-select',
+    itemId,
+  });
 }
 
 describe('Sidebar focus behavior', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+    lastPopupRequest = null;
   });
 
   it('keeps sidebar action controls out of the tab order', () => {
@@ -87,33 +131,34 @@ describe('Sidebar focus behavior', () => {
     act(() => root.unmount());
   });
 
-  it('shows pause for running sessions before a provider resume id is known', () => {
+  it('shows pause for running sessions before a provider resume id is known', async () => {
+    installPopupApi();
     const running = { ...session('running', 1, 'running'), canResume: false };
     const { container, root, onRowAction } = renderSidebar([running]);
 
     click(menuButton(container));
-    const pause = menuItems(container).find((item) => item.textContent === 'Pause');
+    await flush();
 
-    expect(pause).toBeTruthy();
-    expect(pause?.disabled).toBe(false);
-    click(pause!);
+    expect(popupLabels()).toContain('Pause');
+    selectPopupItem('pause');
     expect(onRowAction).toHaveBeenCalledWith('running', 'pause');
 
     act(() => root.unmount());
   });
 
-  it('shows resume and stop for paused sessions without showing pause', () => {
+  it('shows resume and stop for paused sessions without showing pause', async () => {
+    installPopupApi();
     const paused = { ...session('paused', 1, 'paused'), canResume: true };
     const { container, root, onRowAction } = renderSidebar([paused]);
 
     click(menuButton(container));
-    const labels = menuItems(container).map((item) => item.textContent);
-    const resume = menuItems(container).find((item) => item.textContent === 'Resume');
+    await flush();
+    const labels = popupLabels();
 
     expect(labels).toContain('Resume');
     expect(labels).toContain('Stop');
     expect(labels).not.toContain('Pause');
-    click(resume!);
+    selectPopupItem('resume');
     expect(onRowAction).toHaveBeenCalledWith('paused', 'resume');
 
     act(() => root.unmount());
