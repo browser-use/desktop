@@ -38,6 +38,7 @@ interface ElectronSessionAPI {
   ) => Promise<string>;
   start: (id: string) => Promise<void>;
   cancel: (id: string) => Promise<void>;
+  pause: (id: string) => Promise<{ paused?: boolean; error?: string }>;
   halt: (id: string) => Promise<void>;
   steer: (id: string, message: string) => Promise<{ queued?: boolean; error?: string }>;
   dismiss: (id: string) => Promise<void>;
@@ -70,7 +71,7 @@ interface ElectronSessionAPI {
     id: string,
     prompt: string,
     attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
-  ) => Promise<{ resumed?: boolean; error?: string }>;
+  ) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
   rerun: (id: string) => Promise<{ rerun?: boolean; error?: string }>;
   list: () => Promise<import('./hub/types').AgentSession[]>;
   listAll: () => Promise<import('./hub/types').AgentSession[]>;
@@ -223,6 +224,14 @@ interface ElectronTakeoverAPI {
   hide: (sessionId: string) => Promise<void>;
 }
 
+interface ElectronPopupAPI {
+  open: (request: import('../shared/app-popup').AppPopupOpenRequest) => Promise<import('../shared/app-popup').AppPopupOpenResult>;
+  close: (popupId?: string) => Promise<void>;
+  resize: (size: import('../shared/app-popup').AppPopupContentSize) => void;
+  onAction: (cb: (action: import('../shared/app-popup').AppPopupAction) => void) => () => void;
+  onClosed: (cb: (event: import('../shared/app-popup').AppPopupClosed) => void) => () => void;
+}
+
 interface ElectronSettingsApiKeyAPI {
   getMasked: () => Promise<{ present: boolean; masked: string | null }>;
   getStatus: () => Promise<{
@@ -339,6 +348,7 @@ interface ElectronSettingsAPI {
 interface ElectronAPI {
   pill: ElectronPillAPI;
   logs?: ElectronLogsAPI;
+  popup?: ElectronPopupAPI;
   takeover?: ElectronTakeoverAPI;
   sessions: ElectronSessionAPI;
   channels: ElectronChannelsAPI;

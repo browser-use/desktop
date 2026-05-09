@@ -160,6 +160,7 @@ function sessionMenuItems(sessions: AgentSession[]): MenuItemConstructorOptions[
 function buildTrayMenu(sessionManager: SessionManager): Menu {
   const sessions = sessionManager.listSessions();
   const activeSessions = sessions.filter((session) => session.status === 'running' || session.status === 'stuck');
+  const pausedSessions = sessions.filter((session) => session.status === 'paused');
   const idleSessions = sessions.filter((session) => session.status === 'idle');
   const template: MenuItemConstructorOptions[] = [
     { label: 'Browser Use', enabled: false },
@@ -170,6 +171,13 @@ function buildTrayMenu(sessionManager: SessionManager): Menu {
     template.push(
       { label: 'Active', enabled: false },
       ...sessionMenuItems(activeSessions),
+    );
+  }
+
+  if (pausedSessions.length > 0) {
+    template.push(
+      { label: 'Paused', enabled: false },
+      ...sessionMenuItems(pausedSessions),
     );
   }
 

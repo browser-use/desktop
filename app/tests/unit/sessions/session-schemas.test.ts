@@ -22,11 +22,12 @@ describe('SessionStatusSchema', () => {
     expect(SessionStatusSchema.parse('draft')).toBe('draft');
     expect(SessionStatusSchema.parse('running')).toBe('running');
     expect(SessionStatusSchema.parse('stuck')).toBe('stuck');
+    expect(SessionStatusSchema.parse('paused')).toBe('paused');
     expect(SessionStatusSchema.parse('stopped')).toBe('stopped');
   });
 
   it('rejects invalid status', () => {
-    expect(() => SessionStatusSchema.parse('paused')).toThrow();
+    expect(() => SessionStatusSchema.parse('complete')).toThrow();
     expect(() => SessionStatusSchema.parse(42)).toThrow();
     expect(() => SessionStatusSchema.parse(null)).toThrow();
   });
@@ -136,8 +137,14 @@ describe('AgentSessionSchema', () => {
     expect(session.canResume).toBe(true);
   });
 
+  it('accepts paused sessions', () => {
+    const session = AgentSessionSchema.parse({ ...validSession, status: 'paused', canResume: true });
+    expect(session.status).toBe('paused');
+    expect(session.canResume).toBe(true);
+  });
+
   it('rejects session with invalid status', () => {
-    expect(() => AgentSessionSchema.parse({ ...validSession, status: 'paused' })).toThrow();
+    expect(() => AgentSessionSchema.parse({ ...validSession, status: 'complete' })).toThrow();
   });
 
   it('rejects session with non-uuid id', () => {

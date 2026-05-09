@@ -28,11 +28,11 @@ html, body {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg, #0b0d10);
+  background: var(--color-bg-base);
   /* Brighter border + outer glow so the pane stands out against dark
      site backgrounds instead of blending into them. */
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(125, 211, 252, 0.05);
+  border: 1px solid rgba(var(--highlight-rgb), 0.14);
+  box-shadow: 0 6px 22px rgba(var(--shadow-rgb), 0.55), 0 0 0 1px rgba(125, 211, 252, 0.05);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -43,7 +43,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px;
-  border-bottom: 1px solid var(--color-border-subtle, #1f232a);
+  border-bottom: 1px solid var(--color-border-subtle);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -75,7 +75,7 @@ html, body {
 }
 
 .logs-header__btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--highlight-rgb), 0.06);
   color: var(--color-fg-primary, #d6d8dc);
 }
 
@@ -87,11 +87,11 @@ html, body {
   padding: 6px 10px 4px;
   margin-top: 4px;
   font-size: 11px;
-  color: #ffffff;
+  color: var(--color-fg-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-top: 1px solid var(--color-border-subtle, #1f232a);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .logs-summary--error {
@@ -146,17 +146,17 @@ html, body {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  border-top: 1px solid var(--color-border-subtle, #1f232a);
+  border-top: 1px solid var(--color-border-subtle);
 }
 .logs-files::-webkit-scrollbar {
   height: 6px;
 }
 .logs-files::-webkit-scrollbar-thumb {
-  background: var(--color-border-subtle, #1f232a);
+  background: var(--color-border-subtle);
   border-radius: 3px;
 }
 .logs-files::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border, #2a2f36);
+  background: var(--color-border-default);
 }
 
 .logs-file-row {
@@ -167,7 +167,7 @@ html, body {
   max-width: 160px;
   padding: 3px 6px;
   background: var(--color-bg-elevated, #141518);
-  border: 1px solid var(--color-border-subtle, #1f232a);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 4px;
   font-size: 10px;
   color: var(--color-fg-secondary, #b0b5bd);
@@ -176,7 +176,7 @@ html, body {
 }
 
 .logs-file-row:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--highlight-rgb), 0.05);
   color: var(--color-fg-primary, #d6d8dc);
 }
 
@@ -207,9 +207,9 @@ html, body {
   z-index: 10;
   min-width: 180px;
   background: var(--color-bg-elevated, #15181c);
-  border: 1px solid var(--color-border-subtle, #1f232a);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px rgba(var(--shadow-rgb), 0.4);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -245,13 +245,13 @@ html, body {
 }
 
 .logs-file-menu__item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--highlight-rgb), 0.06);
   color: var(--color-fg-primary, #d6d8dc);
 }
 
 .logs-file-menu__sep {
   height: 1px;
-  background: var(--color-border-subtle, #1f232a);
+  background: var(--color-border-subtle);
   margin: 3px 4px;
 }
 
@@ -264,7 +264,7 @@ html, body {
   gap: 8px;
   padding: 10px 12px;
   background: rgba(125, 211, 252, 0.05);
-  border-top: 1px solid var(--color-accent, #7dd3fc);
+  border-top: 1px solid var(--color-accent-default);
   transition: background 140ms ease;
 }
 
@@ -273,7 +273,7 @@ html, body {
 }
 
 .logs-followup__chevron {
-  color: var(--color-accent, #7dd3fc);
+  color: var(--color-accent-default);
   font-size: 16px;
   line-height: 1;
   font-weight: 600;
@@ -312,7 +312,7 @@ html, body {
 .logs-followup--ended {
   justify-content: center;
   background: transparent;
-  border-top: 1px solid var(--color-border-subtle, #1f232a);
+  border-top: 1px solid var(--color-border-subtle);
 }
 .logs-followup--ended:focus-within {
   background: transparent;
@@ -333,8 +333,8 @@ html, body {
   border: none;
   padding: 0;
   border-radius: 50%;
-  background: var(--color-bg, #0b0d10);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  background: var(--color-bg-base);
+  box-shadow: 0 2px 10px rgba(var(--shadow-rgb), 0.4);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -352,7 +352,7 @@ html, body {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--color-accent, #7dd3fc);
+  background: var(--color-accent-default);
   box-shadow: 0 0 0 0 rgba(125, 211, 252, 0.5);
   animation: logs-pulse 1.6s ease-out infinite;
 }

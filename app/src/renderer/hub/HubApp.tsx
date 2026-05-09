@@ -153,6 +153,35 @@ export function HubApp(): React.ReactElement {
   const [cmdBarVisible, setCmdBarVisible] = useState<boolean>(() => {
     try { return window.localStorage.getItem('hub-cmdbar-visible') !== '0'; } catch { return true; }
   });
+  const [tabsPosition, setTabsPositionRaw] = useState<'side' | 'top'>(() => {
+    try {
+      const saved = window.localStorage.getItem('hub-tabs-position');
+      return saved === 'top' ? 'top' : 'side';
+    } catch { return 'side'; }
+  });
+  const setTabsPosition = useCallback((pos: 'side' | 'top') => {
+    setTabsPositionRaw(pos);
+    try { window.localStorage.setItem('hub-tabs-position', pos); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    const onChange = (e: Event): void => {
+      const next = (e as CustomEvent<{ position: 'side' | 'top' }>).detail?.position;
+      if (next === 'side' || next === 'top') setTabsPositionRaw(next);
+    };
+    window.addEventListener('hub:tabs-position-change', onChange as EventListener);
+    return () => window.removeEventListener('hub:tabs-position-change', onChange as EventListener);
+  }, []);
+  // Fire pane:layout-change AFTER React commits the new layout so AgentPane
+  // re-measures bounds against the updated DOM (otherwise BrowserView keeps
+  // the pre-toggle rect and leaves a gap where the sidebar used to be).
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('pane:layout-change'));
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [tabsPosition]);
   const hideCmdBar = useCallback(() => {
     setCmdBarVisible(false);
     try { window.localStorage.setItem('hub-cmdbar-visible', '0'); } catch { /* ignore */ }
@@ -470,6 +499,21 @@ export function HubApp(): React.ReactElement {
     }
   }, [isMock, updateSession]);
 
+  const handlePause = useCallback(async (sessionId: string) => {
+    if (isMock) return;
+    const api = window.electronAPI;
+    if (!api) return;
+    try {
+      console.log('[HubApp] pause', { sessionId });
+      const result = await api.sessions.pause(sessionId);
+      if (result?.error) {
+        console.warn('[HubApp] pause error', { sessionId, error: result.error });
+      }
+    } catch (err) {
+      console.error('[HubApp] pause failed', err);
+    }
+  }, [isMock]);
+
   const handleSelectSession = useCallback((id: string) => {
     const idx = sessions.findIndex((s) => s.id === id);
     if (idx >= 0) setFocusIndex(idx);
@@ -542,10 +586,11 @@ export function HubApp(): React.ReactElement {
         </div>
       </header>
 
-      <div className="hub-body">
+      <div className="hub-body" data-tabs-position={tabsPosition}>
       <Sidebar
+        mode={tabsPosition}
         sessions={sessions}
-        selectedId={selectedSessionId}
+        selectedId={viewMode === 'grid' ? selectedSessionId : null}
         onSelect={(id) => {
           handleSelectSession(id);
           if (viewMode !== 'grid') setViewMode('grid');
@@ -559,6 +604,12 @@ export function HubApp(): React.ReactElement {
               break;
             case 'stop':
               window.electronAPI?.sessions.cancel(id).catch(() => {});
+              break;
+            case 'pause':
+              handlePause(id);
+              break;
+            case 'resume':
+              handleResume(id);
               break;
           }
         }}
@@ -621,6 +672,7 @@ export function HubApp(): React.ReactElement {
                         window.electronAPI?.sessions.rerun(id).catch((err) => console.error('[HubApp] rerun failed', err));
                       }}
                       onResume={handleResume}
+                      onPause={handlePause}
                       onFollowUp={handleFollowUp}
                       onDismiss={(id) => {
                         // Real dismiss: flips session status to 'stopped' AND tears down the

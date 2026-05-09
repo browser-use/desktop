@@ -12,6 +12,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AgentEvent } from '../shared/types';
+import { createPopupBridge } from './popupBridge';
 
 // ---------------------------------------------------------------------------
 // D2 — Dev-only structured logger
@@ -77,7 +78,7 @@ contextBridge.exposeInMainWorld('pillAPI', {
     sessionId: string,
     prompt: string,
     attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
-  ): Promise<{ resumed?: boolean; error?: string }> => {
+  ): Promise<{ resumed?: boolean; queued?: boolean; error?: string }> => {
     return ipcRenderer.invoke('sessions:resume', { id: sessionId, prompt, attachments });
   },
 
@@ -298,7 +299,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
       setActive: (payload: { providerId: string }): Promise<void> =>
         ipcRenderer.invoke('settings:browsercode:set-active', payload),
     },
+    theme: {
+      get: (): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:get'),
+      set: (mode: 'light' | 'dark' | 'system'): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:set', mode),
+      onChange: (cb: (event: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => void): (() => void) => {
+        const handler = (_evt: unknown, payload: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => cb(payload);
+        ipcRenderer.on('theme:changed', handler);
+        return () => ipcRenderer.removeListener('theme:changed', handler);
+      },
+    },
   },
+  popup: createPopupBridge(),
 });
 
 log.info('preload.pill.ready', {

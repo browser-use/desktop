@@ -4,6 +4,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
+import { createPopupBridge } from './popupBridge';
 
 const DEBUG_LOGS_PRELOAD = process.env.BU_DEBUG_LOGS_PRELOAD === '1';
 function debugLog(message: string, data?: Record<string, unknown>): void {
@@ -28,6 +29,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     revealOutput: (filePath: string): Promise<{ revealed: boolean }> =>
       ipcRenderer.invoke('sessions:reveal-output', filePath),
     get: (id: string): Promise<unknown> => ipcRenderer.invoke('sessions:get', id),
+    cancel: (id: string): Promise<void> =>
+      ipcRenderer.invoke('sessions:cancel', { id, source: 'logs-ctrl-c' }),
+    pause: (id: string): Promise<{ paused?: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:pause', { id, source: 'logs-ctrl-c' }),
     listEditors: (): Promise<Array<{ id: string; name: string }>> =>
       ipcRenderer.invoke('sessions:list-editors'),
     openInEditor: (editorId: string, filePath: string): Promise<{ opened: boolean }> =>
@@ -35,6 +40,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     downloadOutput: (filePath: string): Promise<{ opened: boolean }> =>
       ipcRenderer.invoke('sessions:download-output', filePath),
   },
+  // Theme bridge — initThemeMode() in the renderer hydrates from main and
+  // listens for live broadcasts so the logs window flips with the rest of
+  // the app. Without this, it'd fall back to a per-origin localStorage that
+  // is missing on first launch and out-of-sync after settings changes.
+  settings: {
+    theme: {
+      get: (): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:get'),
+      set: (mode: 'light' | 'dark' | 'system'): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:set', mode),
+      onChange: (cb: (event: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => void): (() => void) => {
+        const handler = (_evt: unknown, payload: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => cb(payload);
+        ipcRenderer.on('theme:changed', handler);
+        return () => ipcRenderer.removeListener('theme:changed', handler);
+      },
+    },
+  },
+  popup: createPopupBridge(),
   on: {
     sessionOutputTerm: (cb: (id: string, bytes: string) => void): (() => void) => {
       debugLog('[logs-preload] subscribe sessionOutputTerm');
@@ -115,7 +138,7 @@ contextBridge.exposeInMainWorld('logsAPI', {
   // Follow-up input from inside the logs window — routes through the same
   // sessions:resume IPC the pane's FollowUpInput uses so replies land in
   // the same session without the main hub needing focus.
-  followUp: (sessionId: string, prompt: string): Promise<{ resumed?: boolean; error?: string }> =>
+  followUp: (sessionId: string, prompt: string): Promise<{ resumed?: boolean; queued?: boolean; error?: string }> =>
     ipcRenderer.invoke('sessions:resume', { id: sessionId, prompt }),
 });
 

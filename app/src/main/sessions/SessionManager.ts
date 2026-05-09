@@ -216,7 +216,7 @@ export class SessionManager extends EventEmitter {
       mainLogger.warn('SessionManager.cancelSession', { id, reason: 'not_found' });
       return;
     }
-    if (session.status !== 'running' && session.status !== 'stuck') {
+    if (session.status !== 'running' && session.status !== 'stuck' && session.status !== 'paused') {
       mainLogger.warn('SessionManager.cancelSession', { id, status: session.status, reason: 'not_cancellable' });
       return;
     }
@@ -233,6 +233,61 @@ export class SessionManager extends EventEmitter {
     this.db.updateSessionStatus(id, 'stopped', 'Cancelled by user');
     mainLogger.info('SessionManager.cancelSession', { id });
     this.emitEvent('session-updated', { ...session });
+  }
+
+  pauseSession(id: string, opts: { notify?: boolean } = {}): { paused?: boolean; error?: string } {
+    const session = this.sessions.get(id);
+    if (!session) {
+      mainLogger.warn('SessionManager.pauseSession', { id, reason: 'not_found' });
+      return { error: 'Session not found' };
+    }
+    if (session.status === 'paused') return { paused: true };
+    if (session.status !== 'running' && session.status !== 'stuck') {
+      const error = `Session ${id} is ${session.status}, expected running or stuck`;
+      mainLogger.warn('SessionManager.pauseSession', { id, status: session.status, reason: 'not_pausable' });
+      return { error };
+    }
+    this.clearStuckTimer(id);
+    session.status = 'paused';
+    session.error = undefined;
+    session.canResume = true;
+    this.db.updateSessionStatus(id, 'paused');
+    if (opts.notify !== false) {
+      this.appendOutput(id, { type: 'notify', level: 'info', message: 'Agent paused. Resume when you are ready.' });
+    }
+    mainLogger.info('SessionManager.pauseSession', {
+      id,
+      engine: session.engine ?? this.getSessionEngine(id),
+      model: session.model ?? null,
+    });
+    this.emitEvent('session-updated', { ...session });
+    return { paused: true };
+  }
+
+  resumePausedSession(id: string): { resumed?: boolean; error?: string } {
+    const session = this.sessions.get(id);
+    if (!session) {
+      mainLogger.warn('SessionManager.resumePausedSession', { id, reason: 'not_found' });
+      return { error: 'Session not found' };
+    }
+    if (session.status !== 'paused') {
+      const error = `Session ${id} is ${session.status}, expected paused`;
+      mainLogger.warn('SessionManager.resumePausedSession', { id, status: session.status, reason: 'not_paused' });
+      return { error };
+    }
+
+    session.status = 'running';
+    session.error = undefined;
+    session.canResume = true;
+    this.db.updateSessionStatus(id, 'running');
+    this.resetStuckTimer(id);
+    mainLogger.info('SessionManager.resumePausedSession', {
+      id,
+      engine: session.engine ?? this.getSessionEngine(id),
+      model: session.model ?? null,
+    });
+    this.emitEvent('session-updated', { ...session });
+    return { resumed: true };
   }
 
   appendOutput(id: string, event: HlEvent): void {
@@ -355,6 +410,12 @@ export class SessionManager extends EventEmitter {
       mainLogger.warn('SessionManager.completeSession', { id, reason: 'not_found' });
       return;
     }
+    if (session.status === 'paused' || session.status === 'stopped') {
+      mainLogger.info('SessionManager.completeSession.ignored', { id, status: session.status });
+      this.clearStuckTimer(id);
+      this.abortControllers.delete(id);
+      return;
+    }
     this.clearStuckTimer(id);
     this.abortControllers.delete(id);
     session.status = 'idle';
@@ -375,8 +436,8 @@ export class SessionManager extends EventEmitter {
     if (!session) {
       throw new Error(`Session not found: ${id}`);
     }
-    if (session.status !== 'idle' && session.status !== 'stopped') {
-      throw new Error(`Session ${id} is ${session.status}, expected idle or stopped`);
+    if (session.status !== 'idle' && session.status !== 'stopped' && session.status !== 'paused') {
+      throw new Error(`Session ${id} is ${session.status}, expected idle, paused, or stopped`);
     }
 
     this.hydrateOutput(id);
@@ -421,7 +482,7 @@ export class SessionManager extends EventEmitter {
 
   deleteSession(id: string): void {
     const session = this.sessions.get(id);
-    if (session && (session.status === 'running' || session.status === 'stuck')) {
+    if (session && (session.status === 'running' || session.status === 'stuck' || session.status === 'paused')) {
       this.cancelSession(id);
     }
     this.clearStuckTimer(id);
@@ -533,6 +594,10 @@ export class SessionManager extends EventEmitter {
       status: session.status,
       engine: session.engine ?? this.getSessionEngine(id),
     };
+  }
+
+  getSessionStatus(id: string): SessionStatus | undefined {
+    return this.sessions.get(id)?.status;
   }
 
   listSessions(): AgentSession[] {

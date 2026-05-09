@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineStatus } from '../../../src/renderer/hub/EnginePicker';
-import { EnginePicker } from '../../../src/renderer/hub/EnginePicker';
+import { EnginePickerMenuContent } from '../../../src/renderer/hub/EnginePicker';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -46,7 +46,7 @@ function renderPicker(value: string): { container: HTMLDivElement; root: Root } 
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(<EnginePicker value={value} onChange={vi.fn()} />);
+    root.render(<EnginePickerMenuContent value={value} onChange={vi.fn()} />);
   });
   return { container, root };
 }
@@ -56,12 +56,6 @@ async function flush(): Promise<void> {
     await Promise.resolve();
     await Promise.resolve();
   });
-}
-
-function getToggleButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector('.engine-picker__toggle');
-  if (!(button instanceof HTMLButtonElement)) throw new Error('Missing engine picker toggle');
-  return button;
 }
 
 function getMenuItemButton(container: HTMLElement, text: string): HTMLButtonElement {
@@ -103,11 +97,6 @@ describe('EnginePicker', () => {
     await flush();
 
     act(() => {
-      getToggleButton(container).click();
-    });
-    await flush();
-
-    act(() => {
       getMenuItemButton(container, 'Codex').click();
     });
     await flush();
@@ -138,11 +127,6 @@ describe('EnginePicker', () => {
     });
     const { container, root } = renderPicker('codex');
 
-    await flush();
-
-    act(() => {
-      getToggleButton(container).click();
-    });
     await flush();
 
     act(() => {
@@ -196,11 +180,6 @@ describe('EnginePicker', () => {
     await flush();
 
     act(() => {
-      getToggleButton(container).click();
-    });
-    await flush();
-
-    act(() => {
       getMenuItemButton(container, 'Codex').click();
     });
     await flush();
@@ -240,11 +219,6 @@ describe('EnginePicker', () => {
     });
     const { container, root } = renderPicker('claude-code');
 
-    await flush();
-
-    act(() => {
-      getToggleButton(container).click();
-    });
     await flush();
 
     act(() => {

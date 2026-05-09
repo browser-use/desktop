@@ -1,13 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type { AgentSession, SessionStatus } from './types';
 import { orderSessionsForSidebar } from './sessionOrdering';
+import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
 
 interface SidebarSession extends AgentSession {
   primarySite?: string | null;
   lastActivityAt?: number;
 }
 
-export type SidebarRowAction = 'rerun' | 'stop';
+export type SidebarRowAction = 'rerun' | 'stop' | 'pause' | 'resume';
+
+export type SidebarMode = 'side' | 'top';
 
 interface SidebarProps {
   sessions?: SidebarSession[];
@@ -15,7 +18,9 @@ interface SidebarProps {
   onSelect?: (id: string) => void;
   onNewAgent?: () => void;
   onRowAction?: (id: string, action: SidebarRowAction) => void;
+  mode?: SidebarMode;
 }
+
 
 const MOCK_SIDEBAR_SESSIONS: SidebarSession[] = [
   {
@@ -78,6 +83,7 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   running: { color: '#3fb950', label: 'Running' },
   idle:    { color: '#d29922', label: 'Waiting for input' },
   stuck:   { color: '#f85149', label: 'Stuck' },
+  paused:  { color: '#58a6ff', label: 'Paused' },
   stopped: { color: '#6e7681', label: 'Stopped' },
   draft:   { color: '#6e7681', label: 'Draft' },
 };
@@ -145,35 +151,47 @@ function SessionRow({
   const dot = STATUS_DOT[s.status];
   const favicon = faviconUrl(s.primarySite);
   const last = s.lastActivityAt ?? s.createdAt;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    window.addEventListener('mousedown', onDocClick);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDocClick);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
+  const [popupId, setPopupId] = useState<string | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const isRunning = s.status === 'running' || s.status === 'stuck';
+  const isPaused = s.status === 'paused';
   const handleAction = (action: SidebarRowAction): void => {
-    setMenuOpen(false);
     onAction?.(s.id, action);
+  };
+  const toggleMenu = async (): Promise<void> => {
+    const button = menuButtonRef.current;
+    if (!button) return;
+    if (popupId) {
+      closeAppPopup(popupId);
+      return;
+    }
+    const nextId = await openAnchoredAppPopup(
+      button,
+      {
+        kind: 'menu',
+        placement: 'bottom-end',
+        width: 148,
+        items: [
+          { id: 'rerun', label: 'Re-run' },
+          ...(isPaused ? [{ id: 'resume', label: 'Resume' }] : []),
+          ...(isRunning ? [{ id: 'pause', label: 'Pause' }] : []),
+          ...((isRunning || isPaused) ? [{ id: 'stop', label: 'Stop', tone: 'danger' as const }] : []),
+        ],
+      },
+      {
+        onAction: (action) => {
+          if (action.kind === 'menu-select') handleAction(action.itemId as SidebarRowAction);
+        },
+        onClosed: () => setPopupId(null),
+      },
+    );
+    if (nextId) setPopupId(nextId);
   };
 
   return (
     <div
-      ref={rootRef}
-      className={`sidebar__row-wrapper${menuOpen ? ' sidebar__row-wrapper--menu-open' : ''}`}
+      className={`sidebar__row-wrapper${popupId ? ' sidebar__row-wrapper--menu-open' : ''}`}
     >
       <button
         type="button"
@@ -199,54 +217,101 @@ function SessionRow({
 
       {onAction && (
         <button
+          ref={menuButtonRef}
           type="button"
           className="sidebar__row-menu-btn"
           onMouseDown={preventMouseFocus}
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpen((v) => !v);
+            void toggleMenu();
           }}
           tabIndex={-1}
           aria-label="Session actions"
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          aria-expanded={Boolean(popupId)}
         >
           <MoreIcon />
         </button>
-      )}
-
-      {menuOpen && (
-        <div className="sidebar__row-menu" role="menu">
-          <button
-            className="sidebar__row-menu-item"
-            role="menuitem"
-            onMouseDown={preventMouseFocus}
-            onClick={() => handleAction('rerun')}
-            tabIndex={-1}
-          >
-            Re-run
-          </button>
-          {isRunning && (
-            <button
-              className="sidebar__row-menu-item"
-              role="menuitem"
-              onMouseDown={preventMouseFocus}
-              onClick={() => handleAction('stop')}
-              tabIndex={-1}
-            >
-              Stop
-            </button>
-          )}
-        </div>
       )}
     </div>
   );
 }
 
-export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowAction }: SidebarProps): React.ReactElement {
+type TabBucket = 'active' | 'waiting' | 'done';
+
+function bucketFor(status: SessionStatus): TabBucket {
+  if (status === 'running' || status === 'stuck') return 'active';
+  if (status === 'idle' || status === 'draft') return 'waiting';
+  return 'done';
+}
+
+function TabChip({
+  s,
+  selected,
+  onSelect,
+}: {
+  s: SidebarSession;
+  selected: boolean;
+  onSelect?: (id: string) => void;
+}): React.ReactElement {
+  const dot = STATUS_DOT[s.status];
+  const favicon = faviconUrl(s.primarySite);
+  const isRunning = s.status === 'running';
+  const bucket = bucketFor(s.status);
+  return (
+    <button
+      type="button"
+      className={`tabstrip__chip has-tooltip${selected ? ' tabstrip__chip--active' : ''}${isRunning ? ' tabstrip__chip--running' : ''}`}
+      onClick={() => onSelect?.(s.id)}
+      onMouseDown={preventMouseFocus}
+      tabIndex={-1}
+      data-tooltip={s.prompt}
+      data-status={s.status}
+      data-bucket={bucket}
+    >
+      {isRunning && <span className="tabstrip__chip-fill" aria-hidden="true" />}
+      <span className="tabstrip__chip-icon">
+        {favicon ? (
+          <img src={favicon} alt="" width={14} height={14} />
+        ) : (
+          <span className="tabstrip__chip-icon-fallback" aria-hidden="true">
+            <TerminalFallbackIcon />
+          </span>
+        )}
+        <span className="tabstrip__chip-dot" style={{ background: dot.color }} aria-label={dot.label} />
+      </span>
+      <span className="tabstrip__chip-title">{s.prompt}</span>
+    </button>
+  );
+}
+
+export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onRowAction, mode = 'side' }: SidebarProps): React.ReactElement {
   const data = sessions ?? MOCK_SIDEBAR_SESSIONS;
 
   const orderedSessions = useMemo(() => orderSessionsForSidebar(data), [data]);
+
+  if (mode === 'top') {
+    return (
+      <nav className="tabstrip" aria-label="Agent sessions">
+        <div className="tabstrip__chips">
+          {orderedSessions.map((s) => (
+            <TabChip key={s.id} s={s} selected={s.id === selectedId} onSelect={onSelect} />
+          ))}
+        </div>
+        <button
+          type="button"
+          className="tabstrip__new has-tooltip"
+          onClick={onNewAgent}
+          onMouseDown={preventMouseFocus}
+          tabIndex={-1}
+          aria-label="New agent"
+          data-tooltip="New agent"
+        >
+          <PlusIcon />
+        </button>
+      </nav>
+    );
+  }
 
   return (
     <aside className="sidebar" aria-label="Agent sessions">

@@ -7,6 +7,7 @@ import {
   validatePoolStats,
 } from '../shared/session-schemas';
 import type { AgentSession, HlEvent, TabInfo, BrowserPoolStats } from '../shared/session-schemas';
+import { createPopupBridge } from './popupBridge';
 
 type SettingsOpenPayload = { focusBrowserCodeProvider?: string };
 
@@ -51,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.send('logs:update-anchor', anchor);
     },
   },
+  popup: createPopupBridge(),
   takeover: {
     show: (
       sessionId: string,
@@ -132,6 +134,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       openSystemNotifications: (): Promise<{ ok: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:open-system-notifications'),
     },
+    theme: {
+      get: (): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:get'),
+      set: (mode: 'light' | 'dark' | 'system'): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:set', mode),
+      onChange: (cb: (event: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => void): (() => void) => {
+        const handler = (_evt: unknown, payload: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => cb(payload);
+        ipcRenderer.on('theme:changed', handler);
+        return () => ipcRenderer.removeListener('theme:changed', handler);
+      },
+    },
     app: {
       getInfo: (): Promise<{
         version: string;
@@ -205,6 +218,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ): Promise<string> => ipcRenderer.invoke('sessions:create', promptOrPayload),
     start: (id: string): Promise<void> => ipcRenderer.invoke('sessions:start', id),
     cancel: (id: string): Promise<void> => ipcRenderer.invoke('sessions:cancel', id),
+    pause: (id: string): Promise<{ paused?: boolean; error?: string }> => ipcRenderer.invoke('sessions:pause', id),
     halt: (id: string): Promise<void> => ipcRenderer.invoke('sessions:halt', id),
     steer: (id: string, message: string): Promise<{ queued?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:steer', { id, message }),
@@ -245,7 +259,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       id: string,
       prompt: string,
       attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
-    ): Promise<{ resumed?: boolean; error?: string }> =>
+    ): Promise<{ resumed?: boolean; queued?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:resume', { id, prompt, attachments }),
     rerun: (id: string): Promise<{ rerun?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:rerun', id),

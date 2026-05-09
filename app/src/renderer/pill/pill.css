@@ -41,16 +41,16 @@ html, body {
   color: var(--color-fg-primary);
   background-image: linear-gradient(
     180deg,
-    rgba(30, 30, 34, 0.58) 0%,
-    rgba(22, 22, 26, 0.62) 100%
+    var(--color-glass-top) 0%,
+    var(--color-glass-bottom) 100%
   );
   -webkit-backdrop-filter: blur(40px) saturate(180%);
   backdrop-filter: blur(40px) saturate(180%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
-    0 18px 48px rgba(0, 0, 0, 0.5),
-    0 4px 14px rgba(0, 0, 0, 0.3);
+    inset 0 1px 0 rgba(var(--highlight-rgb), 0.05),
+    inset 0 0 0 1px rgba(var(--highlight-rgb), 0.03),
+    0 18px 48px rgba(var(--shadow-rgb), 0.5),
+    0 4px 14px rgba(var(--shadow-rgb), 0.3);
   animation: cmdbar-enter 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
@@ -157,8 +157,8 @@ html, body {
   padding: 0;
   line-height: 0;
   color: var(--color-fg-secondary);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--highlight-rgb), 0.04);
+  border: 1px solid rgba(var(--highlight-rgb), 0.08);
   border-radius: var(--radius-full);
   cursor: pointer;
   flex-shrink: 0;
@@ -171,8 +171,8 @@ html, body {
 
 .cmdbar__attach:hover {
   color: var(--color-fg-primary);
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(var(--highlight-rgb), 0.08);
+  border-color: rgba(var(--highlight-rgb), 0.14);
 }
 
 .cmdbar__attach:active {
@@ -192,8 +192,8 @@ html, body {
   cursor: pointer;
   flex-shrink: 0;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 1px 2px rgba(0, 0, 0, 0.3);
+    inset 0 1px 0 rgba(var(--highlight-rgb), 0.4),
+    0 1px 2px rgba(var(--shadow-rgb), 0.3);
   transition:
     background-color 140ms cubic-bezier(0.32, 0.72, 0, 1),
     transform 140ms cubic-bezier(0.32, 0.72, 0, 1),
@@ -209,7 +209,7 @@ html, body {
 }
 
 .cmdbar__send:disabled {
-  background-color: rgba(255, 255, 255, 0.10);
+  background-color: rgba(var(--highlight-rgb), 0.10);
   color: var(--color-fg-disabled);
   box-shadow: none;
   cursor: default;
@@ -233,8 +233,8 @@ html, body {
   flex-shrink: 0;
   margin-left: -4px;
   filter:
-    drop-shadow(0 0 1px rgba(0, 0, 0, 0.85))
-    drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+    drop-shadow(0 0 1px rgba(var(--shadow-rgb), 0.85))
+    drop-shadow(0 1px 2px rgba(var(--shadow-rgb), 0.4));
   animation: chip-in 160ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
 }
 
@@ -254,7 +254,7 @@ html, body {
   font-size: 10px;
   font-weight: 600;
   color: var(--color-fg-secondary);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--highlight-rgb), 0.08);
   border-radius: 9px;
   letter-spacing: 0.02em;
   animation: chip-in 160ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
@@ -275,8 +275,8 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--highlight-rgb), 0.06);
+  border: 1px solid rgba(var(--highlight-rgb), 0.08);
   border-radius: var(--radius-full);
   padding: 4px 4px 4px 10px;
   font-size: var(--font-size-xs);
@@ -313,7 +313,7 @@ html, body {
 
 .cmdbar__chip-remove:hover {
   color: var(--color-fg-primary);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--highlight-rgb), 0.08);
 }
 
 .cmdbar__error {
@@ -329,7 +329,7 @@ html, body {
 .cmdbar__dashboard {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgba(var(--highlight-rgb), 0.05);
   animation: result-in 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
@@ -348,8 +348,8 @@ html, body {
   height: 30px;
   font-size: 12px;
   color: var(--color-fg-secondary);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(var(--highlight-rgb), 0.03);
+  border: 1px solid rgba(var(--highlight-rgb), 0.05);
   border-radius: var(--radius-full);
   cursor: pointer;
   transition:
@@ -360,8 +360,8 @@ html, body {
 }
 
 .cmdbar__action-chip:hover {
-  background-color: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.10);
+  background-color: rgba(var(--highlight-rgb), 0.07);
+  border-color: rgba(var(--highlight-rgb), 0.10);
   color: var(--color-fg-primary);
 }
 
@@ -400,12 +400,12 @@ html, body {
 }
 
 .cmdbar__recents .cmdbar__result:hover {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(var(--highlight-rgb), 0.06);
 }
 
 .cmdbar__recents .cmdbar__result--active {
-  background-color: rgba(255, 255, 255, 0.10);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background-color: rgba(var(--highlight-rgb), 0.10);
+  box-shadow: inset 0 1px 0 rgba(var(--highlight-rgb), 0.06);
 }
 
 /* ---------------------------------------------------------------------------
@@ -417,7 +417,7 @@ html, body {
   display: flex;
   flex-direction: column;
   padding: 4px 8px 8px 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(var(--highlight-rgb), 0.06);
   max-height: calc(56px * 8 + 12px);
   overflow-y: auto;
 }
@@ -429,8 +429,8 @@ html, body {
   top: 8px;
   height: 48px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: rgba(var(--highlight-rgb), 0.08);
+  box-shadow: inset 0 1px 0 rgba(var(--highlight-rgb), 0.06);
   pointer-events: none;
   transition:
     transform 280ms cubic-bezier(0.34, 1.4, 0.64, 1),
@@ -493,14 +493,14 @@ html, body {
   color: var(--color-fg-tertiary);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.08) 0%,
-    rgba(255, 255, 255, 0.02) 100%
+    rgba(var(--highlight-rgb), 0.08) 0%,
+    rgba(var(--highlight-rgb), 0.02) 100%
   );
   border-radius: 7px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    0 1px 2px rgba(0, 0, 0, 0.25);
+    inset 0 1px 0 rgba(var(--highlight-rgb), 0.10),
+    inset 0 0 0 1px rgba(var(--highlight-rgb), 0.04),
+    0 1px 2px rgba(var(--shadow-rgb), 0.25);
 }
 
 .cmdbar__row-dot {
@@ -510,9 +510,9 @@ html, body {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  border: 2px solid rgba(20, 20, 24, 1);
+  border: 2px solid var(--color-bg-base);
   box-sizing: content-box;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 1px rgba(var(--shadow-rgb), 0.4);
 }
 
 .cmdbar__result-prompt {
@@ -561,7 +561,7 @@ html, body {
   margin-top: auto;
   height: 48px;
   padding: 0 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(var(--highlight-rgb), 0.06);
   box-sizing: border-box;
   -webkit-app-region: drag;
   cursor: move;
@@ -585,8 +585,8 @@ html, body {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--color-fg-secondary);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--highlight-rgb), 0.06);
+  border: 1px solid rgba(var(--highlight-rgb), 0.08);
   border-radius: 5px;
   -webkit-app-region: no-drag;
 }
@@ -611,8 +611,8 @@ html, body {
   line-height: 1;
   white-space: nowrap;
   color: var(--color-fg-primary);
-  background: rgba(20, 20, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-menu-bg);
+  border: 1px solid rgba(var(--highlight-rgb), 0.08);
   border-radius: 6px;
   pointer-events: none;
   opacity: 0;
@@ -653,9 +653,9 @@ html, body {
   padding: 4px 10px;
   height: 30px;
   border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--highlight-rgb), 0.04);
   color: var(--color-fg-secondary);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(var(--highlight-rgb), 0.08);
   font-size: var(--font-size-xs);
   cursor: pointer;
   transition:
@@ -665,8 +665,8 @@ html, body {
 }
 
 .engine-picker__toggle:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(var(--highlight-rgb), 0.08);
+  border-color: rgba(var(--highlight-rgb), 0.14);
   color: var(--color-fg-primary);
 }
 
@@ -685,14 +685,14 @@ html, body {
   right: 0;
   bottom: auto;
   min-width: 220px;
-  background-color: rgba(28, 28, 32, 0.96);
+  background-color: var(--color-menu-bg);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(var(--highlight-rgb), 0.10);
   border-radius: 12px;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 12px 32px rgba(0, 0, 0, 0.5);
+    0 1px 0 rgba(var(--highlight-rgb), 0.06) inset,
+    0 12px 32px rgba(var(--shadow-rgb), 0.5);
   z-index: 40;
   padding: 4px;
   display: flex;
@@ -717,11 +717,11 @@ html, body {
 }
 
 .engine-picker__item--active {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(var(--highlight-rgb), 0.06);
 }
 
 .engine-picker__item:hover {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(var(--highlight-rgb), 0.06);
 }
 
 .engine-picker__item--disabled {
@@ -739,7 +739,7 @@ html, body {
 }
 
 .engine-picker__item-login {
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(var(--highlight-rgb), 0.10);
   color: var(--color-fg-secondary);
   font-size: var(--font-size-xs);
   padding: 3px 8px;
@@ -770,16 +770,16 @@ html, body {
   height: 30px;
   padding: 4px 9px;
   border-radius: var(--radius-full);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(var(--highlight-rgb), 0.08);
+  background: rgba(var(--highlight-rgb), 0.035);
   color: var(--color-fg-secondary);
   font-size: var(--font-size-xs);
   cursor: pointer;
 }
 
 .browsercode-model-picker__toggle:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(var(--highlight-rgb), 0.08);
+  border-color: rgba(var(--highlight-rgb), 0.14);
   color: var(--color-fg-primary);
 }
 
@@ -802,7 +802,7 @@ html, body {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--highlight-rgb), 0.08);
   color: var(--color-fg-primary);
   font-size: 9px;
   font-weight: 650;
@@ -816,12 +816,12 @@ html, body {
 .browsercode-model-picker__skeleton {
   display: inline-flex;
   flex-shrink: 0;
-  background-color: rgba(255, 255, 255, 0.07);
+  background-color: rgba(var(--highlight-rgb), 0.07);
   background-image: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.05) 0%,
-    rgba(255, 255, 255, 0.13) 44%,
-    rgba(255, 255, 255, 0.05) 88%
+    rgba(var(--highlight-rgb), 0.05) 0%,
+    rgba(var(--highlight-rgb), 0.13) 44%,
+    rgba(var(--highlight-rgb), 0.05) 88%
   );
   background-size: 220% 100%;
   animation: browsercode-skeleton-shimmer 1.5s var(--ease-in-out) infinite;
@@ -869,14 +869,14 @@ html, body {
   width: 280px;
   max-height: 360px;
   overflow: auto;
-  background-color: rgba(28, 28, 32, 0.97);
+  background-color: var(--color-menu-bg);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(var(--highlight-rgb), 0.10);
   border-radius: 12px;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 12px 32px rgba(0, 0, 0, 0.5);
+    0 1px 0 rgba(var(--highlight-rgb), 0.06) inset,
+    0 12px 32px rgba(var(--shadow-rgb), 0.5);
   z-index: 45;
   padding: 6px;
 }
@@ -884,7 +884,7 @@ html, body {
 .browsercode-model-picker__group + .browsercode-model-picker__group {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid rgba(var(--highlight-rgb), 0.07);
 }
 
 .browsercode-model-picker__group-label {
@@ -916,7 +916,7 @@ html, body {
 .browsercode-model-picker__item:hover,
 .browsercode-model-picker__setup:hover,
 .browsercode-model-picker__item--active {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(var(--highlight-rgb), 0.06);
 }
 
 .browsercode-model-picker__item-name {
@@ -932,7 +932,7 @@ html, body {
 }
 
 .browsercode-model-picker__locked {
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(var(--highlight-rgb), 0.10);
   border-radius: 6px;
   padding: 2px 6px;
 }
@@ -968,14 +968,14 @@ html, body {
   width: 240px;
   max-height: 320px;
   overflow: auto;
-  background-color: rgba(28, 28, 32, 0.97);
+  background-color: var(--color-menu-bg);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(var(--highlight-rgb), 0.10);
   border-radius: 12px;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 12px 32px rgba(0, 0, 0, 0.5);
+    0 1px 0 rgba(var(--highlight-rgb), 0.06) inset,
+    0 12px 32px rgba(var(--shadow-rgb), 0.5);
   padding: 6px;
   z-index: 60;
 }
@@ -1004,7 +1004,7 @@ html, body {
   font-size: var(--font-size-sm);
   cursor: pointer;
   margin-bottom: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgba(var(--highlight-rgb), 0.07);
 }
 
 .browsercode-model-picker__back:hover {

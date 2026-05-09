@@ -252,6 +252,28 @@ function PreferencesStep({
 
 const VALID_STEPS: readonly Step[] = ['intro', 'profile', 'apikey', 'notifications', 'shortcut'];
 
+// Cookie sync is unsupported on Windows: Chromium 127+ uses App-Bound
+// Encryption (v20) keyed to the original user-data-dir, so a temp-copy
+// profile decrypts to nothing, and the alternative path of launching
+// headless against the real profile is blocked by the Chromium DevTools
+// hardening that refuses --remote-debugging-port for the default profile.
+// We hide the onboarding step + Settings card on Windows until we have a
+// native v20 decryption path.
+const COOKIE_SYNC_SUPPORTED = typeof window !== 'undefined'
+  && window.onboardingAPI?.platform !== 'win32';
+
+const IS_WINDOWS = typeof window !== 'undefined'
+  && window.onboardingAPI?.platform === 'win32';
+
+// On Windows we don't run the engine installers ourselves: the npm-install
+// scripts shell out through cmd.exe in ways that have been unreliable on
+// real user machines, so we instead copy the command to the user's
+// clipboard and poll detect-IPC until they finish running it manually.
+const ENGINE_INSTALL_COMMANDS: Record<InstallableOnboardingEngine, string> = {
+  'claude-code': 'npm install -g @anthropic-ai/claude-code',
+  codex: 'npm install -g @openai/codex',
+};
+
 export function OnboardingApp() {
   const [step, setStep] = useState<Step>('intro');
   const [hydrated, setHydrated] = useState(false);
@@ -265,7 +287,14 @@ export function OnboardingApp() {
       if (cancelled) return;
       const candidate = state?.lastStep;
       if (candidate && (VALID_STEPS as readonly string[]).includes(candidate)) {
-        setStep(candidate as Step);
+        // If a previous run persisted lastStep === 'profile' (e.g. on a
+        // different platform, or before cookie sync was disabled here),
+        // skip past it on win32 so the user doesn't land on a hidden step.
+        if (candidate === 'profile' && !COOKIE_SYNC_SUPPORTED) {
+          setStep('apikey');
+        } else {
+          setStep(candidate as Step);
+        }
       }
       setHydrated(true);
     }).catch(() => { setHydrated(true); });
@@ -557,6 +586,33 @@ export function OnboardingApp() {
     void handleInstallEngine('codex');
   }, [handleInstallEngine]);
 
+  // Windows-only: copy the npm install command to the clipboard, then poll
+  // the detect-IPC until the user has run it themselves. We don't spawn the
+  // installer ourselves on win32 because the cmd.exe path-out has been
+  // unreliable. The polling reuses `waitForInstalledStatus` (~2 min window).
+  const handleManualInstallEngine = useCallback(async (engineId: InstallableOnboardingEngine) => {
+    if (installingEnginesRef.current[engineId]) return;
+    try {
+      await navigator.clipboard.writeText(ENGINE_INSTALL_COMMANDS[engineId]);
+    } catch (err) {
+      console.warn('[onboarding] manual install: clipboard write failed', err);
+    }
+    setEngineInstalling(engineId, true);
+    try {
+      await waitForInstalledStatus(engineId);
+    } finally {
+      setEngineInstalling(engineId, false);
+    }
+  }, [setEngineInstalling, waitForInstalledStatus]);
+
+  const handleManualInstallClaudeCode = useCallback(() => {
+    void handleManualInstallEngine('claude-code');
+  }, [handleManualInstallEngine]);
+
+  const handleManualInstallCodex = useCallback(() => {
+    void handleManualInstallEngine('codex');
+  }, [handleManualInstallEngine]);
+
   const claudeCodeReady = Boolean(claudeCode?.installed && claudeCode.authed);
   const codexReady = Boolean(codex?.installed && codex.authed);
   const hasUsableAnthropicKey = Boolean(claudeCode?.installed && apiKey.trim());
@@ -830,7 +886,9 @@ export function OnboardingApp() {
 
       <div className={`onboarding-content ${step === 'intro' ? 'onboarding-content-wide' : ''}`}>
         <div className="step-indicator">
-          {(['intro', 'profile', 'apikey', 'notifications', 'shortcut'] as Step[]).map((s, i, all) => {
+          {((COOKIE_SYNC_SUPPORTED
+            ? ['intro', 'profile', 'apikey', 'notifications', 'shortcut']
+            : ['intro', 'apikey', 'notifications', 'shortcut']) as Step[]).map((s, i, all) => {
             const currentIdx = all.indexOf(step);
             const thisIdx = i;
             const cls = thisIdx < currentIdx ? 'done' : thisIdx === currentIdx ? 'active' : '';
@@ -851,7 +909,10 @@ export function OnboardingApp() {
                 <p className="intro-subtitle">
                   Run AI agents that browse the web, complete tasks, and report back — all from your desktop.
                 </p>
-                <button className="btn btn-primary intro-cta" onClick={() => setStep('profile')}>
+                <button
+                  className="btn btn-primary intro-cta"
+                  onClick={() => setStep(COOKIE_SYNC_SUPPORTED ? 'profile' : 'apikey')}
+                >
                   Get started
                 </button>
               </div>
@@ -1083,7 +1144,7 @@ export function OnboardingApp() {
                     <button
                       type="button"
                       className="provider-card__action"
-                      onClick={handleInstallClaudeCode}
+                      onClick={IS_WINDOWS ? handleManualInstallClaudeCode : handleInstallClaudeCode}
                       disabled={installingClaudeCode}
                     >
                       <div className="claude-code-card__icon">
@@ -1091,10 +1152,16 @@ export function OnboardingApp() {
                       </div>
                       <div className="claude-code-card__text">
                         <div className="claude-code-card__title">
-                          {installingClaudeCode ? 'Installing Claude Code…' : 'Install Claude Code'}
+                          {installingClaudeCode
+                            ? (IS_WINDOWS ? 'Waiting for Claude Code…' : 'Installing Claude Code…')
+                            : (IS_WINDOWS ? 'Copy install command' : 'Install Claude Code')}
                         </div>
                         <div className="claude-code-card__sub">
-                          Runs the installer in the background. We’ll detect it when it finishes.
+                          {IS_WINDOWS
+                            ? (installingClaudeCode
+                              ? `Run ${ENGINE_INSTALL_COMMANDS['claude-code']} in your terminal — we’ll detect it when it finishes.`
+                              : `Click to copy ${ENGINE_INSTALL_COMMANDS['claude-code']}. Paste it into PowerShell, and we’ll detect when it finishes.`)
+                            : 'Runs the installer in the background. We’ll detect it when it finishes.'}
                         </div>
                       </div>
                       <div className="claude-code-card__chevron">{installingClaudeCode ? '\u2026' : '\u203A'}</div>
@@ -1174,7 +1241,7 @@ export function OnboardingApp() {
                     <button
                       type="button"
                       className="provider-card__action"
-                      onClick={handleInstallCodex}
+                      onClick={IS_WINDOWS ? handleManualInstallCodex : handleInstallCodex}
                       disabled={installingCodex}
                     >
                       <div className="claude-code-card__icon">
@@ -1182,10 +1249,16 @@ export function OnboardingApp() {
                       </div>
                       <div className="claude-code-card__text">
                         <div className="claude-code-card__title">
-                          {installingCodex ? 'Installing Codex…' : 'Install Codex CLI'}
+                          {installingCodex
+                            ? (IS_WINDOWS ? 'Waiting for Codex…' : 'Installing Codex…')
+                            : (IS_WINDOWS ? 'Copy install command' : 'Install Codex CLI')}
                         </div>
                         <div className="claude-code-card__sub">
-                          Runs the installer in the background. We’ll detect it when it finishes.
+                          {IS_WINDOWS
+                            ? (installingCodex
+                              ? `Run ${ENGINE_INSTALL_COMMANDS.codex} in your terminal — we’ll detect it when it finishes.`
+                              : `Click to copy ${ENGINE_INSTALL_COMMANDS.codex}. Paste it into PowerShell, and we’ll detect when it finishes.`)
+                            : 'Runs the installer in the background. We’ll detect it when it finishes.'}
                         </div>
                       </div>
                       <div className="claude-code-card__chevron">{installingCodex ? '\u2026' : '\u203A'}</div>
@@ -1280,7 +1353,10 @@ export function OnboardingApp() {
               </button>
             </div>
 
-            <button className="back-btn" onClick={() => setStep('profile')}>
+            <button
+              className="back-btn"
+              onClick={() => setStep(COOKIE_SYNC_SUPPORTED ? 'profile' : 'intro')}
+            >
               Back
             </button>
           </div>

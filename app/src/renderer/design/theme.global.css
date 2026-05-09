@@ -50,6 +50,20 @@
   --warning: #f59e0b;
   --info:    #60a5fa;
 
+  /* RGB triplets used inside rgba() so opacity stays per-callsite while the
+     channel colour flips by theme. Reference as rgba(var(--shadow-rgb), X). */
+  --shadow-rgb:    0, 0, 0;
+  --highlight-rgb: 255, 255, 255;
+
+  /* Menu / floating-surface tokens — used by dropdowns, popovers, sheets. */
+  --color-menu-bg:    rgba(28, 28, 32, 0.97);
+  --color-overlay-bg: rgba(10, 10, 13, 0.85);
+
+  /* Glass surfaces (pill, command bars). Two-stop gradient handled at use
+     site; these are the start/end stops. */
+  --color-glass-top:    rgba(30, 30, 34, 0.58);
+  --color-glass-bottom: rgba(22, 22, 26, 0.62);
+
   /* ===========================================================================
      SEMANTIC COLORS (shell defaults; overridden per-theme below)
   =========================================================================== */
@@ -210,6 +224,92 @@
   --z-pill:     600;
   --z-tooltip:  700;
   --z-max:      9999;
+}
+
+/* ===========================================================================
+   LIGHT MODE — overrides only the semantic tokens. Components keep using
+   --color-bg-base / --color-fg-primary / etc., so nothing else changes.
+   Activate by setting <html data-mode="light">. Default (no attribute or
+   data-mode="dark") uses the :root values above.
+=========================================================================== */
+
+[data-mode="light"] {
+  /* Neutral cool-grey scale. 0 = brightest, 12 = darkest text. */
+  --slate-0:  #ffffff;
+  --slate-1:  #f8f8fa;
+  --slate-2:  #f4f4f6;
+  --slate-3:  #ededf0;
+  --slate-4:  #e4e4e7;
+  --slate-5:  #d8d8dc;
+  --slate-6:  #c4c4c9;
+  --slate-7:  #ededf0;
+  --slate-8:  #d8d8dc;
+  --slate-9:  #b4b4ba;
+  --slate-10: #6c6e75;
+  --slate-11: #44464d;
+  --slate-12: #16171b;
+
+  /* Backgrounds — light, neutral cool greys. Three-tier hierarchy:
+     - base    (#f7f7f9): the page
+     - elevated(#fcfcfd): cards, inputs — pop above the page, not white
+     - sunken  (#ececef): sidebar / recessed surfaces — clearly sits lower */
+  --color-bg-base:     #f7f7f9;
+  --color-bg-elevated: #fcfcfd;
+  --color-bg-overlay:  #fcfcfd;
+  --color-bg-sunken:   #ececef;
+
+  /* Foregrounds — WCAG AA on bg-base */
+  --color-fg-primary:   #16171b;
+  --color-fg-secondary: #44464d;
+  --color-fg-tertiary:  #6c6e75;
+  --color-fg-disabled:  #b4b4ba;
+  --color-fg-inverse:   #f4f4f6;
+
+  /* Borders */
+  --color-border-subtle:  #e4e4e7;
+  --color-border-default: #d2d3d8;
+  --color-border-strong:  #b4b4ba;
+
+  /* Accent — slightly darker for AA contrast on light surfaces */
+  --color-accent-default: #4e6378;
+  --color-accent-hover:   #5e7589;
+  --color-accent-dim:     #3f5364;
+  --color-accent-muted:   rgba(78, 99, 120, 0.08);
+  --color-accent-glow:    rgba(78, 99, 120, 0.16);
+
+  /* Surface interactive states — dark-on-light */
+  --color-surface-interactive:        rgba(0, 0, 0, 0.04);
+  --color-surface-interactive-hover:  rgba(0, 0, 0, 0.07);
+  --color-surface-interactive-active: rgba(0, 0, 0, 0.10);
+
+  /* Modal scrim */
+  --color-modal-scrim: rgba(22, 23, 27, 0.40);
+
+  /* Light shadows — barely-there. Use border-default for separation, this
+     is just the faintest lift. Anything stronger reads as harsh. */
+  --shadow-xs: none;
+  --shadow-sm: 0 1px 2px rgba(40, 40, 50, 0.04);
+  --shadow-md: 0 4px 12px rgba(40, 40, 50, 0.06);
+  --shadow-lg: 0 10px 28px rgba(40, 40, 50, 0.08);
+  --shadow-xl: 0 20px 56px rgba(40, 40, 50, 0.10);
+
+  --glow-accent-sm: 0 0 10px rgba(78, 99, 120, 0.08);
+  --glow-accent-md: 0 0 20px rgba(78, 99, 120, 0.12);
+  --glow-accent-lg: 0 0 36px rgba(78, 99, 120, 0.18);
+  --glow-accent:    var(--glow-accent-sm);
+
+  /* Mode-aware RGB triplets. shadow-rgb is intentionally LIGHT in light
+     mode so the per-callsite alphas (0.3 - 0.5, calibrated for dark mode)
+     still produce barely-there shadows instead of harsh dark blocks.
+     Going darker here lights the page on fire. */
+  --shadow-rgb:    150, 155, 165;
+  --highlight-rgb: 22, 23, 27;
+
+  /* Floating surfaces — neutral grey glass. */
+  --color-menu-bg:    rgba(244, 244, 246, 0.97);
+  --color-overlay-bg: rgba(234, 234, 236, 0.92);
+  --color-glass-top:    rgba(225, 225, 230, 0.97);
+  --color-glass-bottom: rgba(216, 216, 220, 0.98);
 }
 
 /* ===========================================================================
