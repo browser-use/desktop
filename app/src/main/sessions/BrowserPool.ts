@@ -1,5 +1,6 @@
 import { WebContentsView, type BrowserWindow, type WebContents } from 'electron';
 import { browserLogger } from '../logger';
+import { getWindowBackgroundColor } from '../themeMode';
 import type { TabInfo } from './types';
 
 const DEFAULT_BROWSER_WIDTH = 1280;
@@ -133,6 +134,9 @@ export class BrowserPool {
         backgroundThrottling: true,
       },
     });
+    // Without this, attach/detach during view swaps briefly paints black
+    // (Chromium's default before the page commits its first frame).
+    view.setBackgroundColor(getWindowBackgroundColor());
     browserLogger.info('BrowserPool.startup.constructed', {
       sessionId,
       component: 'BrowserPool',

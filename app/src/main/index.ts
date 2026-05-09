@@ -76,6 +76,8 @@ import { loadBrowserCodeConfig } from './identity/authStore';
 import { registerApiKeyHandlers } from './settings/apiKeyIpc';
 import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
+import { registerThemeHandlers } from './themeIpc';
+import { startSystemThemeWatcher } from './themeMode';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
@@ -418,6 +420,8 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   registerConsentHandlers();
   registerTelemetryHandlers();
+  registerThemeHandlers();
+  startSystemThemeWatcher();
   registerChannelHandlers(channelRouter, whatsAppAdapter);
   whatsAppAdapter.onStatusChange((status, detail) => {
     const target = shellWindow ?? onboardingWindow;

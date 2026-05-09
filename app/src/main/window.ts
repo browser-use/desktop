@@ -8,6 +8,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { mainLogger, rendererLogger } from './logger';
 import { registerViteDepStaleHeal } from './viteDepStaleHeal';
+import { getWindowBackgroundColor } from './themeMode';
 
 declare const SHELL_VITE_DEV_SERVER_URL: string | undefined;
 
@@ -94,12 +95,12 @@ export function createShellWindow(opts?: ShellWindowOptions): BrowserWindow {
     // its traffic lights from `hidden` alone, so this branch is Win-only.
     ...(process.platform === 'win32' && {
       titleBarOverlay: {
-        color: incognito ? '#1a1a2e' : '#0d0d0d',
+        color: incognito ? '#1a1a2e' : getWindowBackgroundColor(),
         symbolColor: '#e6eaee',
         height: 32,
       },
     }),
-    backgroundColor: incognito ? '#1a1a2e' : '#0d0d0d',
+    backgroundColor: incognito ? '#1a1a2e' : getWindowBackgroundColor(),
     webPreferences: {
       preload: path.join(__dirname, 'shell.js'),
       contextIsolation: true,

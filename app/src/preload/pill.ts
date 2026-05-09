@@ -298,6 +298,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       setActive: (payload: { providerId: string }): Promise<void> =>
         ipcRenderer.invoke('settings:browsercode:set-active', payload),
     },
+    theme: {
+      get: (): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:get'),
+      set: (mode: 'light' | 'dark' | 'system'): Promise<{ mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }> =>
+        ipcRenderer.invoke('theme:set', mode),
+      onChange: (cb: (event: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => void): (() => void) => {
+        const handler = (_evt: unknown, payload: { mode: 'light' | 'dark' | 'system'; resolved: 'light' | 'dark' }) => cb(payload);
+        ipcRenderer.on('theme:changed', handler);
+        return () => ipcRenderer.removeListener('theme:changed', handler);
+      },
+    },
   },
 });
 
