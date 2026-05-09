@@ -4,6 +4,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
+import { createPopupBridge } from './popupBridge';
 
 const DEBUG_LOGS_PRELOAD = process.env.BU_DEBUG_LOGS_PRELOAD === '1';
 function debugLog(message: string, data?: Record<string, unknown>): void {
@@ -56,6 +57,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       },
     },
   },
+  popup: createPopupBridge(),
   on: {
     sessionOutputTerm: (cb: (id: string, bytes: string) => void): (() => void) => {
       debugLog('[logs-preload] subscribe sessionOutputTerm');

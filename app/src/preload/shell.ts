@@ -7,6 +7,7 @@ import {
   validatePoolStats,
 } from '../shared/session-schemas';
 import type { AgentSession, HlEvent, TabInfo, BrowserPoolStats } from '../shared/session-schemas';
+import { createPopupBridge } from './popupBridge';
 
 type SettingsOpenPayload = { focusBrowserCodeProvider?: string };
 
@@ -51,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.send('logs:update-anchor', anchor);
     },
   },
+  popup: createPopupBridge(),
   takeover: {
     show: (
       sessionId: string,

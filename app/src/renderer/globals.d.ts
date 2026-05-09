@@ -224,6 +224,14 @@ interface ElectronTakeoverAPI {
   hide: (sessionId: string) => Promise<void>;
 }
 
+interface ElectronPopupAPI {
+  open: (request: import('../shared/app-popup').AppPopupOpenRequest) => Promise<import('../shared/app-popup').AppPopupOpenResult>;
+  close: (popupId?: string) => Promise<void>;
+  resize: (size: import('../shared/app-popup').AppPopupContentSize) => void;
+  onAction: (cb: (action: import('../shared/app-popup').AppPopupAction) => void) => () => void;
+  onClosed: (cb: (event: import('../shared/app-popup').AppPopupClosed) => void) => () => void;
+}
+
 interface ElectronSettingsApiKeyAPI {
   getMasked: () => Promise<{ present: boolean; masked: string | null }>;
   getStatus: () => Promise<{
@@ -340,6 +348,7 @@ interface ElectronSettingsAPI {
 interface ElectronAPI {
   pill: ElectronPillAPI;
   logs?: ElectronLogsAPI;
+  popup?: ElectronPopupAPI;
   takeover?: ElectronTakeoverAPI;
   sessions: ElectronSessionAPI;
   channels: ElectronChannelsAPI;

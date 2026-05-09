@@ -79,6 +79,7 @@ import { registerConsentHandlers } from './consentIpc';
 import { registerTelemetryHandlers } from './telemetryIpc';
 import { registerThemeHandlers } from './themeIpc';
 import { startSystemThemeWatcher } from './themeMode';
+import { registerAppPopupHandlers, warmAppPopup } from './appPopup';
 import { captureEvent } from './telemetry';
 import { registerChromeImportHandlers } from './chrome-import/ipc';
 import { mainLogger } from './logger';
@@ -291,6 +292,7 @@ function openShellAndWire(): BrowserWindow {
   createPillWindow();
   // Create logs overlay window (hidden) and anchor it to the hub
   createLogsWindow();
+  warmAppPopup();
   attachLogsToHub(shellWindow);
   mainLogger.info('main.tray.beforeCreate', { typeofCreateTray: typeof createTray });
   try {
@@ -426,6 +428,7 @@ app.whenReady().then(async () => {
   // ---------------------------------------------------------------------------
   registerConsentHandlers();
   registerTelemetryHandlers();
+  registerAppPopupHandlers();
   startSystemThemeWatcher();
   registerChannelHandlers(channelRouter, whatsAppAdapter);
   whatsAppAdapter.onStatusChange((status, detail) => {

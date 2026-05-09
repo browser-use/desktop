@@ -12,6 +12,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AgentEvent } from '../shared/types';
+import { createPopupBridge } from './popupBridge';
 
 // ---------------------------------------------------------------------------
 // D2 — Dev-only structured logger
@@ -310,6 +311,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       },
     },
   },
+  popup: createPopupBridge(),
 });
 
 log.info('preload.pill.ready', {

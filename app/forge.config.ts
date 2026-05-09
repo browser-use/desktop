@@ -262,6 +262,12 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.ts',
           target: 'preload',
         },
+        {
+          // Shared top-level popup preload
+          entry: 'src/preload/popup.ts',
+          config: 'vite.preload.config.ts',
+          target: 'preload',
+        },
       ],
       renderer: [
         {
@@ -283,6 +289,11 @@ const config: ForgeConfig = {
           // Logs renderer (src/renderer/logs/logs.html)
           name: 'logs',
           config: 'vite.logs.config.mts',
+        },
+        {
+          // Shared top-level popup renderer
+          name: 'popup',
+          config: 'vite.popup.config.mts',
         },
       ],
     }),
