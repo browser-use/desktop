@@ -5,7 +5,6 @@ import { AreaClosed, LinePath } from '@visx/shape';
 import { curveMonotoneX } from '@visx/curve';
 import { LinearGradient } from '@visx/gradient';
 import { ParentSize } from '@visx/responsive';
-import { STATUS_LABEL } from './constants';
 import { TaskInput } from './TaskInput';
 import type { TaskInputHandle } from './TaskInput';
 import { DashboardBackground } from './DashboardBackground';
@@ -35,15 +34,6 @@ function buildTotalSeries(sessions: AgentSession[], windowMs: number): number[] 
   const sorted = sessions.filter((s) => s.createdAt >= cutoff).sort((a, b) => a.createdAt - b.createdAt);
   if (sorted.length === 0) return [0, 0];
   return [0, ...sorted.map((_, i) => i + 1)];
-}
-
-function formatElapsed(createdAt: number): string {
-  const seconds = Math.floor((Date.now() - createdAt) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h`;
 }
 
 interface SparklineProps {
@@ -104,20 +94,16 @@ const SPARK_COLORS = {
 
 interface DashboardProps {
   sessions: AgentSession[];
-  onSwitchToGrid: () => void;
-  onSelectSession?: (id: string) => void;
   onSubmitTask: (input: import('./TaskInput').TaskInputSubmission) => void;
 }
 
-export function Dashboard({ sessions, onSwitchToGrid, onSelectSession, onSubmitTask }: DashboardProps): React.ReactElement {
+export function Dashboard({ sessions, onSubmitTask }: DashboardProps): React.ReactElement {
   const runningCount = sessions.filter((s) => s.status === 'running').length;
   const idleCount = sessions.filter((s) => s.status === 'idle').length;
 
   const runningSeries = useMemo(() => buildStatusSeries(sessions, 'running', HOUR), [sessions]);
   const idleSeries = useMemo(() => buildStatusSeries(sessions, 'idle', DAY), [sessions]);
   const totalSeries = useMemo(() => buildTotalSeries(sessions, 7 * DAY), [sessions]);
-
-  const recentSessions = sessions.slice(0, 6);
 
   const taskInputRef = useRef<TaskInputHandle>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -216,37 +202,6 @@ export function Dashboard({ sessions, onSwitchToGrid, onSelectSession, onSubmitT
         </div>
       </div>
 
-      {recentSessions.length > 0 && (
-        <div className="dashboard__recent">
-          <div className="dashboard__card-header">
-            <span className="dashboard__card-title">Recent sessions</span>
-            <button className="dashboard__view-all" onClick={onSwitchToGrid}>
-              View all
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </div>
-          <div className="dashboard__recent-list">
-            {recentSessions.map((session) => (
-              <div
-                key={session.id}
-                className="dashboard__recent-row"
-                onClick={() => onSelectSession?.(session.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') onSelectSession?.(session.id); }}
-              >
-                <span className={`dashboard__recent-dot dashboard__recent-dot--${session.status}`} />
-                <span className="dashboard__recent-status">{STATUS_LABEL[session.status]}</span>
-                {session.group && <span className="dashboard__recent-group">{session.group}</span>}
-                <span className="dashboard__recent-prompt">{session.prompt}</span>
-                <span className="dashboard__recent-elapsed">{formatElapsed(session.createdAt)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

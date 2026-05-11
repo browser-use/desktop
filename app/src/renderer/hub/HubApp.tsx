@@ -628,13 +628,7 @@ export function HubApp(): React.ReactElement {
       ) : viewMode === 'dashboard' ? (
         <Dashboard
           sessions={sessions}
-          onSwitchToGrid={() => setViewMode('grid')}
           onSubmitTask={(submission) => { handleCreateSession(submission); }}
-          onSelectSession={(id) => {
-            handleSelectSession(id);
-            sessionsQuery.refetch();
-            setViewMode('grid');
-          }}
         />
       ) : (
         (() => {
