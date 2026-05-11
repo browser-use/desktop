@@ -11,28 +11,19 @@ const IDLE_FRAME_RATE = 1;
 const ACTIVE_FRAME_RATE = 60;
 const DEFAULT_IDLE_FREEZE_DELAY_MS = 15_000;
 const CDP_PROTOCOL_VERSION = '1.3';
-// Emulated viewport pins height; width is computed per-attach from the
-// physical rect's aspect ratio so the rendered page fills the box exactly
-// (no letterboxing). A floor on width keeps sites in their desktop
-// layout — media queries always see ≥1440px so tablet/mobile breakpoints
-// never trigger.
+// Edge-to-edge fill. View rect = slot rect, no gutters ever. Page sees
+// a viewport sized purely by setZoomFactor: window.innerWidth = slot.width
+// / zoom, window.innerHeight = slot.height / zoom. zoom is pinned so the
+// page sees ~900 CSS px tall regardless of slot height, giving sites a
+// desktop-class viewport. No enableDeviceEmulation — one knob only, no
+// ambiguity about where Chromium positions the rendered page.
 const EMULATED_VIEWPORT_HEIGHT = 900;
-const MIN_EMULATED_VIEWPORT_WIDTH = 1440;
-const DEFAULT_EMULATED_VIEWPORT_WIDTH = 1440;
-// Cap how wide we let the emulated viewport grow. Past this, sites like
-// X/Twitter shift to an "ultra-wide" centered layout that leaves a fat
-// dead band on one side. Above the cap we letterbox (centered) instead.
-// 1920 fits common desktop monitors without triggering ultra-wide layouts;
-// 1600 was too low and produced ~100px gutters on wide windows (e.g. when
-// the user picks the top-tabs layout, which reclaims the sidebar's width).
-const MAX_EMULATED_VIEWPORT_WIDTH = 1920;
 
 interface PoolEntry {
   sessionId: string;
   view: WebContentsView;
   createdAt: number;
   attached: boolean;
-  emulatedWidth: number;
   idleFreezeEligible: boolean;
   frozen: boolean;
   freezeTimer: ReturnType<typeof setTimeout> | null;
@@ -238,57 +229,20 @@ export class BrowserPool {
 
     view.webContents.setFrameRate(THROTTLED_FRAME_RATE);
 
-    // Pin the embedded page's viewport to a fixed desktop size so sites
-    // always render their desktop layout — no tablet/mobile reflow.
-    //
-    // Strategy: emulate screen/view at EMULATED_VIEWPORT_* (for media
-    // queries / window.innerWidth) but leave fitToView=false so Chromium
-    // renders at natural size. We then scale the visible content down via
-    // webContents.setZoomFactor so it fits the physical WebContentsView
-    // rect. setZoomFactor doesn't change CSS viewport, so the page still
-    // thinks it's 1440-wide even though we're drawing it smaller. Input
-    // coordinates are scaled correctly by Chromium's zoom pipeline, so
-    // clicks and scrolls land on the right DOM elements.
-    const applyEmulation = (): void => {
-      try {
-        if (view.webContents.isDestroyed()) return;
-        const width = this.entries.get(sessionId)?.emulatedWidth ?? DEFAULT_EMULATED_VIEWPORT_WIDTH;
-        // `fitToView` is accepted at runtime but missing from Electron's
-        // Parameters typedef; cast to loosen the shape.
-        view.webContents.enableDeviceEmulation({
-          screenSize: { width, height: EMULATED_VIEWPORT_HEIGHT },
-          viewSize:   { width, height: EMULATED_VIEWPORT_HEIGHT },
-          deviceScaleFactor: 1,
-          viewPosition: { x: 0, y: 0 },
-          screenPosition: 'desktop',
-          fitToView: false,
-          offset: { x: 0, y: 0 },
-          scale: 1,
-        } as Parameters<typeof view.webContents.enableDeviceEmulation>[0]);
-        browserLogger.info('BrowserPool.deviceEmulation.applied', {
-          sessionId,
-          operationalViewport: {
-            width,
-            height: EMULATED_VIEWPORT_HEIGHT,
-            note: 'what the page sees via window.innerWidth / media queries',
-          },
-        });
-      } catch (err) {
-        browserLogger.warn('BrowserPool.deviceEmulation.error', {
-          sessionId,
-          error: (err as Error).message,
-        });
-      }
-    };
-    view.webContents.once('did-start-loading', applyEmulation);
-    view.webContents.on('did-finish-load', applyEmulation);
+    // No enableDeviceEmulation — `screenSize` and `viewPosition` only apply
+    // when screenPosition === 'mobile' (per Electron's Parameters typedef),
+    // and combining emulation with setZoomFactor produced the rendered
+    // page being narrower than bounds, leaving an asymmetric gutter. We
+    // now drive everything through setZoomFactor alone: the page sees
+    // window.innerWidth = bounds.width / zoom, and renders at exactly
+    // bounds.width x bounds.height physical pixels — no second knob to
+    // disagree, no positioning ambiguity.
 
     const entry: PoolEntry = {
       sessionId,
       view,
       createdAt: startupStartedAt,
       attached: false,
-      emulatedWidth: DEFAULT_EMULATED_VIEWPORT_WIDTH,
       idleFreezeEligible: false,
       frozen: false,
       freezeTimer: null,
@@ -620,48 +574,34 @@ export class BrowserPool {
     }
   }
 
-  /** Center + shrink the view rect inside the hub box if the emulated
-   *  viewport is narrower than the rect (after zoom-to-fit on height).
-   *  Otherwise the rect is used as-is. */
+  /** Edge-to-edge fill: view rect = slot rect, no gutters. Zoom is set so
+   *  the page sees a desktop-feeling viewport (~900 CSS px tall, slot-aspect
+   *  wide). zoom alone is enough — no device emulation. The page renders
+   *  at exactly bounds.width x bounds.height physical pixels. */
   private fitBoundsToView(
-    emulatedWidth: number,
     bounds: { x: number; y: number; width: number; height: number },
-    zoom: number,
-  ): { x: number; y: number; width: number; height: number } {
-    const renderedWidth = Math.round(emulatedWidth * zoom);
-    if (renderedWidth >= bounds.width) return bounds;
+  ): { x: number; y: number; width: number; height: number; zoom: number } {
+    const zoom = Math.max(0.25, bounds.height / EMULATED_VIEWPORT_HEIGHT);
     return {
-      x: bounds.x + Math.round((bounds.width - renderedWidth) / 2),
+      x: bounds.x,
       y: bounds.y,
-      width: renderedWidth,
+      width: bounds.width,
       height: bounds.height,
+      zoom,
     };
   }
 
-  private zoomForBounds(bounds: { height: number }): number {
-    return Math.max(0.25, Math.min(1, bounds.height / EMULATED_VIEWPORT_HEIGHT));
-  }
-
-  private currentZoomForBounds(entry: PoolEntry, bounds: { height: number }): number {
-    try {
-      const zoom = entry.view.webContents.getZoomFactor();
-      if (Number.isFinite(zoom) && zoom > 0) return zoom;
-    } catch (err) {
-      browserLogger.warn('BrowserPool.zoom.getZoomFactor.error', { sessionId: entry.sessionId, error: (err as Error).message });
-    }
-    return this.zoomForBounds(bounds);
-  }
-
-  /** Public helper for the resize fast path: applies the same fit/center
-   *  logic as attach so the rendered page stays centered as the hub layout
-   *  changes. Returns true if the view exists and bounds were applied. */
+  /** Public helper for the resize fast path: applies the same fit logic as
+   *  attach so the rendered page stays edge-to-edge as the hub layout
+   *  changes. Returns the fitted rect, or null if the view doesn't exist. */
   setViewBoundsFitted(sessionId: string, bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } | null {
     const entry = this.entries.get(sessionId);
     if (!entry) return null;
-    const currentZoom = this.currentZoomForBounds(entry, bounds);
-    const fitted = this.fitBoundsToView(entry.emulatedWidth, bounds, currentZoom);
-    entry.view.setBounds(fitted);
-    return fitted;
+    if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) || bounds.width <= 0 || bounds.height <= 0) return null;
+    const fitted = this.fitBoundsToView(bounds);
+    entry.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
+    try { entry.view.webContents.setZoomFactor(fitted.zoom); } catch { /* ignore */ }
+    return { x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height };
   }
 
   attachToWindow(sessionId: string, window: BrowserWindow, bounds: { x: number; y: number; width: number; height: number }): boolean {
@@ -677,103 +617,45 @@ export class BrowserPool {
     // would otherwise paint with whatever bg it had at create time.
     try { entry.view.setBackgroundColor(getWindowBackgroundColor()); } catch { /* noop */ }
 
+    // Guard against transient zero/non-finite bounds (e.g. a frame fired
+    // mid-relayout when the pane has 0 width/height). Without this the fit
+    // math feeds NaN/Infinity into setBounds.
+    const validShape = Number.isFinite(bounds.width) && Number.isFinite(bounds.height)
+      && bounds.width > 0 && bounds.height > 0;
+    if (!validShape) {
+      browserLogger.debug('BrowserPool.attach.skipInvalidBounds', { sessionId, bounds });
+      return entry.attached;
+    }
+
+    const fitted = this.fitBoundsToView(bounds);
+
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
-      // Guard against transient zero/non-finite bounds (e.g. a frame fired
-      // mid-relayout when the pane has 0 width/height). Without this, the
-      // aspect-ratio recompute below would feed NaN/Infinity through the
-      // emulation + clamp + setBounds path. Skip entirely; ResizeObserver
-      // will fire again with a valid rect.
-      const validShape = Number.isFinite(bounds.width) && Number.isFinite(bounds.height)
-        && bounds.width > 0 && bounds.height > 0;
-      if (!validShape) {
-        browserLogger.debug('BrowserPool.attach.skipInvalidBounds', { sessionId, bounds });
-        return true;
-      }
-      // Recompute aspect-matched emulated width — the hub layout may have
-      // changed shape (e.g. user toggled top tabs, reclaiming the sidebar
-      // width) and the cached width would leave dead bands on the sides.
-      const aspectWidth = Math.round(EMULATED_VIEWPORT_HEIGHT * bounds.width / bounds.height);
-      const nextEmulatedWidth = Math.max(MIN_EMULATED_VIEWPORT_WIDTH, Math.min(MAX_EMULATED_VIEWPORT_WIDTH, aspectWidth));
-      if (nextEmulatedWidth !== entry.emulatedWidth) {
-        entry.emulatedWidth = nextEmulatedWidth;
-        try {
-          entry.view.webContents.enableDeviceEmulation({
-            screenSize: { width: nextEmulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
-            viewSize:   { width: nextEmulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
-            deviceScaleFactor: 1,
-            viewPosition: { x: 0, y: 0 },
-            screenPosition: 'desktop',
-            fitToView: false,
-            offset: { x: 0, y: 0 },
-            scale: 1,
-          } as Parameters<typeof entry.view.webContents.enableDeviceEmulation>[0]);
-        } catch (err) {
-          browserLogger.warn('BrowserPool.attach.reEmulate.error', { sessionId, error: (err as Error).message });
-        }
-        // Aspect changed — refit the zoom so the new emulated viewport fills
-        // the new physical rect. Past this point the user's manual zoom is
-        // intentionally clobbered (this branch only fires on real layout
-        // shape changes, not casual window resizes).
-        try { entry.view.webContents.setZoomFactor(this.zoomForBounds(bounds)); } catch { /* ignore */ }
-      }
-      const currentZoom = this.currentZoomForBounds(entry, bounds);
-      entry.view.setBounds(this.fitBoundsToView(entry.emulatedWidth, bounds, currentZoom));
+      entry.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
+      try { entry.view.webContents.setZoomFactor(fitted.zoom); } catch { /* ignore */ }
       return true;
     }
 
-    // Match emulated width to the physical rect's aspect ratio (height pinned
-    // at EMULATED_VIEWPORT_HEIGHT) so the scaled render fills the box. Clamp
-    // to [MIN, MAX]: floor keeps desktop media queries triggered; cap stops
-    // sites from shifting into ultra-wide centered layouts that leave dead
-    // bands. When clamped, we shrink + center the view rect so the leftover
-    // splits evenly on both sides (cosmetic letterbox) rather than piling up
-    // on one edge.
-    const aspectWidth = Math.round(EMULATED_VIEWPORT_HEIGHT * bounds.width / bounds.height);
-    const emulatedWidth = Math.max(MIN_EMULATED_VIEWPORT_WIDTH, Math.min(MAX_EMULATED_VIEWPORT_WIDTH, aspectWidth));
-    entry.emulatedWidth = emulatedWidth;
-    const zoom = this.zoomForBounds(bounds);
-
-    const fittedBounds = this.fitBoundsToView(emulatedWidth, bounds, zoom);
-    entry.view.setBounds(fittedBounds);
+    entry.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
     window.contentView.addChildView(entry.view);
     entry.attached = true;
     void this.wakeForVisibility(entry, 'attach');
 
-    try {
-      entry.view.webContents.enableDeviceEmulation({
-        screenSize: { width: emulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
-        viewSize:   { width: emulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
-        deviceScaleFactor: 1,
-        viewPosition: { x: 0, y: 0 },
-        screenPosition: 'desktop',
-        fitToView: false,
-        offset: { x: 0, y: 0 },
-        scale: 1,
-      } as Parameters<typeof entry.view.webContents.enableDeviceEmulation>[0]);
-    } catch (err) {
-      browserLogger.warn('BrowserPool.attach.enableDeviceEmulation.error', { sessionId, error: (err as Error).message });
-    }
-
     this.applyFrameRate(entry);
 
-    // Scale the rendered page so the emulated viewport fills the physical
-    // rect. With aspect-matched emulatedWidth, both axes give the same zoom
-    // (modulo rounding), so we just use the height axis.
     try {
-      entry.view.webContents.setZoomFactor(zoom);
+      entry.view.webContents.setZoomFactor(fitted.zoom);
     } catch (err) {
-      browserLogger.warn('BrowserPool.attach.setZoomFactor.error', { sessionId, zoom, error: (err as Error).message });
+      browserLogger.warn('BrowserPool.attach.setZoomFactor.error', { sessionId, zoom: fitted.zoom, error: (err as Error).message });
     }
 
     browserLogger.info('BrowserPool.attach', {
       sessionId,
       visualBounds: bounds,
-      fittedBounds,
-      operationalViewport: { width: emulatedWidth, height: EMULATED_VIEWPORT_HEIGHT },
+      fittedBounds: { x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height },
+      cssViewport: { width: Math.round(bounds.width / fitted.zoom), height: Math.round(bounds.height / fitted.zoom) },
       rectAspect: bounds.width / bounds.height,
-      emulatedAspect: emulatedWidth / EMULATED_VIEWPORT_HEIGHT,
-      zoomFactor: zoom,
+      zoomFactor: fitted.zoom,
       frameRate: this.frameRateFor(entry),
     });
 
