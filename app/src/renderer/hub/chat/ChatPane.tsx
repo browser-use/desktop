@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { TaskInput, type TaskInputSubmission } from '../TaskInput';
+import { TaskInput, type TaskInputHandle, type TaskInputSubmission } from '../TaskInput';
 import { ChatTranscript } from './ChatTranscript';
 import { BrowserPreview } from './BrowserPreview';
 import { useSessionsStore } from '../state/sessionsStore';
@@ -8,6 +8,7 @@ import { STATUS_LABEL } from '../constants';
 import { useTextSelection } from './useTextSelection';
 import { QuoteSelectionButton } from './QuoteSelectionButton';
 import { formatUserMessageWithQuote } from './parseUserMessage';
+import { useToast } from '@/renderer/components/base/Toast';
 import claudeCodeLogo from '../claude-code-logo.svg';
 import openaiLogo from '../openai-logo.svg';
 import opencodeLogo from '../opencode-logo-light.svg';
@@ -78,11 +79,25 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
   // Text-selection quote system. Scoped to the transcript only — selecting in
   // the composer or sidebar doesn't trigger the floating Quote button.
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const taskInputRef = useRef<TaskInputHandle>(null);
   const selection = useTextSelection(transcriptRef);
   const [quotedText, setQuotedText] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const toast = useToast();
 
   // Clear the active quote when switching sessions so it doesn't leak across.
-  useEffect(() => { setQuotedText(null); }, [sessionId]);
+  useEffect(() => { setQuotedText(null); setEditing(false); }, [sessionId]);
+
+  const onEditMessage = useCallback((text: string) => {
+    console.log('[ChatPane] edit message', { length: text.length });
+    setEditing(true);
+    setQuotedText(null);
+    taskInputRef.current?.setText(text);
+  }, []);
+
+  const onShare = useCallback(() => {
+    toast.show({ variant: 'info', title: 'Share coming soon', message: 'HTML export is wired but not yet implemented.' });
+  }, [toast]);
 
   const onQuote = useCallback((text: string) => {
     console.log('[ChatPane] quote', { length: text.length });
@@ -94,6 +109,24 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
       const api = window.electronAPI;
       if (!api) {
         console.warn('[ChatPane] no electronAPI');
+        return;
+      }
+      if (editing) {
+        console.log('[ChatPane] editAndRerun submit', { sessionId, promptLength: sub.prompt.length });
+        try {
+          const res = await api.sessions.editAndRerun(sessionId, sub.prompt);
+          if (res?.error) {
+            console.error('[ChatPane] editAndRerun error', res.error);
+            toast.show({ variant: 'error', title: 'Edit failed', message: res.error });
+          } else {
+            setEditing(false);
+            setQuotedText(null);
+            toast.show({ variant: 'success', title: 'Conversation reset with edited prompt' });
+          }
+        } catch (err) {
+          console.error('[ChatPane] editAndRerun threw', err);
+          toast.show({ variant: 'error', title: 'Edit failed', message: String(err) });
+        }
         return;
       }
       const composed = formatUserMessageWithQuote(quotedText, sub.prompt);
@@ -112,7 +145,7 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         console.error('[ChatPane] resume threw', err);
       }
     },
-    [sessionId, quotedText],
+    [sessionId, quotedText, editing, toast],
   );
 
   const onCancel = useCallback(() => {
@@ -184,7 +217,19 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
             >Resume</button>
           </p>
         )}
+        {editing && (
+          <p className="chat-composer__hint">
+            Editing your first message — submitting will rewrite the conversation from here.
+            {' '}
+            <button
+              className="chat-composer__cancel"
+              style={{ marginLeft: 6, padding: '1px 8px', fontSize: 10 }}
+              onClick={() => { setEditing(false); taskInputRef.current?.setText(''); }}
+            >Cancel edit</button>
+          </p>
+        )}
         <TaskInput
+          ref={taskInputRef}
           onSubmit={onSubmit}
           topSlot={quotedText ? (
             <div className="chat-quote-preview" role="region" aria-label="Quoted text">
@@ -201,7 +246,7 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         />
       </>
     );
-  }, [header, onSubmit, onCancel, onExit, onRerun, onResumeRun, quotedText]);
+  }, [header, onSubmit, onCancel, onExit, onRerun, onResumeRun, quotedText, editing]);
 
   if (!header) {
     return (
@@ -261,11 +306,18 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         </div>
       </div>
       <div className="chat-pane__column">
-        <ChatTranscript sessionId={sessionId} ref={transcriptRef} />
-        <div className="chat-preview-rail">
-          <BrowserPreview sessionId={sessionId} onExpand={onSwitchToBrowser} />
+        <ChatTranscript
+          sessionId={sessionId}
+          ref={transcriptRef}
+          onEditMessage={onEditMessage}
+          onShare={onShare}
+        />
+        <div className="chat-composer">
+          <div className="chat-preview-rail">
+            <BrowserPreview sessionId={sessionId} onExpand={onSwitchToBrowser} />
+          </div>
+          {composer}
         </div>
-        <div className="chat-composer">{composer}</div>
       </div>
       <QuoteSelectionButton selection={selection} onQuote={onQuote} />
     </div>

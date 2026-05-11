@@ -19,11 +19,13 @@ function ThinkingIndicator({ since }: { since: number }): React.ReactElement {
 
 interface ChatTranscriptProps {
   sessionId: string;
+  onEditMessage?: (text: string) => void;
+  onShare?: () => void;
 }
 
 const PIN_THRESHOLD_PX = 32;
 
-export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(function ChatTranscript({ sessionId }, fwdRef): React.ReactElement | null {
+export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(function ChatTranscript({ sessionId, onEditMessage, onShare }, fwdRef): React.ReactElement | null {
   // Subscribe only to this session's output + createdAt. Other sessions'
   // updates do not re-render this component.
   const sessionSlice = useSessionsStore(
@@ -129,6 +131,12 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
     );
   }
 
+  // Only the very first user_input can be edited end-to-end today — the
+  // backend rerun primitive replays the conversation from session.prompt, so
+  // editing a follow-up message would silently discard everything after it.
+  // Find the index of the first turn with a real user entry.
+  const firstUserTurnIdx = turns.findIndex((t) => t.userEntry !== null);
+
   return (
     <div className="chat-transcript" ref={containerRef} onScroll={onScroll}>
       {turns.map((t, i) => (
@@ -136,6 +144,8 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
           key={t.id}
           turn={t}
           inflightSince={showThinking && i === turns.length - 1 ? since : undefined}
+          onEditMessage={i === firstUserTurnIdx ? onEditMessage : undefined}
+          onShare={i === firstUserTurnIdx ? onShare : undefined}
         />
       ))}
     </div>

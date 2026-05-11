@@ -31,6 +31,11 @@ export interface TaskInputSubmission {
 
 interface TaskInputProps {
   onSubmit: (input: TaskInputSubmission) => void;
+  /** Optional content rendered inside the input box, above the textarea
+   *  and below the chips row. Used by the chat composer to host the quoted-
+   *  text preview so it visually extends the box rather than floating
+   *  awkwardly above it. */
+  topSlot?: React.ReactNode;
 }
 
 const ENGINE_STORAGE_KEY = 'hub.selectedEngine';
@@ -48,6 +53,7 @@ function loadStoredEngine(): string {
 export interface TaskInputHandle {
   addFiles: (files: FileList | File[]) => Promise<void>;
   focus: () => void;
+  setText: (text: string) => void;
 }
 
 function ArrowUpIcon(): React.ReactElement {
@@ -79,7 +85,7 @@ async function readFileBytes(file: File): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit }, ref) {
+export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit, topSlot }, ref) {
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
   const [attachments, setAttachments] = useState<TaskInputAttachment[]>([]);
@@ -201,6 +207,18 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
   useImperativeHandle(ref, () => ({
     addFiles: (files) => addFiles(files),
     focus: () => textareaRef.current?.focus(),
+    setText: (text: string) => {
+      setValue(text);
+      // Focus and move caret to end on the next frame so the height resize
+      // (driven by the value-dep effect) has run before we measure.
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus();
+        const end = text.length;
+        ta.setSelectionRange(end, end);
+      });
+    },
   }), [addFiles]);
 
   const focusTextareaOnBoxClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -218,6 +236,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
       >
+        {topSlot}
         {attachments.length > 0 && (
           <div className="task-input__chips">
             {attachments.map((a, i) => (

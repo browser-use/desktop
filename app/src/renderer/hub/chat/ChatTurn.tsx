@@ -21,7 +21,28 @@ function CopyIcon(): React.ReactElement {
   );
 }
 
-function UserBubble({ content }: { content: string }): React.ReactElement {
+function ShareIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 2v8M8 2L5.5 4.5M8 2l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 9v3.5A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function EditIcon(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3L11 2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function UserBubble({ content, onEdit, onShare }: {
+  content: string;
+  onEdit?: (text: string) => void;
+  onShare?: () => void;
+}): React.ReactElement {
   const { quote, message } = parseUserMessage(content);
   const body = message || ''; // message can be empty if user sent quote-only
   const lines = body.split('\n').length;
@@ -60,10 +81,31 @@ function UserBubble({ content }: { content: string }): React.ReactElement {
         <button
           type="button"
           aria-label="Copy message"
+          title="Copy"
           onClick={() => { void handleCopy(); }}
         >
           <CopyIcon />
         </button>
+        {onShare && (
+          <button
+            type="button"
+            aria-label="Share conversation"
+            title="Share"
+            onClick={onShare}
+          >
+            <ShareIcon />
+          </button>
+        )}
+        {onEdit && (
+          <button
+            type="button"
+            aria-label="Edit message"
+            title="Edit message"
+            onClick={() => onEdit(body)}
+          >
+            <EditIcon />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -72,6 +114,8 @@ function UserBubble({ content }: { content: string }): React.ReactElement {
 interface ChatTurnProps {
   turn: Turn;
   inflightSince?: number;
+  onEditMessage?: (text: string) => void;
+  onShare?: () => void;
 }
 
 /**
@@ -90,38 +134,52 @@ function useTypewriter(target: string, baseCharsPerSec = 70, startInstant = fals
   // animation and render full-text immediately. Otherwise start at 0 and let
   // the raf loop type it out.
   const [shownLen, setShownLen] = useState<number>(() => (startInstant ? target.length : 0));
-  const lastResetTargetRef = useRef(target);
+  const targetRef = useRef(target);
+  const shownLenRef = useRef(shownLen);
+  targetRef.current = target;
+  shownLenRef.current = shownLen;
 
-  if (target.length < shownLen && target !== lastResetTargetRef.current) {
-    lastResetTargetRef.current = target;
+  // If the target swaps to something shorter than what we've already shown
+  // (rare — happens on rerun / quick edits), restart from 0.
+  if (target.length < shownLen) {
+    shownLenRef.current = 0;
     setShownLen(0);
   }
 
+  // Single persistent raf loop. We deliberately do NOT depend on `shownLen` so
+  // the loop is not torn down + recreated every frame (which was wiping the
+  // dt/accum state and stalling progress to ~1 char per re-render).
   useEffect(() => {
-    if (shownLen >= target.length) return;
     let raf = 0;
     let last: number | null = null;
-    let accum = 0; // fractional character budget
+    let accum = 0;
     const tick = (ts: number): void => {
       const dt = last == null ? 16 : ts - last;
       last = ts;
-      setShownLen((prev) => {
-        if (prev >= target.length) return prev;
-        const gap = target.length - prev;
-        // Adaptive rate: the further behind we are, the faster we catch up.
-        // Cap at 6× base so a huge late chunk doesn't snap instantly.
+      const tgt = targetRef.current;
+      const prev = shownLenRef.current;
+      if (prev < tgt.length) {
+        const gap = tgt.length - prev;
         const rate = Math.min(baseCharsPerSec * 2.5, baseCharsPerSec + gap * 0.4);
         accum += (dt / 1000) * rate;
         const advance = Math.floor(accum);
-        if (advance <= 0) return prev;
-        accum -= advance;
-        return Math.min(target.length, prev + advance);
-      });
+        if (advance > 0) {
+          accum -= advance;
+          const next = Math.min(tgt.length, prev + advance);
+          shownLenRef.current = next;
+          setShownLen(next);
+        }
+      } else {
+        // Caught up — keep ticking cheaply so we resume immediately when more
+        // text arrives. raf is ~1KHz of wall-clock budget; this is fine.
+        accum = 0;
+        last = ts;
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, shownLen, baseCharsPerSec]);
+  }, [baseCharsPerSec]);
 
   return target.slice(0, Math.min(shownLen, target.length));
 }
@@ -373,11 +431,17 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
   return out;
 }
 
-export function ChatTurn({ turn, inflightSince }: ChatTurnProps): React.ReactElement {
+export function ChatTurn({ turn, inflightSince, onEditMessage, onShare }: ChatTurnProps): React.ReactElement {
   const showInflight = inflightSince !== undefined;
   return (
     <div className="chat-turn">
-      {turn.userEntry && <UserBubble content={turn.userEntry.content} />}
+      {turn.userEntry && (
+        <UserBubble
+          content={turn.userEntry.content}
+          onEdit={onEditMessage}
+          onShare={onShare}
+        />
+      )}
       {(showInflight || turn.agentEntries.length > 0) && (
         <div className="chat-agent">
           {showInflight && (

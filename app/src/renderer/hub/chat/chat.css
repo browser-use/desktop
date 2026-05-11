@@ -182,36 +182,38 @@
 }
 
 /* Dismissible quote chip rendered inside the TaskInput's box (via topSlot)
-   so it visually extends the input rather than floating above it. No own
-   border or radius — the parent box owns those. */
+   so it visually extends the input rather than floating above it. Tinted
+   slightly so it reads as a distinct region from the textarea below; no own
+   border or radius (parent box owns those). */
 .chat-quote-preview {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   margin: 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--color-border-subtle);
-  background-color: transparent;
+  background-color: color-mix(in srgb, var(--color-accent-default) 8%, var(--color-bg-elevated));
 }
 .chat-quote-preview__bar {
   width: 3px;
   align-self: stretch;
   border-radius: 2px;
-  background-color: color-mix(in srgb, var(--color-fg-primary) 28%, transparent);
+  background-color: var(--color-accent-default);
   flex-shrink: 0;
 }
 .chat-quote-preview__text {
   flex: 1;
   font-size: 12px;
-  line-height: 1.5;
-  color: var(--color-fg-secondary);
+  line-height: 1.55;
+  color: var(--color-fg-primary);
   font-style: italic;
   white-space: pre-wrap;
   word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  max-height: 110px;
+  overflow-y: auto;
+  /* Soft mask at the bottom edge to suggest "more below" when scrollable. */
+  mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
 }
 .chat-quote-preview__close {
   background: transparent;
@@ -701,6 +703,9 @@
   padding: 12px max(16px, calc((100% - 780px) / 2)) 18px;
   background-color: transparent;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .chat-composer > * {
   pointer-events: auto;
@@ -743,19 +748,18 @@
   background-color: var(--color-bg-overlay);
 }
 
-/* Preview rail — overlays the transcript anchored just above the composer.
-   Same horizontal padding as the composer so it visually anchors to the same
-   reading column. */
+/* Preview rail — sits inside .chat-composer's flex column, naturally above
+   the TaskInput. Grows/shrinks with the composer instead of being pinned to
+   a fixed bottom offset (which used to leave the rail behind the composer
+   whenever the input expanded from a quote chip or multi-line typing). */
 .chat-preview-rail {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 86px;
-  z-index: 2;
-  padding: 0 max(16px, calc((100% - 780px) / 2));
   display: flex;
   justify-content: flex-start;
   pointer-events: none;
+  /* Match .task-input's horizontal padding so the preview's left edge aligns
+     with the TaskInput's visible bordered box (which is inset from .task-input
+     by --space-3 on each side). */
+  padding: 0 var(--space-3);
 }
 .chat-preview-rail > * {
   pointer-events: auto;
