@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { TaskInput, type TaskInputSubmission } from '../TaskInput';
 import { ChatTranscript } from './ChatTranscript';
 import { BrowserPreview } from './BrowserPreview';
 import { useSessionsStore } from '../state/sessionsStore';
 import { STATUS_LABEL } from '../constants';
+import { useTextSelection } from './useTextSelection';
+import { QuoteSelectionButton } from './QuoteSelectionButton';
+import { formatUserMessageWithQuote } from './parseUserMessage';
 import claudeCodeLogo from '../claude-code-logo.svg';
 import openaiLogo from '../openai-logo.svg';
 import opencodeLogo from '../opencode-logo-light.svg';
@@ -72,6 +75,20 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
     }),
   );
 
+  // Text-selection quote system. Scoped to the transcript only — selecting in
+  // the composer or sidebar doesn't trigger the floating Quote button.
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const selection = useTextSelection(transcriptRef);
+  const [quotedText, setQuotedText] = useState<string | null>(null);
+
+  // Clear the active quote when switching sessions so it doesn't leak across.
+  useEffect(() => { setQuotedText(null); }, [sessionId]);
+
+  const onQuote = useCallback((text: string) => {
+    console.log('[ChatPane] quote', { length: text.length });
+    setQuotedText(text);
+  }, []);
+
   const onSubmit = useCallback(
     async (sub: TaskInputSubmission) => {
       const api = window.electronAPI;
@@ -79,16 +96,23 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         console.warn('[ChatPane] no electronAPI');
         return;
       }
-      console.log('[ChatPane] resume submit', { sessionId, promptLength: sub.prompt.length, attachments: sub.attachments.length });
+      const composed = formatUserMessageWithQuote(quotedText, sub.prompt);
+      console.log('[ChatPane] resume submit', {
+        sessionId,
+        promptLength: composed.length,
+        attachments: sub.attachments.length,
+        hasQuote: !!quotedText,
+      });
       try {
-        const res = await api.sessions.resume(sessionId, sub.prompt, sub.attachments);
+        const res = await api.sessions.resume(sessionId, composed, sub.attachments);
         console.log('[ChatPane] resume result', res);
         if (res.error) console.error('[ChatPane] resume error', res.error);
+        else setQuotedText(null);
       } catch (err) {
         console.error('[ChatPane] resume threw', err);
       }
     },
-    [sessionId],
+    [sessionId, quotedText],
   );
 
   const onCancel = useCallback(() => {
@@ -96,6 +120,23 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
     if (!api) return;
     console.log('[ChatPane] cancel', { sessionId });
     api.sessions.cancel(sessionId).catch((err) => console.error('[ChatPane] cancel failed', err));
+  }, [sessionId]);
+
+  const onRerun = useCallback(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    console.log('[ChatPane] rerun', { sessionId });
+    api.sessions.rerun(sessionId).catch((err) => console.error('[ChatPane] rerun failed', err));
+  }, [sessionId]);
+
+  const onResumeRun = useCallback(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    console.log('[ChatPane] resume (no new prompt)', { sessionId });
+    // Mirror HubApp.handleResume's canned-prompt pattern so paused sessions
+    // can be picked up without making the user type something.
+    api.sessions.resume(sessionId, 'Continue from where you left off', [])
+      .catch((err) => console.error('[ChatPane] resume failed', err));
   }, [sessionId]);
 
   const composer = useMemo(() => {
@@ -107,10 +148,15 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
       return (
         <div className="chat-composer__terminal">
           <span>This session is finished. Start a new task from the dashboard.</span>
-          <button className="chat-composer__cancel" onClick={onExit}>Back to dashboard</button>
+          <div style={{ display: 'inline-flex', gap: 8 }}>
+            <button className="chat-composer__cancel" onClick={onRerun}>Rerun</button>
+            <button className="chat-composer__cancel" onClick={onExit}>Back to dashboard</button>
+          </div>
         </div>
       );
     }
+
+    const isPaused = header.status === 'paused';
 
     // While running, still allow follow-ups — backend queues them (resume()
     // returns `queued: true` if mid-step). Show a small hint above the input.
@@ -127,10 +173,35 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
             >Cancel run</button>
           </p>
         )}
-        <TaskInput onSubmit={onSubmit} />
+        {isPaused && (
+          <p className="chat-composer__hint">
+            Agent is paused.
+            {' '}
+            <button
+              className="chat-composer__cancel"
+              style={{ marginLeft: 6, padding: '1px 8px', fontSize: 10 }}
+              onClick={onResumeRun}
+            >Resume</button>
+          </p>
+        )}
+        <TaskInput
+          onSubmit={onSubmit}
+          topSlot={quotedText ? (
+            <div className="chat-quote-preview" role="region" aria-label="Quoted text">
+              <div className="chat-quote-preview__bar" aria-hidden />
+              <div className="chat-quote-preview__text">{quotedText}</div>
+              <button
+                type="button"
+                className="chat-quote-preview__close"
+                aria-label="Remove quote"
+                onClick={() => setQuotedText(null)}
+              >×</button>
+            </div>
+          ) : undefined}
+        />
       </>
     );
-  }, [header, onSubmit, onCancel, onExit]);
+  }, [header, onSubmit, onCancel, onExit, onRerun, onResumeRun, quotedText]);
 
   if (!header) {
     return (
@@ -190,12 +261,13 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         </div>
       </div>
       <div className="chat-pane__column">
-        <ChatTranscript sessionId={sessionId} />
+        <ChatTranscript sessionId={sessionId} ref={transcriptRef} />
         <div className="chat-preview-rail">
           <BrowserPreview sessionId={sessionId} onExpand={onSwitchToBrowser} />
         </div>
         <div className="chat-composer">{composer}</div>
       </div>
+      <QuoteSelectionButton selection={selection} onQuote={onQuote} />
     </div>
   );
 }
