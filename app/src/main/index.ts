@@ -101,6 +101,7 @@ import { forwardAgentEvent } from './pill';
 // Session management
 import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
+import { SessionScreencast } from './sessions/SessionScreencast';
 import {
   snapshotResourceUsage,
   startResourceMonitor,
@@ -182,6 +183,7 @@ const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'se
 // to <userData>/harness/ on first run, preserves user edits on subsequent runs.
 bootstrapHarness();
 const browserPool = new BrowserPool();
+const sessionScreencast = new SessionScreencast(browserPool);
 let interruptBrowserSessionFromShortcut: ((sessionId: string) => boolean) | null = null;
 const resourceMonitorContext: ResourceMonitorContext = {
   browserSessions: () => browserPool.getStats().sessions,
@@ -189,6 +191,12 @@ const resourceMonitorContext: ResourceMonitorContext = {
 };
 // Push browser-gone notifications to the shell renderer so the UI can stop
 // showing "Browser starting…" when a WebContents is destroyed or crashes.
+browserPool.setOnCreate((sessionId) => {
+  mainLogger.info('main.sessions.browserAttached', { sessionId });
+  if (shellWindow && !shellWindow.isDestroyed()) {
+    shellWindow.webContents.send('sessions:browser-attached', sessionId);
+  }
+});
 browserPool.setOnGone((sessionId) => {
   if (shellWindow && !shellWindow.isDestroyed()) {
     shellWindow.webContents.send('sessions:browser-gone', sessionId);
@@ -287,6 +295,8 @@ function openShellAndWire(): BrowserWindow {
   mainLogger.info('main.openShellAndWire', { msg: 'Creating shell window' });
 
   shellWindow = createShellWindow();
+  sessionScreencast.setWindow(shellWindow);
+  shellWindow.on('closed', () => { void sessionScreencast.stopAll(); });
 
   // Create pill window (hidden) and register global hotkey
   createPillWindow();
@@ -1191,6 +1201,21 @@ app.whenReady().then(async () => {
     void localTaskServer.close().catch((err) => {
       mainLogger.warn('main.localTaskServer.closeFailed', { error: (err as Error).message });
     });
+  });
+
+  // Chat-side browser preview via CDP screencast. Renderer starts/stops per
+  // mount; we never auto-start so a session without a chat-view consumer
+  // costs zero CPU.
+  ipcMain.handle('sessions:preview-start', async (_evt, payload: { id: unknown; maxWidth?: unknown; maxHeight?: unknown }) => {
+    const id = typeof payload?.id === 'string' ? payload.id : '';
+    if (!id) return { ok: false, reason: 'bad_id' };
+    const maxWidth = typeof payload.maxWidth === 'number' ? payload.maxWidth : 480;
+    const maxHeight = typeof payload.maxHeight === 'number' ? payload.maxHeight : 300;
+    return sessionScreencast.start(id, { maxWidth, maxHeight });
+  });
+  ipcMain.handle('sessions:preview-stop', async (_evt, id: unknown) => {
+    if (typeof id !== 'string' || !id) return;
+    await sessionScreencast.stop(id);
   });
 
   ipcMain.handle('sessions:create', (_event, payload: unknown) => {

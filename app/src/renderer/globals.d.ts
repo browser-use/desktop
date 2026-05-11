@@ -73,6 +73,8 @@ interface ElectronSessionAPI {
     attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
   ) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
   rerun: (id: string) => Promise<{ rerun?: boolean; error?: string }>;
+  previewStart: (id: string, opts?: { maxWidth?: number; maxHeight?: number }) => Promise<{ ok: boolean; reason?: string }>;
+  previewStop: (id: string) => Promise<void>;
   list: () => Promise<import('./hub/types').AgentSession[]>;
   listAll: () => Promise<import('./hub/types').AgentSession[]>;
   get: (id: string) => Promise<import('./hub/types').AgentSession | null>;
@@ -171,8 +173,10 @@ interface ElectronChromeImportAPI {
 interface ElectronOnAPI {
   sessionUpdated: (cb: (session: import('./hub/types').AgentSession) => void) => () => void;
   sessionBrowserGone: (cb: (id: string) => void) => () => void;
+  sessionBrowserAttached: (cb: (id: string) => void) => () => void;
   sessionOutput: (cb: (id: string, event: import('./hub/types').HlEvent) => void) => () => void;
   sessionOutputTerm: (cb: (id: string, bytes: string) => void) => () => void;
+  sessionPreviewFrame: (cb: (id: string, dataB64: string) => void) => () => void;
   openSettings?: (cb: (payload?: { focusBrowserCodeProvider?: string }) => void) => () => void;
   zoomChanged?: (cb: (factor: number) => void) => () => void;
   whatsappQr?: (cb: (dataUrl: string) => void) => () => void;

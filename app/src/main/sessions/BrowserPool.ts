@@ -51,6 +51,7 @@ export class BrowserPool {
   private maxConcurrent: number;
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
+  private onCreate?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
   private onInterruptShortcut?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
@@ -78,6 +79,14 @@ export class BrowserPool {
    *  notification to the renderer so the UI can stop showing "Browser starting…". */
   setOnGone(listener: (sessionId: string) => void): void {
     this.onGone = listener;
+  }
+
+  /** Register a listener that fires whenever a new WebContentsView is created
+   *  for a session — used by main to push `sessions:browser-attached` IPC so
+   *  the renderer flips `hasBrowser` to true mid-session without waiting for
+   *  the next listAll. */
+  setOnCreate(listener: (sessionId: string) => void): void {
+    this.onCreate = listener;
   }
 
   /** Register a listener that fires on every top-frame navigation (including
@@ -286,6 +295,13 @@ export class BrowserPool {
     };
 
     this.entries.set(sessionId, entry);
+
+    // Notify subscribers (main wires this to a `sessions:browser-attached`
+    // IPC so the renderer flips `hasBrowser` to true the moment the view
+    // appears, without waiting for the next listAll snapshot).
+    try { this.onCreate?.(sessionId); } catch (err) {
+      browserLogger.warn('BrowserPool.onCreate.error', { sessionId, error: (err as Error).message });
+    }
 
     // Fire onGone if the renderer process crashes, closes, or otherwise dies
     // out-of-band so the UI can react (stop showing "Browser starting…").

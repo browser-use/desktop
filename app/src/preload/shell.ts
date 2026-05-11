@@ -263,6 +263,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:resume', { id, prompt, attachments }),
     rerun: (id: string): Promise<{ rerun?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:rerun', id),
+    previewStart: (id: string, opts?: { maxWidth?: number; maxHeight?: number }): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke('sessions:preview-start', { id, ...(opts ?? {}) }),
+    previewStop: (id: string): Promise<void> =>
+      ipcRenderer.invoke('sessions:preview-stop', id),
     list: async (): Promise<AgentSession[]> => {
       const raw = await ipcRenderer.invoke('sessions:list');
       return validateSessionList(raw);
@@ -393,6 +397,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('sessions:browser-gone', handler);
       return () => ipcRenderer.removeListener('sessions:browser-gone', handler);
     },
+    sessionBrowserAttached: (cb: (id: string) => void): (() => void) => {
+      const handler = (_event: unknown, id: string) => {
+        if (typeof id === 'string') cb(id);
+      };
+      ipcRenderer.on('sessions:browser-attached', handler);
+      return () => ipcRenderer.removeListener('sessions:browser-attached', handler);
+    },
     sessionOutput: (cb: (id: string, event: HlEvent) => void): (() => void) => {
       const handler = (_event: unknown, id: string, raw: unknown) => {
         try {
@@ -410,6 +421,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       };
       ipcRenderer.on('session-output-term', handler);
       return () => ipcRenderer.removeListener('session-output-term', handler);
+    },
+    sessionPreviewFrame: (cb: (id: string, dataB64: string) => void): (() => void) => {
+      const handler = (_event: unknown, id: string, dataB64: string) => {
+        if (typeof id === 'string' && typeof dataB64 === 'string') cb(id, dataB64);
+      };
+      ipcRenderer.on('session-preview-frame', handler);
+      return () => ipcRenderer.removeListener('session-preview-frame', handler);
     },
     openSettings: (cb: (payload?: SettingsOpenPayload) => void): (() => void) => {
       const handler = (_event: unknown, rawPayload?: unknown) => cb(normalizeSettingsOpenPayload(rawPayload));
