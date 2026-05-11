@@ -454,12 +454,20 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       if (!stat.isFile()) return;
       if (seenOutputs.get(filename) === stat.size) return;
       seenOutputs.set(filename, stat.size);
+      const mime = mimeFromExt(filename);
+      engineLogger.info('engines.run.outputs.fileDetected', {
+        sessionId: opts.sessionId,
+        filename,
+        absPath: filePath,
+        bytes: stat.size,
+        mime,
+      });
       opts.onEvent({
         type: 'file_output',
         name: filename,
         path: filePath,
         size: stat.size,
-        mime: mimeFromExt(filename),
+        mime,
       });
     });
   } catch (err) {

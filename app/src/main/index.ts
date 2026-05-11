@@ -18,6 +18,10 @@ loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
 import { mergeChromiumFeature } from './startup/chromiumFeatures';
+import { registerChatfilePrivileges, registerChatfileHandler } from './protocols/chatfile';
+
+// Must run before app.whenReady — Electron caches scheme privileges at startup.
+registerChatfilePrivileges();
 
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch(
@@ -390,6 +394,7 @@ function openShellAndWire(): BrowserWindow {
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
   mainLogger.info('main.appReady', { msg: 'Electron app ready — initializing Browser Use' });
+  registerChatfileHandler();
   startResourceMonitor(resourceMonitorContext);
 
   // Verify the CDP endpoint at our announced port is actually OUR Electron
