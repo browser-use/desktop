@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from './domain-utils';
 import { BrowserLogoAvatar } from './BrowserLogoAvatar';
 import { userFacingIpcError } from './ipcErrors';
+import { useToast } from '@/renderer/components/base/Toast';
 import './CookieBrowser.css';
 
 const MAX_VISIBLE_DOMAINS = 2000;
@@ -96,6 +97,7 @@ function relativeTime(iso: string): string {
 }
 
 export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
+  const toast = useToast();
   const [profiles, setProfiles] = useState<CookieBrowserProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [profilesError, setProfilesError] = useState<string | null>(null);
@@ -177,17 +179,25 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
     setSyncingProfile(profileId);
     setSyncError(null);
     try {
-      await api.importCookies(profileId);
+      const result = await api.importCookies(profileId);
       // Slight delay so the writes have flushed before we re-list.
       setTimeout(() => { void refreshCookies(); }, REFRESH_AFTER_SYNC_MS);
       // Pull the freshly-persisted record (timestamp + counts) from main.
       void refreshSyncs();
+      const domainCount = result.domains?.length ?? 0;
+      toast.show({
+        variant: 'success',
+        title: `Synced ${result.imported} cookies`,
+        message: `${result.browserName} · ${domainCount} ${domainCount === 1 ? 'site' : 'sites'}`,
+      });
     } catch (err) {
-      setSyncError(userFacingIpcError(err) || 'Cookie sync failed');
+      const message = userFacingIpcError(err) || 'Cookie sync failed';
+      setSyncError(message);
+      toast.show({ variant: 'error', title: 'Cookie sync failed', message });
     } finally {
       setSyncingProfile(null);
     }
-  }, [api, refreshCookies, refreshSyncs]);
+  }, [api, refreshCookies, refreshSyncs, toast]);
 
   // Collapse the cookie list into one entry per unique domain. The raw list is
   // 5–10× longer (each site sets multiple cookies); the user just wants to see

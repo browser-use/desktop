@@ -4,6 +4,7 @@ import type { ActionId, KeyBinding } from './keybindings';
 import { fallbackShortcutPlatform, keyboardEventToShortcut } from '../../shared/hotkeys';
 import { useThemeMode } from '../design/useThemeMode';
 import type { ThemeMode } from '../design/themeMode';
+import { useToast } from '@/renderer/components/base/Toast';
 
 /**
  * Generic settings primitives. Add a new option type and every section that
@@ -362,6 +363,7 @@ function PrivacySection(): React.ReactElement {
   const [telemetry, setTelemetry] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const api = (window as unknown as { electronAPI: { settings: { privacy: ElectronPrivacyAPI } } }).electronAPI.settings.privacy;
+  const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -379,12 +381,21 @@ function PrivacySection(): React.ReactElement {
     try {
       const res = await api.setTelemetry(next);
       setTelemetry(res.telemetry);
+      toast.show({
+        variant: 'success',
+        title: res.telemetry ? 'Telemetry enabled' : 'Telemetry disabled',
+      });
     } catch {
       setTelemetry(!next); // revert
+      toast.show({
+        variant: 'error',
+        title: 'Could not save setting',
+        message: 'Telemetry change could not be saved. Please try again.',
+      });
     } finally {
       setSaving(false);
     }
-  }, [telemetry, saving, api]);
+  }, [telemetry, saving, api, toast]);
 
   return (
     <div className="settings-card">
