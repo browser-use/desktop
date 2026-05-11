@@ -5,7 +5,7 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  background-color: var(--color-bg-elevated);
+  background-color: var(--color-bg-base);
   color: var(--color-fg-primary);
 }
 
@@ -16,7 +16,7 @@
   padding: 12px 24px;
   border-bottom: 1px solid var(--color-border-subtle);
   flex-shrink: 0;
-  background-color: var(--color-bg-elevated);
+  background-color: var(--color-bg-base);
 }
 
 .chat-pane__back,
@@ -85,13 +85,20 @@
   width: 100%;
   min-height: 0;
   min-width: 0;
+  /* Anchor for the absolutely-positioned composer + preview rail so they
+     overlay the transcript instead of consuming a fixed row. */
+  position: relative;
 }
 
 .chat-transcript {
   flex: 1;
   overflow-y: auto;
-  /* Center column ~780px wide, with at least 16px gutter on small screens */
-  padding: 28px max(16px, calc((100% - 780px) / 2)) 16px;
+  /* Reserve scrollbar gutter so content doesn't shift when it appears */
+  scrollbar-gutter: stable;
+  /* Center column ~640px wide, with at least 16px gutter on small screens.
+     Bottom padding leaves room for the overlaid composer so the last line of
+     prose can scroll fully into view above it. */
+  padding: 28px max(16px, calc((100% - 640px) / 2)) 140px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -133,6 +140,94 @@
   word-break: break-word;
 }
 
+/* Quoted text shown inside the user bubble, above the user's own message.
+   The left accent here is intentional — it's the universal blockquote glyph,
+   not chrome ornamentation. */
+.chat-bubble__quote {
+  border-left: 3px solid color-mix(in srgb, var(--color-fg-primary) 28%, transparent);
+  padding: 2px 0 2px 10px;
+  margin-bottom: 6px;
+  color: var(--color-fg-tertiary);
+  font-size: 13px;
+  line-height: 1.5;
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Floating "Quote" button anchored to a text selection inside the transcript. */
+.chat-quote-btn {
+  position: fixed;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: 6px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 6px 16px -8px rgba(0, 0, 0, 0.22);
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+.chat-quote-btn:hover {
+  background-color: var(--color-bg-overlay);
+  border-color: var(--color-border-strong);
+}
+
+/* Dismissible quote chip rendered inside the TaskInput's box (via topSlot)
+   so it visually extends the input rather than floating above it. No own
+   border or radius — the parent box owns those. */
+.chat-quote-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: transparent;
+}
+.chat-quote-preview__bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--color-fg-primary) 28%, transparent);
+  flex-shrink: 0;
+}
+.chat-quote-preview__text {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.chat-quote-preview__close {
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-tertiary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.chat-quote-preview__close:hover {
+  color: var(--color-fg-primary);
+  background-color: var(--color-bg-overlay);
+}
+
 .chat-bubble--clamped .chat-bubble__text {
   display: -webkit-box;
   -webkit-line-clamp: 10;
@@ -162,6 +257,12 @@
   gap: 4px;
   align-self: flex-end;
   color: var(--color-fg-tertiary);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.chat-bubble__wrap:hover .chat-bubble__actions,
+.chat-bubble__actions:focus-within {
+  opacity: 1;
 }
 .chat-bubble__actions button {
   background: transparent;
@@ -201,24 +302,26 @@
 .chat-tool__pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   align-self: flex-start;
   max-width: 100%;
-  background-color: var(--color-bg-base);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 6px;
-  padding: 5px 10px 5px 6px;
+  background-color: transparent;
+  border: none;
+  padding: 2px 0;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
-  color: var(--color-fg-primary);
-  transition: background-color 80ms ease, border-color 80ms ease;
+  color: var(--color-fg-tertiary);
   text-align: left;
 }
 
 .chat-tool__pill:hover {
-  background-color: var(--color-bg-overlay);
-  border-color: var(--color-border-default);
+  background-color: transparent;
+  color: var(--color-fg-secondary);
+}
+
+.chat-tool__pill .chat-tool__icon {
+  display: none;
 }
 
 /* Group summary is plain text — no card chrome, no icon circle. Visually
@@ -290,20 +393,12 @@
 }
 
 .chat-tool__icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border-default);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-fg-tertiary);
-  flex-shrink: 0;
+  display: none;
 }
 
 .chat-tool__label {
-  font-weight: 500;
-  color: var(--color-fg-primary);
+  font-weight: 400;
+  color: inherit;
   flex-shrink: 0;
 }
 
@@ -411,12 +506,20 @@
 .chat-code__md {
   padding: 10px 14px;
 }
-.chat-code__md .md,
-.chat-step__assistant .md,
-.chat-step__thinking .md {
+.chat-code__md .md {
   font-size: 14px;
   line-height: 1.65;
   color: var(--color-fg-primary);
+}
+.chat-step__assistant .md {
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--color-fg-primary);
+}
+.chat-step__thinking .md {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-fg-tertiary);
 }
 .chat-code__md .md h1 { font-size: 18px; }
 .chat-code__md .md h2 { font-size: 16px; }
@@ -443,8 +546,8 @@
 .chat-step__thinking {
   font-style: italic;
   color: var(--color-fg-tertiary);
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.6;
   padding: 4px 0;
 }
 
@@ -456,6 +559,74 @@
   color: #c84848;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.chat-step__image {
+  display: block;
+  align-self: flex-start;
+  max-width: 480px;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  background-color: var(--color-bg-base);
+  line-height: 0;
+}
+.chat-step__image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+  object-position: top center;
+}
+
+/* Floated variant — image sits in the top-right of the assistant prose block
+   and the text wraps around it (magazine layout). Used when an image is
+   hoisted into the trailing `done` block in renderAgentEntries.
+
+   The dimensions (width + aspect-ratio) are FIXED at render time so the box
+   is the right size before the PNG loads. Otherwise the img starts at 0×0,
+   the layout shifts as the prose claims the empty space, then everything
+   snaps back when the image decodes. */
+.chat-step__image--floated {
+  float: right;
+  width: clamp(180px, 38%, 280px);
+  aspect-ratio: 4 / 3;
+  margin: 0 0 8px 16px;
+  shape-outside: margin-box;
+}
+.chat-step__image--floated img {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+.chat-step__assistant::after {
+  content: '';
+  display: block;
+  clear: both;
+}
+
+/* Streaming class is kept on the element for potential future use, but no
+   bottom-edge mask — the soft fade read as confusing visual noise. */
+.chat-step__assistant--streaming {
+  /* intentionally empty */
+}
+
+/* Blinking caret tacked onto the end of streaming prose. Hidden once the run
+   completes AND the typewriter has caught up to the final text. */
+.chat-step__cursor {
+  display: inline-block;
+  width: 7px;
+  height: 0.95em;
+  vertical-align: text-bottom;
+  margin-left: 2px;
+  background-color: var(--color-fg-secondary);
+  border-radius: 1px;
+  animation: chat-cursor-blink 0.85s steps(2, start) infinite;
+}
+@keyframes chat-cursor-blink {
+  to { visibility: hidden; }
 }
 
 .chat-step__chip {
@@ -473,9 +644,26 @@
 
 .chat-step__assistant {
   padding: 4px 0;
-  font-size: 14px;
+  font-size: 15.5px;
   line-height: 1.65;
+  font-weight: 450;
   color: var(--color-fg-primary);
+}
+.chat-step__assistant .md {
+  font-weight: 450;
+}
+.chat-step__assistant .md strong,
+.chat-step__assistant .md b {
+  font-weight: 650;
+}
+
+/* Plain-text rendering used while the typewriter is still typing. Inherits
+   typography from the assistant block; just respects newlines and word
+   boundaries so the layout doesn't jitter as markdown would. */
+.chat-step__streaming-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-weight: 450;
 }
 
 /* Bottom thinking indicator */
@@ -505,9 +693,17 @@
 }
 
 .chat-composer {
-  flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
   padding: 12px max(16px, calc((100% - 780px) / 2)) 18px;
-  background-color: var(--color-bg-elevated);
+  background-color: transparent;
+  pointer-events: none;
+}
+.chat-composer > * {
+  pointer-events: auto;
 }
 
 .chat-composer__hint {
@@ -547,46 +743,80 @@
   background-color: var(--color-bg-overlay);
 }
 
-/* Preview rail — left-aligned, lives in the centered 780px column directly
-   above the composer. Same horizontal padding as the transcript/composer so
-   it visually anchors to the same reading column. */
+/* Preview rail — overlays the transcript anchored just above the composer.
+   Same horizontal padding as the composer so it visually anchors to the same
+   reading column. */
 .chat-preview-rail {
-  flex-shrink: 0;
-  padding: 0 max(16px, calc((100% - 780px) / 2)) 10px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 86px;
+  z-index: 2;
+  padding: 0 max(16px, calc((100% - 780px) / 2));
   display: flex;
   justify-content: flex-start;
+  pointer-events: none;
+}
+.chat-preview-rail > * {
+  pointer-events: auto;
+}
+/* When BrowserPreview returns null (no real URL yet), collapse the rail so
+   we don't leave a 10px gap above the composer. */
+.chat-preview-rail:empty {
+  display: none;
 }
 
 /* ---------------------------------------------------------------------------
-   BrowserPreview — live screencast thumbnail above the chat composer
+   BrowserPreview — tiny live screencast thumbnail above the chat composer.
+   Manus-style: small (~84×54) tile with a host-name caption above it.
 --------------------------------------------------------------------------- */
+.browser-preview__wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 220px;
+}
+
+.browser-preview__url {
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--color-fg-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.2px;
+  padding: 0 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .browser-preview {
   position: relative;
-  width: 200px;
-  height: 125px;
+  width: 84px;
+  height: 54px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 10px;
+  border-radius: 6px;
   overflow: hidden;
   background-color: var(--color-bg-base);
   padding: 0;
   cursor: pointer;
   display: block;
-  /* Two-layer shadow: long soft ambient + short crisper for depth. */
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.05),
-    0 8px 24px -10px rgba(0, 0, 0, 0.14);
-  transition: transform 220ms cubic-bezier(.2,.7,.2,1),
-              opacity   220ms ease,
-              box-shadow 160ms ease,
-              border-color 160ms ease;
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 4px 10px -4px rgba(0, 0, 0, 0.35);
+  transition: transform 180ms cubic-bezier(.2,.7,.2,1),
+              opacity   180ms ease,
+              box-shadow 140ms ease,
+              border-color 140ms ease;
   transform-origin: bottom left;
 }
 
 .browser-preview:hover {
   border-color: var(--color-border-default);
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.06),
-    0 14px 32px -10px rgba(0, 0, 0, 0.22);
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 6px 14px -4px rgba(0, 0, 0, 0.45);
 }
 
 .browser-preview__img {
@@ -602,61 +832,27 @@
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   color: var(--color-fg-tertiary);
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.browser-preview__placeholder-icon {
-  font-size: 22px;
-  line-height: 1;
-  opacity: 0.5;
-}
-
-.browser-preview__placeholder-label {
-  letter-spacing: 0.3px;
+  opacity: 0.7;
 }
 
 .browser-preview--disabled {
   cursor: default;
-  opacity: 0.75;
+  opacity: 0.55;
 }
 .browser-preview--disabled:hover {
-  box-shadow: none;
-}
-
-.browser-preview__overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  padding: 6px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.22) 100%);
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.browser-preview:hover .browser-preview__overlay { opacity: 1; }
-
-.browser-preview__expand-hint {
-  font-size: 10px;
-  color: white;
-  background-color: rgba(0,0,0,0.55);
-  padding: 2px 7px;
-  border-radius: 4px;
-  letter-spacing: 0.3px;
-  font-weight: 500;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 4px 10px -4px rgba(0, 0, 0, 0.35);
+  border-color: var(--color-border-subtle);
 }
 
 /* Click → quick zoom-out into the destination view. Real animation handled
    by HubApp swapping viewMode 220ms later; this card visually "lifts off". */
 .browser-preview--expanding {
-  transform: scale(2.2) translate(-30%, 50%);
+  transform: scale(2.6) translate(-22%, 40%);
   opacity: 0.4;
   pointer-events: none;
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionsStore } from '../state/sessionsStore';
 import { adaptSession } from '../types';
@@ -23,7 +23,7 @@ interface ChatTranscriptProps {
 
 const PIN_THRESHOLD_PX = 32;
 
-export function ChatTranscript({ sessionId }: ChatTranscriptProps): React.ReactElement | null {
+export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(function ChatTranscript({ sessionId }, fwdRef): React.ReactElement | null {
   // Subscribe only to this session's output + createdAt. Other sessions'
   // updates do not re-render this component.
   const sessionSlice = useSessionsStore(
@@ -35,6 +35,7 @@ export function ChatTranscript({ sessionId }: ChatTranscriptProps): React.ReactE
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
+  useImperativeHandle(fwdRef, () => containerRef.current as HTMLDivElement, []);
   const pinnedRef = useRef(true);
   const lastTurnsLenRef = useRef(0);
 
@@ -98,16 +99,27 @@ export function ChatTranscript({ sessionId }: ChatTranscriptProps): React.ReactE
   if (!sessionSlice) return null;
 
   const isRunning = sessionSlice.status === 'running' || sessionSlice.status === 'stuck';
-  // Show the thinking indicator while running unless the latest agent entry
-  // is an unpaired tool_call (that already has its own spinner) — avoids
-  // double-indicating activity.
+  // Always show the Working indicator while running. Earlier we hid it
+  // whenever the latest entry was an in-flight tool_call (to avoid double
+  // indicators), but that caused the indicator to flicker on/off as tool
+  // calls landed and resolved — the layout shift was worse than the duplication.
   const lastTurn = turns[turns.length - 1];
-  const lastAgent = lastTurn?.agentEntries[lastTurn.agentEntries.length - 1];
-  const lastIsInflightTool = lastAgent?.type === 'tool_call' && !lastAgent.result;
-  const showThinking = isRunning && !lastIsInflightTool;
-  // Elapsed counter resets at each turn — start counting from the last
-  // user_input timestamp, or session creation if there is none yet.
-  const since = lastTurn?.userEntry?.timestamp ?? sessionSlice.createdAt;
+  const showThinking = isRunning;
+  // Elapsed counter shows time since the most recent activity — prefer an
+  // in-flight tool_call (what the user is waiting on), then the latest agent
+  // entry of any kind, then the turn-start user_input, then session creation.
+  let since = lastTurn?.userEntry?.timestamp ?? sessionSlice.createdAt;
+  if (lastTurn && lastTurn.agentEntries.length > 0) {
+    const last = lastTurn.agentEntries[lastTurn.agentEntries.length - 1];
+    since = last.timestamp;
+    for (let i = lastTurn.agentEntries.length - 1; i >= 0; i--) {
+      const e = lastTurn.agentEntries[i];
+      if (e.type === 'tool_call' && !e.result) {
+        since = e.timestamp;
+        break;
+      }
+    }
+  }
 
   if (turns.length === 0) {
     return (
@@ -119,10 +131,13 @@ export function ChatTranscript({ sessionId }: ChatTranscriptProps): React.ReactE
 
   return (
     <div className="chat-transcript" ref={containerRef} onScroll={onScroll}>
-      {turns.map((t) => (
-        <ChatTurn key={t.id} turn={t} />
+      {turns.map((t, i) => (
+        <ChatTurn
+          key={t.id}
+          turn={t}
+          inflightSince={showThinking && i === turns.length - 1 ? since : undefined}
+        />
       ))}
-      {showThinking && <ThinkingIndicator since={since} />}
     </div>
   );
-}
+});
