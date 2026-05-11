@@ -13,8 +13,11 @@ import type { AgentSession, HlEvent } from './types';
 import type { ActionId } from './keybindings';
 import type { SettingsOpenIntent, SettingsSectionId } from './SettingsPane';
 import { orderSessionsForSidebar } from './sessionOrdering';
+import { ChatPane } from './chat/ChatPane';
+import { useUIStore } from './state/uiStore';
+import { useSessionsBridge } from './state/useSessionsBridge';
 
-type ViewMode = 'dashboard' | 'grid' | 'settings';
+type ViewMode = 'dashboard' | 'grid' | 'chat' | 'settings';
 type SettingsOpenPayload = {
   sectionId?: SettingsSectionId;
   focusBrowserCodeProvider?: string;
@@ -115,6 +118,20 @@ export function HubApp(): React.ReactElement {
   const sessions = isMock ? mockSessions : (sessionsQuery.data ?? []);
   const setSessions = isMock ? setMockSessions : () => {};
 
+  // Mirror sessions into Zustand for the chat view + future fine-grained
+  // subscribers. Uses the same per-event `session-output` IPC stream that the
+  // logs pane uses (not the heavier `session-updated` snapshot channel), so
+  // chat updates are true push events. Old consumers (Sidebar, AgentPane,
+  // Dashboard) keep reading from useSessionsQuery — no behavior change for
+  // grid mode.
+  useSessionsBridge();
+
+  // Chat target lives in useUIStore so the selection persists across reloads.
+  // viewMode itself remains HubApp-local for now (avoids a full migration of
+  // every other view-mode consumer); we just extend it with 'chat'.
+  const chatSessionId = useUIStore((s) => s.chatSessionId);
+  const setChatSession = useUIStore((s) => s.setChatSession);
+
   useEffect(() => {
     console.log('[HubApp] sessions changed', { count: sessions.length, ts: Date.now(), ids: sessions.map((s) => s.id.slice(0, 8)) });
   }, [sessions.length]);
@@ -133,11 +150,19 @@ export function HubApp(): React.ReactElement {
   });
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeRaw(mode);
-    window.electronAPI?.sessions?.viewsSetVisible?.(mode !== 'settings')?.catch(() => {});
+    // Browser views are only used by AgentPane (grid mode). Hide everywhere else
+    // so they don't bleed through the chat/dashboard/settings UI.
+    const shouldShowBrowserViews = mode === 'grid';
+    window.electronAPI?.sessions?.viewsSetVisible?.(shouldShowBrowserViews)?.catch(() => {});
     if (mode === 'dashboard' || mode === 'grid') {
       try { window.localStorage.setItem('hub-view-mode', mode); } catch { /* ignore */ }
     }
   }, []);
+  const enterChat = useCallback((id: string) => {
+    console.log('[HubApp] enterChat', { id });
+    setChatSession(id);
+    setViewMode('chat');
+  }, [setChatSession, setViewMode]);
   const openPill = useCallback(() => { window.electronAPI?.pill.toggle(); }, []);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsIntent, setSettingsIntent] = useState<SettingsOpenIntent | null>(null);
@@ -419,7 +444,7 @@ export function HubApp(): React.ReactElement {
       };
       console.log('[HubApp] createSession (mock)', { id, prompt });
       pendingFocusIdRef.current = id;
-      setViewMode('grid');
+      enterChat(id);
       setSessions((prev) => [...prev, newSession]);
 
       const pushEvent = (event: HlEvent, statusOverride?: AgentSession['status']) => {
@@ -453,13 +478,13 @@ export function HubApp(): React.ReactElement {
       );
       console.log('[HubApp] session created', { id });
       pendingFocusIdRef.current = id;
-      setViewMode('grid');
+      enterChat(id);
       await api.sessions.start(id);
       console.log('[HubApp] session started', { id });
     } catch (err) {
       console.error('[HubApp] createSession failed', err);
     }
-  }, [isMock, setViewMode]);
+  }, [isMock, setViewMode, enterChat]);
 
 
   const handleFollowUp = useCallback(async (
@@ -590,10 +615,10 @@ export function HubApp(): React.ReactElement {
       <Sidebar
         mode={tabsPosition}
         sessions={sessions}
-        selectedId={viewMode === 'grid' ? selectedSessionId : null}
+        selectedId={viewMode === 'grid' ? selectedSessionId : viewMode === 'chat' ? chatSessionId : null}
         onSelect={(id) => {
           handleSelectSession(id);
-          if (viewMode !== 'grid') setViewMode('grid');
+          enterChat(id);
         }}
         onNewAgent={() => openPill()}
         onRowAction={(id, action) => {
@@ -625,6 +650,17 @@ export function HubApp(): React.ReactElement {
           onResetAll={vim.resetAll}
           formatShortcut={vim.formatShortcut}
         />
+      ) : viewMode === 'chat' ? (
+        chatSessionId
+          ? <ChatPane
+              sessionId={chatSessionId}
+              onExit={() => setViewMode('dashboard')}
+              onSwitchToBrowser={() => {
+                handleSelectSession(chatSessionId);
+                setViewMode('grid');
+              }}
+            />
+          : <div className="chat-empty">No session selected. <button className="chat-pane__back" onClick={() => setViewMode('dashboard')}>Back to dashboard</button></div>
       ) : viewMode === 'dashboard' ? (
         <Dashboard
           sessions={sessions}
@@ -633,7 +669,7 @@ export function HubApp(): React.ReactElement {
           onSelectSession={(id) => {
             handleSelectSession(id);
             sessionsQuery.refetch();
-            setViewMode('grid');
+            enterChat(id);
           }}
         />
       ) : (
@@ -693,6 +729,7 @@ export function HubApp(): React.ReactElement {
                       onOpenSettings={() => {
                         openSettingsPage();
                       }}
+                      onOpenChat={enterChat}
                       followUpShortcut={shortcutFor('action.followUp')}
                     />
                   );
