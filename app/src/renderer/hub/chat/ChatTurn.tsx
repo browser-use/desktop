@@ -129,59 +129,87 @@ interface ChatTurnProps {
  * once caught up.
  */
 function useTypewriter(target: string, baseCharsPerSec = 70, startInstant = false): string {
-  // Lazy init: if the prose is already finalized when this component mounts
-  // (re-opening a completed task, scrolling back to an old turn), skip the
-  // animation and render full-text immediately. Otherwise start at 0 and let
-  // the raf loop type it out.
+  // shownLen is ONLY used to trigger re-renders. The raf loop reads/writes
+  // shownLenRef exclusively — never shownLen directly — so React re-renders
+  // can't race with in-flight raf advances.
   const [shownLen, setShownLen] = useState<number>(() => (startInstant ? target.length : 0));
-  const targetRef = useRef(target);
+
+  // shownLenRef is the single source of truth for the revealed position.
+  // Only written by the raf loop or the shrink handler. Never from render body.
   const shownLenRef = useRef(shownLen);
+
+  // targetRef lets the raf loop read the latest target without a dep.
+  const targetRef = useRef(target);
   targetRef.current = target;
-  shownLenRef.current = shownLen;
 
-  // If the target swaps to something shorter than what we've already shown
-  // (rare — happens on rerun / quick edits), restart from 0.
-  if (target.length < shownLen) {
-    shownLenRef.current = 0;
-    setShownLen(0);
-  }
+  // rafRef holds the active requestAnimationFrame id (0 = idle).
+  const rafRef = useRef(0);
 
-  // Single persistent raf loop. We deliberately do NOT depend on `shownLen` so
-  // the loop is not torn down + recreated every frame (which was wiping the
-  // dt/accum state and stalling progress to ~1 char per re-render).
-  useEffect(() => {
-    let raf = 0;
-    let last: number | null = null;
-    let accum = 0;
-    const tick = (ts: number): void => {
-      const dt = last == null ? 16 : ts - last;
-      last = ts;
-      const tgt = targetRef.current;
-      const prev = shownLenRef.current;
-      if (prev < tgt.length) {
-        const gap = tgt.length - prev;
-        const rate = Math.min(baseCharsPerSec * 2.5, baseCharsPerSec + gap * 0.4);
-        accum += (dt / 1000) * rate;
-        const advance = Math.floor(accum);
-        if (advance > 0) {
-          accum -= advance;
-          const next = Math.min(tgt.length, prev + advance);
-          shownLenRef.current = next;
-          setShownLen(next);
-        }
-      } else {
-        // Caught up — keep ticking cheaply so we resume immediately when more
-        // text arrives. raf is ~1KHz of wall-clock budget; this is fine.
-        accum = 0;
-        last = ts;
+  // Shared tick logic stored in a ref so both the initial effect and the
+  // resume effect reuse the exact same function without duplication.
+  const tickStateRef = useRef({ last: null as number | null, accum: 0 });
+  const tickRef = useRef<FrameRequestCallback>(() => {});
+  tickRef.current = (ts: number) => {
+    const state = tickStateRef.current;
+    const dt = state.last == null ? 16 : ts - state.last;
+    state.last = ts;
+
+    const tgt = targetRef.current;
+    const prev = shownLenRef.current;
+
+    if (prev < tgt.length) {
+      const gap = tgt.length - prev;
+      // Adaptive rate: catch up faster when far behind, cap at 2.5×.
+      const rate = Math.min(baseCharsPerSec * 2.5, baseCharsPerSec + gap * 0.4);
+      state.accum += (dt / 1000) * rate;
+      const advance = Math.floor(state.accum);
+      if (advance > 0) {
+        state.accum -= advance;
+        const next = Math.min(tgt.length, prev + advance);
+        shownLenRef.current = next;
+        setShownLen(next);
       }
-      raf = requestAnimationFrame(tick);
+      rafRef.current = requestAnimationFrame(tickRef.current);
+    } else {
+      // Caught up — idle. Resume effect restarts when target grows.
+      state.accum = 0;
+      state.last = null;
+      rafRef.current = 0;
+    }
+  };
+
+  // Start the raf loop once on mount (or if baseCharsPerSec changes).
+  useEffect(() => {
+    tickStateRef.current = { last: null, accum: 0 };
+    rafRef.current = requestAnimationFrame(tickRef.current);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
   }, [baseCharsPerSec]);
 
-  return target.slice(0, Math.min(shownLen, target.length));
+  // Handle target shrinking (rerun / edit): reset to 0.
+  // useEffect, not render body, to avoid setState-during-render warning.
+  useEffect(() => {
+    if (target.length < shownLenRef.current) {
+      shownLenRef.current = 0;
+      setShownLen(0);
+      // Restart the loop from the beginning.
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      tickStateRef.current = { last: null, accum: 0 };
+      rafRef.current = requestAnimationFrame(tickRef.current);
+    }
+  }, [target]);
+
+  // Restart the idle loop when new target text arrives.
+  useEffect(() => {
+    if (target.length > shownLenRef.current && rafRef.current === 0) {
+      tickStateRef.current = { last: null, accum: 0 };
+      rafRef.current = requestAnimationFrame(tickRef.current);
+    }
+  }, [target.length]);
+
+  return target.slice(0, shownLenRef.current);
 }
 
 /**

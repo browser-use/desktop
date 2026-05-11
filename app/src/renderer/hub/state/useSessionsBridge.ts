@@ -62,7 +62,14 @@ export function useSessionsBridge(): void {
       // stored on the in-memory session record).
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { output: _o, hasBrowser: _hb, ...rest } = session;
-      store.patchSession(session.id, rest);
+      // Rerun: SessionManager bumps createdAt and clears session.output, then
+      // emits session-updated. Without resetting here the transcript keeps
+      // showing the prior run's messages until new events arrive.
+      if (session.createdAt > prev.createdAt) {
+        store.patchSession(session.id, { ...rest, output: [] });
+      } else {
+        store.patchSession(session.id, rest);
+      }
     });
 
     const unsubBrowserGone = api.on.sessionBrowserGone((id) => {
