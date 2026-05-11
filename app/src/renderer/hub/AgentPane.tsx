@@ -699,11 +699,12 @@ interface AgentPaneProps {
   onSelect?: (sessionId: string) => void;
   onOpenFollowUp?: () => void;
   onOpenSettings?: () => void;
+  onOpenChat?: (sessionId: string) => void;
   followUpShortcut?: string;
   cycleShortcut?: string;
 }
 
-export function AgentPane({ session, focused, onRerun, onResume, onPause, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+export function AgentPane({ session, focused, onRerun, onResume, onPause, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, onOpenChat, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
   const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
   const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -1032,6 +1033,19 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
               <BrowserIcon />
               <span>Browser ended</span>
             </span>
+          )}
+          {onOpenChat && (
+            <button
+              className="pane__action-btn"
+              onClick={(e) => { e.stopPropagation(); onOpenChat(session.id); }}
+              aria-label="Back to chat view"
+              data-tip="Back to chat view"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M7 3L4 6l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>Back to chat</span>
+            </button>
           )}
           <button
             className={`pane__action-btn${logsOpen ? ' pane__action-btn--active' : ''}`}
