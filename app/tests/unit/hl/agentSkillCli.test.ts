@@ -100,4 +100,25 @@ describe('agent-skill CLI', () => {
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('only user skills');
   });
+
+  it('rejects patch files that resolve outside the selected skill directory through symlinks', () => {
+    const body = 'Use when a recurring workflow needs local notes.\n';
+    json(['create', 'workflow/crm-triage', '--description', 'Reusable CRM triage workflow'], body);
+
+    const outside = path.join(root, 'outside.md');
+    fs.writeFileSync(outside, 'outside secret\n', 'utf-8');
+    const link = path.join(root, 'skills', 'workflow', 'crm-triage', 'notes.md');
+    try {
+      fs.symlinkSync(outside, link);
+    } catch {
+      return;
+    }
+
+    const { result, parsed } = json(['patch', 'user/workflow/crm-triage', '--file', 'notes.md', '--old', 'outside', '--new', 'inside']);
+
+    expect(result.status).toBe(1);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain('target path must stay inside');
+    expect(fs.readFileSync(outside, 'utf-8')).toBe('outside secret\n');
+  });
 });

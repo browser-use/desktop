@@ -80,12 +80,19 @@ export function createTermTranslatorState(): TermTranslatorState {
 }
 
 const SKILL_PATH_RE = /(?:domain-skills|interaction-skills)\/.+\.md$|skills\/.+\/SKILL\.md$/;
-const AGENT_SKILL_RE = /\bagent-skill(?:\.cmd)?\s+(view|validate|create|patch|delete)\s+/;
+const AGENT_SKILL_TARGET_RE = /\bagent-skill(?:\.cmd)?\s+(view|validate|create|patch|delete)\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))/;
+
+function hasSyntheticAgentSkillEvent(command: string): boolean {
+  const match = command.match(AGENT_SKILL_TARGET_RE);
+  if (!match) return false;
+  const target = (match[2] ?? match[3] ?? match[4] ?? '').replace(/['"]+$/g, '');
+  return Boolean(target && !target.startsWith('--'));
+}
 
 function extractSkillPath(args: unknown): string | null {
   if (!args || typeof args !== 'object') return null;
   const a = args as Record<string, unknown>;
-  if (typeof a.command === 'string' && AGENT_SKILL_RE.test(a.command)) return a.command;
+  if (typeof a.command === 'string' && hasSyntheticAgentSkillEvent(a.command)) return a.command;
   const candidates = [a.file_path, a.path, a.target_file];
   for (const c of candidates) {
     if (typeof c === 'string' && SKILL_PATH_RE.test(c)) return c;

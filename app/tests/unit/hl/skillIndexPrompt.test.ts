@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildSkillIndexPrompt, scanSkillIndex } from '../../../src/main/hl/engines/skillIndexPrompt';
 
 let harnessDir: string;
@@ -65,5 +65,14 @@ describe('skill index prompt', () => {
     expect(prompt.length).toBeLessThan(500);
     expect(prompt).toContain('Index truncated');
     expect(prompt).toContain('agent-skill search');
+  });
+
+  it('omits the index instead of throwing when scanning fails', () => {
+    const spy = vi.spyOn(fs, 'readdirSync').mockImplementationOnce(() => {
+      throw new Error('permission denied');
+    });
+
+    expect(buildSkillIndexPrompt(harnessDir)).toBe('');
+    spy.mockRestore();
   });
 });

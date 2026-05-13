@@ -270,6 +270,13 @@ function assertInside(parent, child) {
   }
 }
 
+function realContainedPath(parent, child) {
+  const parentReal = fs.realpathSync(parent);
+  const childReal = fs.realpathSync(child);
+  assertInside(parentReal, childReal);
+  return childReal;
+}
+
 function removeEmptyParents(start, stop) {
   let current = start;
   const stopResolved = path.resolve(stop);
@@ -365,12 +372,13 @@ function commandResult(root, opts) {
     const relFile = typeof opts.file === 'string' ? opts.file : 'SKILL.md';
     const target = path.resolve(skillRoot, relFile);
     assertInside(skillRoot, target);
-    const before = fs.readFileSync(target, 'utf-8');
+    const realTarget = realContainedPath(skillRoot, target);
+    const before = fs.readFileSync(realTarget, 'utf-8');
     const count = before.split(oldText).length - 1;
     if (count === 0) throw new Error('patch text was not found');
     if (count > 1 && !opts.replaceAll) throw new Error('patch text matched more than once; pass --replace-all to replace all matches');
     const after = opts.replaceAll ? before.split(oldText).join(newText) : before.replace(oldText, newText);
-    fs.writeFileSync(target, after, 'utf-8');
+    fs.writeFileSync(realTarget, after, 'utf-8');
     const updated = resolveEntry(loadIndex(root), entry.id);
     return { command, action: 'patch', replacements: opts.replaceAll ? count : 1, entry: publicEntry(updated), validation: validateEntry(updated) };
   }

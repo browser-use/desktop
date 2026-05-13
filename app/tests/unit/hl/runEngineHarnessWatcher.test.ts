@@ -174,6 +174,7 @@ describe('runEngine harness watcher', () => {
     const script = [
       "console.log(JSON.stringify({ type: 'view' }));",
       "console.log(JSON.stringify({ type: 'shellView' }));",
+      "console.log(JSON.stringify({ type: 'userValidate' }));",
       "console.log(JSON.stringify({ type: 'create' }));",
       "console.log(JSON.stringify({ type: 'delete' }));",
       "console.log(JSON.stringify({ type: 'done' }));",
@@ -196,6 +197,16 @@ describe('runEngine harness watcher', () => {
             type: 'tool_call',
             name: 'Bash',
             args: { command: "/bin/zsh -lc 'agent-skill view interaction/screenshots'" },
+            iteration: 1,
+          }],
+        };
+      }
+      if (event.type === 'userValidate') {
+        return {
+          events: [{
+            type: 'tool_call',
+            name: 'Bash',
+            args: { command: 'agent-skill validate user/workflow/crm-triage --json' },
             iteration: 1,
           }],
         };
@@ -235,6 +246,11 @@ describe('runEngine harness watcher', () => {
       type: 'skill_used',
       domain: 'interaction',
       topic: 'screenshots',
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'skill_used',
+      domain: 'user',
+      topic: 'workflow/crm-triage',
     }));
     expect(events).toContainEqual(expect.objectContaining({
       type: 'skill_written',

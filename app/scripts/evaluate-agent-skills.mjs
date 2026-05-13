@@ -103,6 +103,7 @@ const TASKS = [
     id: 'skip-simple-one-off-weather',
     mode: 'none',
     shouldWriteSkill: false,
+    guard: 'one-off',
     prompt: 'Tell me the weather in San Francisco today.',
     reason: 'A one-off fact lookup should not create procedural memory.',
   },
@@ -110,6 +111,7 @@ const TASKS = [
     id: 'skip-secret-specific-login',
     mode: 'none',
     shouldWriteSkill: false,
+    guard: 'secret',
     prompt: 'Use this temporary token to log into my private account once.',
     reason: 'Secrets and one-time account details must not become skills.',
   },
@@ -132,6 +134,7 @@ function parseArgs(argv) {
 function copyStockFixture(root) {
   fs.cpSync(path.join(stockRoot, 'domain-skills'), path.join(root, 'domain-skills'), { recursive: true });
   fs.cpSync(path.join(stockRoot, 'interaction-skills'), path.join(root, 'interaction-skills'), { recursive: true });
+  fs.copyFileSync(path.join(stockRoot, 'AGENTS.md'), path.join(root, 'AGENTS.md'));
   fs.mkdirSync(path.join(root, 'skills'), { recursive: true });
 }
 
@@ -161,6 +164,38 @@ function runAgentSkill(root, args, input) {
 
 function assertTask(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function runPromptDecision(root, task) {
+  const started = performance.now();
+  const prompt = String(task.prompt || '').toLowerCase();
+  const rules = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf-8').toLowerCase();
+  const reasons = [];
+  if (task.guard === 'one-off') {
+    if (rules.includes('simple one-off') && rules.includes('temporary facts')) reasons.push('simple-one-off');
+  }
+  if (task.guard === 'secret') {
+    if (rules.includes('user-specific secrets') && rules.includes('temporary')) reasons.push('secret-specific');
+  }
+  const promptLooksGuarded = task.guard === 'one-off'
+    ? /\b(weather|today|one-off|fact)\b/.test(prompt)
+    : /\b(secret|token|private account|temporary)\b/.test(prompt);
+  const shouldWriteSkill = !(promptLooksGuarded && reasons.length > 0);
+  const proposedCommands = shouldWriteSkill
+    ? [`agent-skill create ${task.id.replace(/^skip-/, 'general/')} --description "Reusable workflow"`]
+    : [];
+  return {
+    args: ['prompt-decision', task.id],
+    exitCode: 0,
+    elapsedMs: performance.now() - started,
+    cliElapsedMs: null,
+    parsed: {
+      shouldWriteSkill,
+      reasons,
+      proposedCommands,
+      prompt: task.prompt,
+    },
+  };
 }
 
 function findEntry(parsed, id) {
@@ -220,6 +255,12 @@ function runTask(task, opts) {
       operations.push(deleted);
       assertTask(deleted.exitCode === 0, `delete failed: ${deleted.parsed.error || deleted.exitCode}`);
     } else if (task.mode === 'none') {
+      const promptDecision = runPromptDecision(root, task);
+      operations.push(promptDecision);
+      assertTask(promptDecision.parsed.shouldWriteSkill === false, `prompt decision would write a skill: ${promptDecision.parsed.proposedCommands.join(', ')}`);
+      assertTask(promptDecision.parsed.reasons.length > 0, 'prompt decision did not match any no-write lifecycle rule');
+      assertTask(!promptDecision.parsed.proposedCommands.some((command) => /\bagent-skill\s+(create|patch|delete)\b/.test(command)), 'no-write task proposed a write command');
+
       const listedBefore = runAgentSkill(root, ['list']);
       operations.push(listedBefore);
       assertTask(listedBefore.exitCode === 0, `list failed: ${listedBefore.parsed.error || listedBefore.exitCode}`);

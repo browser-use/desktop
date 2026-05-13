@@ -498,16 +498,24 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     return null;
   }
 
+  function skillMetaFromSkillId(id: string): { domain: string; topic: string } | null {
+    const cleaned = id.replace(/['"]+$/g, '');
+    if (!cleaned || cleaned.startsWith('--')) return null;
+    if (cleaned.startsWith('user/')) return { domain: 'user', topic: cleaned.slice('user/'.length) };
+    const parts = cleaned.split('/');
+    const domain = parts.shift() || 'skill';
+    return { domain, topic: parts.join('/') || cleaned };
+  }
+
   function skillMetaFromAgentSkillCommand(command: string): { kind: 'read' | 'write'; action?: 'write' | 'patch' | 'delete'; domain: string; topic: string } | null {
     const match = command.match(/\bagent-skill(?:\.cmd)?\s+(view|validate|create|patch|delete)\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
     if (!match) return null;
     const verb = match[1];
-    const id = (match[2] ?? match[3] ?? match[4] ?? '').replace(/^user\//, '').replace(/['"]+$/g, '');
+    const id = match[2] ?? match[3] ?? match[4] ?? '';
     if (!id || id.startsWith('--')) return null;
     if (verb === 'view' || verb === 'validate') {
-      const parts = id.split('/');
-      const domain = parts.shift() || 'skill';
-      return { kind: 'read', domain, topic: parts.join('/') || id };
+      const meta = skillMetaFromSkillId(id);
+      return meta ? { kind: 'read', domain: meta.domain, topic: meta.topic } : null;
     }
     return {
       kind: 'write',

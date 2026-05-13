@@ -108,7 +108,12 @@ function sectionTitle(source: SkillIndexEntry['source']): string {
 }
 
 export function buildSkillIndexPrompt(harnessDir: string, maxChars = DEFAULT_MAX_CHARS): string {
-  const entries = scanSkillIndex(harnessDir);
+  let entries: SkillIndexEntry[];
+  try {
+    entries = scanSkillIndex(harnessDir);
+  } catch {
+    return '';
+  }
   if (entries.length === 0) return '';
 
   const lines = [
