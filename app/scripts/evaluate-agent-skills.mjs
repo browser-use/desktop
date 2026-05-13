@@ -216,15 +216,25 @@ function sqlQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+function syncOutputText(value) {
+  if (typeof value === 'string') return value;
+  if (Buffer.isBuffer(value)) return value.toString('utf-8');
+  return '';
+}
+
 function querySqliteJson(dbPath, sql) {
   const result = spawnSync('sqlite3', ['-json', dbPath, sql], {
     encoding: 'utf-8',
   });
-  if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || `sqlite3 exited ${result.status}`);
+  const stdout = syncOutputText(result.stdout).trim();
+  const stderr = syncOutputText(result.stderr).trim();
+  if (result.error) {
+    throw new Error(stderr || result.error.message || 'sqlite3 failed to start');
   }
-  const raw = result.stdout.trim();
-  return raw ? JSON.parse(raw) : [];
+  if (result.status !== 0) {
+    throw new Error(stderr || stdout || `sqlite3 exited ${result.status ?? 'unknown'}`);
+  }
+  return stdout ? JSON.parse(stdout) : [];
 }
 
 function queryLiveSession(userDataDir, sessionId) {
