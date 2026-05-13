@@ -55,6 +55,8 @@
     "start:reset-onboarding": "node scripts/reset-onboarding.mjs",
     "start:reset-sessions": "node scripts/reset-sessions.mjs",
     "sync-domain-skills": "node scripts/sync-domain-skills.mjs",
+    "skills:eval": "node scripts/evaluate-agent-skills.mjs",
+    "eval:agent-skills": "node scripts/evaluate-agent-skills.mjs",
     "postinstall": "node scripts/chmod-node-pty-helpers.mjs"
   },
   "keywords": [],
