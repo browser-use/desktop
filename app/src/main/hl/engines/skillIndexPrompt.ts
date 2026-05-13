@@ -11,6 +11,12 @@ interface SkillIndexEntry {
   description: string;
 }
 
+export const SKILL_DISCOVERY_AND_LIFECYCLE_LINES = [
+  'Use `agent-skill search` and `agent-skill view` to find relevant skills before inventing browser, site, or workflow-specific steps.',
+  'After a task succeeds, create or patch a user skill only when the new procedure is likely to repeat, long-running enough to justify reuse, or generally applicable beyond the current session.',
+  'Do not write skills for one-off facts/calculations, temporary page state, secrets/tokens, private account details, failed/speculative workflows, or content that belongs in the task output.',
+];
+
 function normalizeSlash(value: string): string {
   return value.split(path.sep).join('/');
 }

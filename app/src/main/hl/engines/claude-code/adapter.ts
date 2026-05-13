@@ -13,7 +13,7 @@
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
 import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
-import { buildSkillIndexPrompt } from '../skillIndexPrompt';
+import { buildSkillIndexPrompt, SKILL_DISCOVERY_AND_LIFECYCLE_LINES } from '../skillIndexPrompt';
 import { enrichedEnv } from '../pathEnrich';
 import { runCliCapture, spawnCli } from '../cliSpawn';
 import type {
@@ -121,7 +121,7 @@ const claudeCodeAdapter: EngineAdapter = {
       'You are driving a specific Chromium browser view on this machine.',
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
       'Read `./AGENTS.md` for how to drive the browser with Browser Harness JS.',
-      'Use `agent-skill search` and `agent-skill view` to find relevant skills before inventing browser or site-specific steps.',
+      ...SKILL_DISCOVERY_AND_LIFECYCLE_LINES,
       "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
       'Do not use old helpers.js convenience APIs for browser control.',
       'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',

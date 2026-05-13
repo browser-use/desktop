@@ -60,6 +60,14 @@ describe('browsercode adapter stdin payload mode', () => {
     expect(args).not.toContain(wrappedPrompt);
     expect(adapter.getStdinPayload?.(ctx, wrappedPrompt)).toBe(wrappedPrompt);
   });
+
+  it('injects skill lifecycle guidance into the provider prompt', () => {
+    const adapter = browserCodeAdapter();
+    const wrappedPrompt = adapter.wrapPrompt(spawnContext());
+
+    expect(wrappedPrompt).toContain('likely to repeat, long-running enough to justify reuse, or generally applicable');
+    expect(wrappedPrompt).toContain('Do not write skills for one-off facts/calculations');
+  });
 });
 
 describe('browsercode adapter tool parsing', () => {

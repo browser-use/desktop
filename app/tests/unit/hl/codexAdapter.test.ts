@@ -85,4 +85,12 @@ describe('codex adapter spawn args', () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it('injects skill lifecycle guidance into the provider prompt', () => {
+    const adapter = codexAdapter();
+    const wrappedPrompt = adapter.wrapPrompt(spawnContext());
+
+    expect(wrappedPrompt).toContain('likely to repeat, long-running enough to justify reuse, or generally applicable');
+    expect(wrappedPrompt).toContain('Do not write skills for one-off facts/calculations');
+  });
 });

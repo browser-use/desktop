@@ -131,15 +131,17 @@ These files are read-only reference material and are overwritten on app launch.
 ## Skill Lifecycle
 
 Create compact procedural skills under `./skills/` with `agent-skill create`
-after completing a complex task, fixing a tricky error, or discovering a
-non-trivial reusable workflow. As a rough threshold, consider creating a skill
-after 5 or more meaningful tool calls, trial and error that changed the
-approach, or a user correction that should shape future work.
+after a task succeeds and the new procedure is likely to repeat, long-running
+enough to justify reuse, or generally applicable beyond the current session.
+Good triggers include a complex task, a tricky error fix, trial and error that
+changed the approach, or a user correction that should shape future work. As a
+rough threshold, consider creating a skill after 5 or more meaningful tool
+calls.
 
-Do not create skills for simple one-off browsing, user-specific secrets,
-temporary facts, speculative or failed workflows, or content that is better as
-task output. Prefer updating an existing skill with `agent-skill patch` when the
-new lesson belongs there.
+Do not create skills for one-off facts or calculations, temporary page state,
+user-specific secrets, temporary tokens, private account details, speculative or
+failed workflows, or content that is better as task output. Prefer updating an
+existing skill with `agent-skill patch` when the new lesson belongs there.
 
 Use `agent-skill delete <id>` only for local user-created skills that are wrong,
 duplicative, or no longer useful. Do not delete stock domain or interaction

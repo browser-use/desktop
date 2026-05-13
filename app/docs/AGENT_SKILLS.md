@@ -13,13 +13,13 @@ The harness contains:
 - `skills/`: persistent user-created procedural skills
 - `agent-skill/`: the local CLI used to search, view, create, patch, delete, and validate
 
-Providers are prompted to run `agent-skill search` before inventing browser or site-specific steps, then `agent-skill view <id>` for the exact skill.
+Providers are prompted to run `agent-skill search` before inventing browser, site, or workflow-specific steps, then `agent-skill view <id>` for the exact skill.
 
 Each provider prompt also receives a generated compact skill index. The index is metadata only: skill id, title, and short description. Full skill bodies are not injected; agents still load them with `agent-skill view <id>`.
 
 ## Creation Rules
 
-Create or patch a skill when the task produced reusable procedural knowledge:
+Create or patch a skill after a task succeeds and the new procedure is likely to repeat, long-running enough to justify reuse, or generally applicable beyond the current session. Good triggers:
 
 - complex task succeeded after roughly 5 or more meaningful tool calls
 - tricky error was fixed
@@ -29,7 +29,8 @@ Create or patch a skill when the task produced reusable procedural knowledge:
 
 Do not write a skill for:
 
-- simple one-off browsing or fact lookups
+- simple one-off browsing, fact lookups, or calculations
+- temporary page state
 - user-specific secrets, temporary tokens, or private account details
 - failed or speculative workflows
 - content that belongs in task output
@@ -54,6 +55,19 @@ Run the timed ten-task suite:
 npm run skills:eval
 ```
 
-The suite covers five "find existing skill" tasks, two "create new skill" tasks, one "patch existing skill" task with deletion coverage, and two "do not write a skill" tasks. Each task records elapsed time for the overall task and each `agent-skill` operation.
+The suite covers five "find existing skill" tasks, two "create new skill" tasks, one "patch existing skill" task with deletion coverage, and two live "do not write a skill" tasks. Each task records elapsed time for the overall task and each operation.
 
-This first evaluator proves discoverability, bloat control, write/no-write task classification, and static skill quality. It does not yet prove that a provider used the skill correctly inside a live browser session. The next layer should run the same fixture set through each provider and judge the resulting `skill_used`/`skill_written` events plus task output.
+The no-write tasks are real app-backed sessions submitted through the local task server, then checked in `sessions.db` for durable `skill_written` events. Start the app first and point the eval at the same user-data directory:
+
+```bash
+AGB_USER_DATA_DIR=/tmp/browser-use-skills-eval npm start
+AGB_USER_DATA_DIR=/tmp/browser-use-skills-eval npm run skills:eval
+```
+
+By default the live tasks run on `codex`. To test multiple providers:
+
+```bash
+SKILLS_EVAL_ENGINES=codex,claude-code,browsercode npm run skills:eval
+```
+
+The evaluator fails rather than silently passing if the local app is not running or if any live no-write session emits `skill_written`.

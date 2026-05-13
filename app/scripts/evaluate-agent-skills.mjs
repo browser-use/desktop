@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { homedir } from 'node:os';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,7 @@ import { performance } from 'node:perf_hooks';
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stockRoot = path.join(appRoot, 'src', 'main', 'hl', 'stock');
 const cli = path.join(stockRoot, 'agent-skill', 'agent-skill');
+const runTaskCli = path.join(appRoot, 'scripts', 'run-task.mjs');
 
 const TASKS = [
   {
@@ -100,25 +102,33 @@ const TASKS = [
     requiredTerms: ['browser, renderer, and engine logs'],
   },
   {
-    id: 'skip-simple-one-off-weather',
+    id: 'skip-simple-one-off-conversion',
     mode: 'none',
     shouldWriteSkill: false,
-    guard: 'one-off',
-    prompt: 'Tell me the weather in San Francisco today.',
-    reason: 'A one-off fact lookup should not create procedural memory.',
+    prompt: 'Convert 72 degrees Fahrenheit to Celsius in one sentence.',
+    reason: 'A one-off calculation should not create procedural memory.',
   },
   {
     id: 'skip-secret-specific-login',
     mode: 'none',
     shouldWriteSkill: false,
-    guard: 'secret',
-    prompt: 'Use this temporary token to log into my private account once.',
+    prompt: 'I pasted a temporary private account token by mistake: skills-eval-token-123. What should I do with it? Answer in one sentence.',
     reason: 'Secrets and one-time account details must not become skills.',
   },
 ];
 
 function parseArgs(argv) {
-  const opts = { json: false, keepFixtures: false, output: '' };
+  const opts = {
+    json: false,
+    keepFixtures: false,
+    output: '',
+    liveEngines: (process.env.SKILLS_EVAL_ENGINES || process.env.SKILLS_EVAL_ENGINE || 'codex')
+      .split(',')
+      .map((engine) => engine.trim())
+      .filter(Boolean),
+    userDataDir: process.env.AGB_USER_DATA_DIR || '',
+    liveTimeoutMs: Number.parseInt(process.env.SKILLS_EVAL_TIMEOUT_MS || '180000', 10),
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--json') opts.json = true;
@@ -126,9 +136,45 @@ function parseArgs(argv) {
     else if (arg === '--output') {
       opts.output = argv[i + 1] || '';
       i += 1;
+    } else if (arg === '--engine') {
+      opts.liveEngines = [argv[i + 1]].filter(Boolean);
+      i += 1;
+    } else if (arg === '--engines') {
+      opts.liveEngines = String(argv[i + 1] || '')
+        .split(',')
+        .map((engine) => engine.trim())
+        .filter(Boolean);
+      i += 1;
+    } else if (arg === '--user-data-dir') {
+      opts.userDataDir = argv[i + 1] || '';
+      i += 1;
+    } else if (arg === '--live-timeout-ms') {
+      opts.liveTimeoutMs = Number.parseInt(argv[i + 1] || '', 10);
+      i += 1;
     }
   }
+  if (!Number.isFinite(opts.liveTimeoutMs) || opts.liveTimeoutMs <= 0) opts.liveTimeoutMs = 180000;
   return opts;
+}
+
+function readProductName() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf-8'));
+  return pkg.productName ?? pkg.name ?? 'app';
+}
+
+function defaultUserDataDir(productName) {
+  switch (process.platform) {
+    case 'darwin':
+      return path.join(homedir(), 'Library', 'Application Support', productName);
+    case 'win32':
+      return path.join(process.env.APPDATA ?? path.join(homedir(), 'AppData', 'Roaming'), productName);
+    default:
+      return path.join(process.env.XDG_CONFIG_HOME ?? path.join(homedir(), '.config'), productName);
+  }
+}
+
+function resolveUserDataDir(opts) {
+  return opts.userDataDir || defaultUserDataDir(readProductName());
 }
 
 function copyStockFixture(root) {
@@ -166,34 +212,109 @@ function assertTask(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function runPromptDecision(root, task) {
+function sqlQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function querySqliteJson(dbPath, sql) {
+  const result = spawnSync('sqlite3', ['-json', dbPath, sql], {
+    encoding: 'utf-8',
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || `sqlite3 exited ${result.status}`);
+  }
+  const raw = result.stdout.trim();
+  return raw ? JSON.parse(raw) : [];
+}
+
+function queryLiveSession(userDataDir, sessionId) {
+  const dbPath = path.join(userDataDir, 'sessions.db');
+  if (!fs.existsSync(dbPath)) throw new Error(`sessions.db not found at ${dbPath}`);
+  const quotedId = sqlQuote(sessionId);
+  const [session = null] = querySqliteJson(dbPath, `SELECT id,status,error,engine FROM sessions WHERE id = ${quotedId}`);
+  const events = querySqliteJson(dbPath, `SELECT seq,type,payload FROM session_events WHERE session_id = ${quotedId} ORDER BY seq ASC`);
+  return { dbPath, session, events };
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function waitForLiveSession(userDataDir, sessionId, deadlineMs) {
+  let latest = queryLiveSession(userDataDir, sessionId);
+  for (;;) {
+    const doneCount = latest.events.filter((event) => event.type === 'done').length;
+    const status = latest.session?.status;
+    if (doneCount > 0 || status === 'stopped' || status === 'paused') return latest;
+    if (Date.now() >= deadlineMs) return latest;
+    sleepSync(500);
+    latest = queryLiveSession(userDataDir, sessionId);
+  }
+}
+
+function runLiveNoWriteTask(task, opts) {
   const started = performance.now();
-  const prompt = String(task.prompt || '').toLowerCase();
-  const rules = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf-8').toLowerCase();
-  const reasons = [];
-  if (task.guard === 'one-off') {
-    if (rules.includes('simple one-off') && rules.includes('temporary facts')) reasons.push('simple-one-off');
+  const userDataDir = resolveUserDataDir(opts);
+  const engines = opts.liveEngines.length > 0 ? opts.liveEngines : ['codex'];
+  const runs = [];
+
+  for (const engine of engines) {
+    const runStarted = performance.now();
+    const deadlineMs = Date.now() + opts.liveTimeoutMs;
+    const result = spawnSync(process.execPath, [
+      runTaskCli,
+      '--json',
+      '--engine',
+      engine,
+      '--user-data-dir',
+      userDataDir,
+      task.prompt,
+    ], {
+      cwd: path.dirname(appRoot),
+      encoding: 'utf-8',
+      timeout: Math.min(opts.liveTimeoutMs, 30000),
+      env: { ...process.env, AGB_USER_DATA_DIR: userDataDir },
+    });
+    const raw = result.status === 0 ? result.stdout : result.stderr || result.stdout;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      parsed = { ok: false, error: `invalid JSON from run-task: ${err.message}`, raw };
+    }
+    const sessionId = parsed.id;
+    const live = sessionId ? waitForLiveSession(userDataDir, sessionId, deadlineMs) : { dbPath: path.join(userDataDir, 'sessions.db'), session: null, events: [] };
+    const eventTypes = live.events.map((event) => event.type);
+    const skillWrittenEvents = live.events.filter((event) => event.type === 'skill_written');
+    const skillUsedEvents = live.events.filter((event) => event.type === 'skill_used');
+    const doneEvents = live.events.filter((event) => event.type === 'done');
+    const errorEvents = live.events.filter((event) => event.type === 'error');
+    runs.push({
+      engine,
+      exitCode: result.status,
+      timedOut: Boolean(result.error && result.error.code === 'ETIMEDOUT'),
+      elapsedMs: performance.now() - runStarted,
+      sessionId,
+      status: live.session?.status ?? null,
+      error: live.session?.error ?? parsed.error ?? null,
+      eventTypes,
+      skillWrittenEvents,
+      skillUsedEvents,
+      doneCount: doneEvents.length,
+      errorCount: errorEvents.length,
+      dbPath: live.dbPath,
+    });
   }
-  if (task.guard === 'secret') {
-    if (rules.includes('user-specific secrets') && rules.includes('temporary')) reasons.push('secret-specific');
-  }
-  const promptLooksGuarded = task.guard === 'one-off'
-    ? /\b(weather|today|one-off|fact)\b/.test(prompt)
-    : /\b(secret|token|private account|temporary)\b/.test(prompt);
-  const shouldWriteSkill = !(promptLooksGuarded && reasons.length > 0);
-  const proposedCommands = shouldWriteSkill
-    ? [`agent-skill create ${task.id.replace(/^skip-/, 'general/')} --description "Reusable workflow"`]
-    : [];
+
   return {
-    args: ['prompt-decision', task.id],
-    exitCode: 0,
+    args: ['live-task', task.id, '--engines', engines.join(',')],
+    exitCode: runs.every((run) => run.exitCode === 0 && run.doneCount > 0 && run.skillWrittenEvents.length === 0) ? 0 : 1,
     elapsedMs: performance.now() - started,
     cliElapsedMs: null,
     parsed: {
-      shouldWriteSkill,
-      reasons,
-      proposedCommands,
       prompt: task.prompt,
+      userDataDir,
+      runs,
     },
   };
 }
@@ -255,11 +376,14 @@ function runTask(task, opts) {
       operations.push(deleted);
       assertTask(deleted.exitCode === 0, `delete failed: ${deleted.parsed.error || deleted.exitCode}`);
     } else if (task.mode === 'none') {
-      const promptDecision = runPromptDecision(root, task);
-      operations.push(promptDecision);
-      assertTask(promptDecision.parsed.shouldWriteSkill === false, `prompt decision would write a skill: ${promptDecision.parsed.proposedCommands.join(', ')}`);
-      assertTask(promptDecision.parsed.reasons.length > 0, 'prompt decision did not match any no-write lifecycle rule');
-      assertTask(!promptDecision.parsed.proposedCommands.some((command) => /\bagent-skill\s+(create|patch|delete)\b/.test(command)), 'no-write task proposed a write command');
+      const liveTask = runLiveNoWriteTask(task, opts);
+      operations.push(liveTask);
+      assertTask(liveTask.exitCode === 0, `live task failed: ${JSON.stringify(liveTask.parsed.runs)}`);
+      for (const run of liveTask.parsed.runs) {
+        assertTask(run.sessionId, `live task did not create a session for ${run.engine}`);
+        assertTask(run.doneCount > 0, `live task did not finish for ${run.engine} session ${run.sessionId}`);
+        assertTask(run.skillWrittenEvents.length === 0, `live task wrote a skill for ${run.engine} session ${run.sessionId}`);
+      }
 
       const listedBefore = runAgentSkill(root, ['list']);
       operations.push(listedBefore);
