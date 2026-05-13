@@ -100,6 +100,16 @@ browser-harness-js 'globalThis.lastTitle'
 
 ## Interaction Skills
 
+Use `agent-skill search "<query>"` before reading files manually. It indexes
+interaction skills, domain skills, and user-created skills without dumping all
+skill content into your context. After search, load the exact match with
+`agent-skill view <id>`.
+
+Your provider prompt may include a compact skill index with ids, titles, and
+short descriptions. Treat that as a menu of likely matches, not as full
+instructions. Always load the skill body with `agent-skill view <id>` before
+following it.
+
 `./interaction-skills/` contains focused CDP recipes from
 `browser-use/browser-harness-js`: screenshots, scrolling, uploads, dialogs,
 iframes, shadow DOM, downloads, network requests, dropdowns, tabs, cookies,
@@ -118,11 +128,46 @@ reuse than to rediscover.
 
 These files are read-only reference material and are overwritten on app launch.
 
+## Skill Lifecycle
+
+Create compact procedural skills under `./skills/` with `agent-skill create`
+after a task succeeds and the new procedure is likely to repeat, long-running
+enough to justify reuse, or generally applicable beyond the current session.
+Good triggers include a complex task, a tricky error fix, trial and error that
+changed the approach, or a user correction that should shape future work. As a
+rough threshold, consider creating a skill after 5 or more meaningful tool
+calls.
+
+Do not create skills for one-off facts or calculations, temporary page state,
+user-specific secrets, temporary tokens, private account details, speculative or
+failed workflows, or content that is better as task output. Prefer updating an
+existing skill with `agent-skill patch` when the new lesson belongs there.
+
+Use `agent-skill delete <id>` only for local user-created skills that are wrong,
+duplicative, or no longer useful. Do not delete stock domain or interaction
+skills.
+
+Good skills include:
+
+- when to use the skill
+- numbered steps or exact commands
+- pitfalls or failure modes
+- verification steps that prove the skill worked
+
+After writing or patching a skill, run:
+
+```bash
+agent-skill validate <id> --json
+```
+
+Keep skills small. Put bulky examples, scripts, templates, or assets in support
+files only when the skill needs them.
+
 ## Harness Files
 
 Browser Harness JS should cover normal browser work. Do not edit `helpers.js`,
-`AGENTS.md`, `browser-harness-js/`, `interaction-skills/`, or `domain-skills/`
-as a first resort.
+`AGENTS.md`, `agent-skill/`, `browser-harness-js/`, `interaction-skills/`, or
+`domain-skills/` as a first resort.
 
 Only make a small harness edit when the user explicitly asks for it, or when a
 confirmed bug or missing capability in the bundled runtime blocks the task. If
@@ -187,6 +232,11 @@ one directory up from the harness:
   and `../logs/engine.log`
 - Account state: `../account.json`
 - Local task control: `../local-task-server.json`
+
+For repo-level local development, do not assume the platform default profile.
+Coding agents should use the repo `AGENTS.md` and `task worktree:profile:path`
+to keep `sessions.db` and `local-task-server.json` aligned for the active
+worktree.
 
 Do not print raw credentials, tokens, keychain values, or the local task bearer
 token. Use status checks and masked values.

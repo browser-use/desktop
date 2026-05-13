@@ -357,7 +357,7 @@ function OutputRow({ entry }: { entry: OutputEntry }): React.ReactElement {
   }
 
   if (entry.type === 'skill_written') {
-    const label = entry.harnessAction === 'patch' ? 'Edited skill' : 'Wrote skill';
+    const label = entry.harnessAction === 'delete' ? 'Deleted skill' : entry.harnessAction === 'patch' ? 'Edited skill' : 'Wrote skill';
     return (
       <div className="step step--skill">
         <span className="step__icon">

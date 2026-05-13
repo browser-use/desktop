@@ -1,8 +1,9 @@
 /**
  * Harness directory bootstrap: seeds `<userData>/harness/` with the Browser
- * Harness JS runtime and app-specific AGENTS.md. Agents drive the assigned
- * browser target through the vendored `browser-harness-js` CLI. No tool schema,
- * no dispatcher.
+ * Harness JS runtime, provider-neutral agent-skill CLI, and app-specific
+ * AGENTS.md. Agents drive the assigned browser target through the vendored
+ * `browser-harness-js` CLI. Skills are discovered/created through
+ * `agent-skill`.
  *
  * Stock content is bundled via Vite's `?raw` import modifier.
  *
@@ -10,6 +11,9 @@
  * (`./stock/interaction-skills/`) are separate, read-only reference folders.
  * They are fully re-materialized on every launch — the agent consults them but
  * must not edit them (upgrades will clobber any changes).
+ *
+ * User-created skills live under `<userData>/harness/skills/` and are
+ * persistent. They are never replaced by bootstrap.
  */
 
 import fs from 'node:fs';
@@ -41,6 +45,12 @@ const STOCK_BROWSER_HARNESS_JS = import.meta.glob('./stock/browser-harness-js/**
   import: 'default',
   eager: true,
 }) as Record<string, string>;
+const AGENT_SKILL_PREFIX = './stock/agent-skill/';
+const STOCK_AGENT_SKILL = import.meta.glob('./stock/agent-skill/**/*', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
 
 export function harnessDir(): string {
   return path.join(app.getPath('userData'), 'harness');
@@ -52,6 +62,8 @@ export function skillPath(): string { return path.join(harnessDir(), 'AGENTS.md'
 export function domainSkillsDir(): string { return path.join(harnessDir(), 'domain-skills'); }
 export function interactionSkillsDir(): string { return path.join(harnessDir(), 'interaction-skills'); }
 export function browserHarnessJsDir(): string { return path.join(harnessDir(), 'browser-harness-js'); }
+export function agentSkillDir(): string { return path.join(harnessDir(), 'agent-skill'); }
+export function userSkillsDir(): string { return path.join(harnessDir(), 'skills'); }
 
 /**
  * Ensure `<userData>/harness/` exists and contains the stock files.
@@ -88,7 +100,7 @@ export function bootstrapHarness(): void {
   // existing users. AGENTS.md is the harness manual, not agent-editable
   // state — safe to overwrite so new sections (domain-skills, etc.) land
   // without the user deleting their userData.
-  const sentinel = 'Browser Harness JS';
+  const sentinel = 'agent-skill search';
   const needsSkill = !fs.existsSync(sp) || (() => {
     try { return !fs.readFileSync(sp, 'utf-8').includes(sentinel); }
     catch { return true; }
@@ -100,6 +112,8 @@ export function bootstrapHarness(): void {
 
   removeLegacyToolsJson();
 
+  ensureUserSkillsDir();
+  materializeAgentSkill();
   materializeBrowserHarnessJs();
   materializeInteractionSkills();
   materializeDomainSkills();
@@ -138,6 +152,26 @@ function materializeBrowserHarnessJs(): void {
     logName: 'browserHarnessJs',
     executableBasenames: new Set(['browser-harness-js']),
   });
+}
+
+function materializeAgentSkill(): void {
+  materializeRawTree({
+    target: agentSkillDir(),
+    prefix: AGENT_SKILL_PREFIX,
+    entries: Object.entries(STOCK_AGENT_SKILL),
+    logName: 'agentSkill',
+    executableBasenames: new Set(['agent-skill']),
+  });
+}
+
+function ensureUserSkillsDir(): void {
+  const target = userSkillsDir();
+  try {
+    fs.mkdirSync(target, { recursive: true });
+  } catch (err) {
+    mainLogger.error('harness.bootstrap.userSkills.mkdir.failed', { target, error: (err as Error).message });
+    throw err;
+  }
 }
 
 function removeLegacyToolsJson(): void {

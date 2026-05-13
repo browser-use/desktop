@@ -1,0 +1,7 @@
+{
+  "database": "sessions",
+  "version": 12,
+  "schemaId": "sessions:v12:sha256-8caa4156185e52e73e7b5b85c862be0ff31caba66e313e19148fc9fe5f9f8660",
+  "hashAlgorithm": "sha256",
+  "canonicalSource": "sqlite_schema: type,name,tbl_name,sql excluding sqlite_% internals"
+}

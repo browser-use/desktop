@@ -18,12 +18,14 @@ vi.mock('electron', () => ({
 }));
 
 const {
+  agentSkillDir,
   bootstrapHarness,
   browserHarnessJsDir,
   helpersPath,
   interactionSkillsDir,
   skillPath,
   toolsPath,
+  userSkillsDir,
 } = await import('../../../src/main/hl/harness');
 
 describe('bootstrapHarness browser-harness-js materialization', () => {
@@ -43,10 +45,20 @@ describe('bootstrapHarness browser-harness-js materialization', () => {
 
     const cli = path.join(browserHarnessJsDir(), 'sdk', 'browser-harness-js');
     const cliCmd = path.join(browserHarnessJsDir(), 'sdk', 'browser-harness-js.cmd');
+    const agentSkill = path.join(agentSkillDir(), 'agent-skill');
+    const userSkill = path.join(userSkillsDir(), 'general', 'existing', 'SKILL.md');
+    fs.mkdirSync(path.dirname(userSkill), { recursive: true });
+    fs.writeFileSync(userSkill, '# Existing\n');
+
+    bootstrapHarness();
+
     expect(fs.existsSync(helpersPath())).toBe(true);
     expect(fs.readFileSync(skillPath(), 'utf-8')).toContain('Browser Harness JS');
     expect(fs.existsSync(toolsPath())).toBe(false);
     expect(fs.existsSync(cli)).toBe(true);
+    expect(fs.existsSync(agentSkill)).toBe(true);
+    expect(fs.existsSync(path.join(agentSkillDir(), 'agent-skill.cmd'))).toBe(true);
+    expect(fs.existsSync(userSkill)).toBe(true);
     // Windows launcher ships alongside the bash script so Codex can find it
     // via PATHEXT (.CMD) instead of hitting the no-handler popup on the
     // extensionless bash file.
@@ -57,6 +69,7 @@ describe('bootstrapHarness browser-harness-js materialization', () => {
     // mapping doesn't expose POSIX exec bits the way the test asserts.
     if (process.platform !== 'win32') {
       expect(fs.statSync(cli).mode & 0o111).not.toBe(0);
+      expect(fs.statSync(agentSkill).mode & 0o111).not.toBe(0);
     }
   });
 });

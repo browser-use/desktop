@@ -8,6 +8,7 @@
 
 import { register } from '../registry';
 import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
+import { buildSkillIndexPrompt, SKILL_DISCOVERY_AND_LIFECYCLE_LINES } from '../skillIndexPrompt';
 import { enrichedEnv } from '../pathEnrich';
 import { runCliCapture } from '../cliSpawn';
 import type {
@@ -166,16 +167,20 @@ const browserCodeAdapter: EngineAdapter = {
           ...ctx.attachmentRefs.map((a) => `- ./${a.relPath} (${a.mime}, ${a.size} bytes)`),
         ]
       : [];
+    const skillIndex = buildSkillIndexPrompt(ctx.harnessDir);
+    const skillIndexLines = skillIndex ? ['', skillIndex] : [];
     return [
       'You are running inside Browser Use Desktop through BrowserCode.',
       'You are driving a specific Chromium browser view on this machine.',
       `Your target is CDP target_id=${ctx.targetId} on port ${ctx.cdpPort} (env BU_TARGET_ID / BU_CDP_PORT).`,
       'Do not use BrowserCode browser_execute. Read `./AGENTS.md` and use Browser Harness JS from this working directory for browser actions.',
+      ...SKILL_DISCOVERY_AND_LIFECYCLE_LINES,
       "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
       'Do not use old helpers.js convenience APIs for browser control.',
       'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',
       'For terminal commands, use BrowserCode/OpenCode\'s Bash tool and write commands for the current OS/shell it reports.',
       'When producing files, save them to `./outputs/' + ctx.sessionId + '/` and mention the filename in the final answer.',
+      ...skillIndexLines,
       ...attachmentLines,
       '',
       'User task:',
@@ -249,10 +254,11 @@ const browserCodeAdapter: EngineAdapter = {
       const id = partId(part);
       const match = ctx.pendingTools.get(id);
       const terminal = isTerminalToolState(part);
+      const hasInput = Boolean(part.input && typeof part.input === 'object' && Object.keys(part.input as Record<string, unknown>).length > 0);
 
       if (!match) {
         ctx.pendingTools.set(id, { name, startedAt: Date.now(), iter: ctx.iter });
-        if (!terminal) {
+        if (!terminal || hasInput) {
           events.push({
             type: 'tool_call' as const,
             name,

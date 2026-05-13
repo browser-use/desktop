@@ -40,6 +40,65 @@ tasks:
     cmds:
       - npm run start:reset-sessions
 
+  worktree:profile:path:
+    desc: Print this branch's isolated local userData path
+    silent: true
+    cmds:
+      - |
+        NAME="{{default "" .NAME}}"
+        if [ -n "$NAME" ]; then
+          node app/scripts/dev-profile.mjs path --name "$NAME"
+        else
+          node app/scripts/dev-profile.mjs path
+        fi
+
+  worktree:up:
+    desc: Start the app using this branch's isolated local userData profile
+    cmds:
+      - |
+        NAME="{{default "" .NAME}}"
+        if [ -n "$NAME" ]; then
+          PROFILE="$(node app/scripts/dev-profile.mjs path --name "$NAME")"
+        else
+          PROFILE="$(node app/scripts/dev-profile.mjs path)"
+        fi
+        AGB_USER_DATA_DIR="$PROFILE" task up
+
+  worktree:profile:clean:
+    desc: Delete this branch's isolated local userData profile; requires FORCE=1
+    silent: true
+    cmds:
+      - |
+        TARGET="{{default "" .TARGET}}"
+        FORCE="{{default "" .FORCE}}"
+        ALLOW_RUNNING="{{default "" .ALLOW_RUNNING}}"
+        TARGET="$TARGET" FORCE="$FORCE" ALLOW_RUNNING="$ALLOW_RUNNING" node app/scripts/dev-profile.mjs clean
+
+  db:worktree:copy:
+    desc: Copy sessions.db from FROM profile into this branch profile, then check schema
+    silent: true
+    cmds:
+      - |
+        FROM="{{default "default" .FROM}}"
+        TO="{{default "" .TO}}"
+        FORCE="{{default "" .FORCE}}"
+        ALLOW_RUNNING="{{default "" .ALLOW_RUNNING}}"
+        DB_ONLY=1 FROM="$FROM" TO="$TO" FORCE="$FORCE" ALLOW_RUNNING="$ALLOW_RUNNING" node app/scripts/dev-profile.mjs copy
+
+  db:worktree:doctor:
+    desc: Diagnose this branch profile's sessions.db schema against the checkout
+    silent: true
+    cmds:
+      - |
+        TARGET="{{default "" .TARGET}}"
+        JSON="{{default "" .JSON}}"
+        ALLOW_RUNNING="{{default "" .ALLOW_RUNNING}}"
+        if [ "$JSON" = "1" ]; then
+          JSON=1 TARGET="$TARGET" ALLOW_RUNNING="$ALLOW_RUNNING" node app/scripts/dev-profile.mjs doctor
+        else
+          TARGET="$TARGET" ALLOW_RUNNING="$ALLOW_RUNNING" node app/scripts/dev-profile.mjs doctor
+        fi
+
   windows:node:check:
     desc: "Windows: verify local development is using Node 20.x or 22.x"
     platforms: [windows]
@@ -368,6 +427,18 @@ tasks:
     dir: "{{.APP_DIR}}"
     cmds:
       - npm run typecheck
+
+  db:schema:check:
+    desc: Verify the tracked SessionDb schema identity manifest
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run db:schema:check
+
+  db:schema:update:
+    desc: Regenerate the tracked SessionDb schema identity manifest
+    dir: "{{.APP_DIR}}"
+    cmds:
+      - npm run db:schema:update
 
   logs:all:
     desc: Tail all local app logs with colored human-readable formatting
