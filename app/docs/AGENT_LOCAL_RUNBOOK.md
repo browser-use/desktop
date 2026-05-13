@@ -6,6 +6,11 @@ inspect task state, or debug app-spawned agent sessions.
 ## Local Commands
 
 - Start the app from the repo root: `task up`
+- Start against this branch's isolated profile: `task worktree:up`
+- Print this branch's profile path: `task worktree:profile:path`
+- Clean this branch's isolated profile: `task worktree:profile:clean FORCE=1`
+- Copy `sessions.db` into this branch profile: `task db:worktree:copy FROM=default`
+- Diagnose the copied DB schema: `task db:worktree:doctor`
 - Start with a clean Vite cache: `task up:clean`
 - Submit a task to a running app: `task agent:run PROMPT="open example.com and report the title" ENGINE=codex`
 - Run checks: `task lint`, `task typecheck`, `cd app && npm run test`
@@ -21,6 +26,22 @@ AGB_USER_DATA_DIR="$(mktemp -d)" task up
 `--user-data-dir=<path>` overrides `AGB_USER_DATA_DIR`. The app logs the
 resolved user data path and CDP port in `main.startup`.
 
+For branch/worktree-local development, prefer the repo-owned profile path:
+
+```bash
+task db:worktree:copy FROM=default
+task worktree:up
+AGB_USER_DATA_DIR="$(task worktree:profile:path)" task agent:run \
+  PROMPT="open example.com and report the title" ENGINE=codex
+```
+
+`task db:worktree:copy` copies only `sessions.db` plus WAL/SHM companions into
+the current branch profile, then runs the schema doctor. Use `FROM=branch:<name>`
+to copy from another branch profile, including branch names with `/`. Use an
+absolute path, `./relative/path`, `~/path`, or `FROM=path:<path>` for explicit
+filesystem paths. Quit the app before copying; pass `FORCE=1` only when
+replacing an existing target DB is intentional.
+
 ## Runtime State
 
 Default Electron `userData` locations:
@@ -33,6 +54,10 @@ Important files under `userData`:
 
 - `sessions.db` - SQLite session store. Main tables are `sessions`,
   `session_events`, and `session_attachments`.
+- Session schema changes are guarded by `DB_SCHEMA_VERSION` plus
+  `src/main/sessions/schema-manifest.json`. Run `task db:schema:check` after
+  intentional session schema edits, and `task db:schema:update` when a migration
+  intentionally changes the fresh database schema.
 - `sessions.db-wal` / `sessions.db-shm` - WAL files. Do not delete or edit
   them while the app is running.
 - `logs/` - JSONL logs. Core channels are `main.log`, `browser.log`,

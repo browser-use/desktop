@@ -92,6 +92,10 @@ jobs:
         working-directory: app
         run: yarn install --frozen-lockfile
 
+      - name: Check SessionDb schema manifest
+        working-directory: app
+        run: yarn db:schema:check
+
       - name: Run vitest with coverage
         working-directory: app
         run: yarn test:coverage

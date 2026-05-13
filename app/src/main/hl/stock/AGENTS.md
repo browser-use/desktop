@@ -211,6 +211,11 @@ one directory up from the harness:
 - Account state: `../account.json`
 - Local task control: `../local-task-server.json`
 
+For repo-level local development, do not assume the platform default profile.
+Coding agents should use the repo `AGENTS.md` and `task worktree:profile:path`
+to keep `sessions.db` and `local-task-server.json` aligned for the active
+worktree.
+
 Do not print raw credentials, tokens, keychain values, or the local task bearer
 token. Use status checks and masked values.
 

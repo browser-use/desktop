@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { mainLogger } from '../logger';
 import { DB_SCHEMA_VERSION, RECOVERY_ERROR, VALID_STATUSES, MAX_ATTACHMENTS_PER_SESSION } from './db-constants';
 import type { HlEvent, SessionStatus } from '../../shared/session-schemas';
+import { computeSessionSchemaIdentity, type SessionSchemaIdentity } from './schemaIdentity';
 
 interface SessionRow {
   id: string;
@@ -81,6 +82,10 @@ export class SessionDb {
 
   private getVersion(): number {
     return (this.db.pragma('user_version', { simple: true }) as number) ?? 0;
+  }
+
+  getSchemaIdentity(): SessionSchemaIdentity {
+    return computeSessionSchemaIdentity(this.db, DB_SCHEMA_VERSION);
   }
 
   private setVersion(v: number): void {
