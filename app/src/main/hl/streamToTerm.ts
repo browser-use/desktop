@@ -68,7 +68,7 @@ export interface TermTranslatorState {
    *  the first user_input so the initial prompt doesn't start on a blank
    *  row. */
   hasEmitted: boolean;
-  /** When the most recent tool_call targeted a domain-skills file, we
+  /** When the most recent tool_call targeted a skill file/command, we
    *  suppressed its row in favor of the synthetic skill_used / skill_written
    *  event. Stash the tool name so we can also suppress the matching
    *  tool_result row that follows. */
@@ -79,11 +79,13 @@ export function createTermTranslatorState(): TermTranslatorState {
   return { inThinking: false, hasEmitted: false, pendingSkillToolName: null };
 }
 
-const SKILL_PATH_RE = /(?:domain-skills|interaction-skills)\/[^/]+\/[^/]+\.md$/;
+const SKILL_PATH_RE = /(?:domain-skills|interaction-skills)\/.+\.md$|skills\/.+\/SKILL\.md$/;
+const AGENT_SKILL_RE = /\bagent-skill(?:\.cmd)?\s+(view|validate|create|patch|delete)\s+/;
 
 function extractSkillPath(args: unknown): string | null {
   if (!args || typeof args !== 'object') return null;
   const a = args as Record<string, unknown>;
+  if (typeof a.command === 'string' && AGENT_SKILL_RE.test(a.command)) return a.command;
   const candidates = [a.file_path, a.path, a.target_file];
   for (const c of candidates) {
     if (typeof c === 'string' && SKILL_PATH_RE.test(c)) return c;
@@ -183,7 +185,7 @@ export function hlEventToTermBytes(event: HlEvent, state: TermTranslatorState): 
     }
 
     case 'skill_written': {
-      const verb = event.action === 'patch' ? 'Edited skill' : 'Wrote skill';
+      const verb = event.action === 'delete' ? 'Deleted skill' : event.action === 'patch' ? 'Edited skill' : 'Wrote skill';
       out.push(`${FG.magenta}★ ${verb} ${event.domain}/${event.topic}${RESET}\r\n`);
       return finish();
     }

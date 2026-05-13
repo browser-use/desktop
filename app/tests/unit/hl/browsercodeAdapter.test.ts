@@ -136,6 +136,45 @@ describe('browsercode adapter tool parsing', () => {
     expect(ctx.pendingTools.size).toBe(0);
   });
 
+  it('keeps command metadata when BrowserCode reports input only on the terminal event', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'));
+
+    const adapter = browserCodeAdapter();
+    const ctx = parseContext();
+
+    adapter.parseLine(JSON.stringify({ type: 'step_start' }), ctx);
+    const finished = adapter.parseLine(JSON.stringify({
+      type: 'tool_use',
+      part: {
+        id: 'tool-terminal-with-input',
+        tool: 'Bash',
+        input: { command: 'agent-skill view domain/github/scraping' },
+        state: { status: 'completed', output: '# GitHub' },
+      },
+    }), ctx);
+
+    expect(finished.events).toEqual([
+      {
+        type: 'tool_call',
+        name: 'Bash',
+        args: {
+          preview: 'agent-skill view domain/github/scraping',
+          command: 'agent-skill view domain/github/scraping',
+        },
+        iteration: 1,
+      },
+      {
+        type: 'tool_result',
+        name: 'Bash',
+        ok: true,
+        preview: '# GitHub',
+        ms: 0,
+      },
+    ]);
+    expect(ctx.pendingTools.size).toBe(0);
+  });
+
   it('marks cancelled terminal tool events as unsuccessful', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-05T12:00:00.000Z'));

@@ -395,7 +395,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       const prevHash = file.hash;
       file.hash = nextHash;
       const action = prevHash === null && nextHash !== null ? 'write' : 'patch';
-      let bytes: number | null = null;
+      let bytes: number | null;
       try {
         bytes = fs.statSync(file.path).size;
       } catch {
@@ -484,12 +484,72 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   //    reads. Harness edits are emitted by the file watcher above, using actual
   //    file content as the source of truth instead of provider-specific tool
   //    metadata.
-  const skillPathRe = /(?:domain-skills|interaction-skills)\/([^/]+)\/([^/]+)\.md$/;
+  function skillMetaFromPath(resolved: string): { domain: string; topic: string } | null {
+    const rel = path.relative(opts.harnessDir, resolved).split(path.sep).join('/');
+    if (rel.startsWith('domain-skills/') && rel.endsWith('.md')) {
+      return { domain: 'domain', topic: rel.slice('domain-skills/'.length, -'.md'.length) };
+    }
+    if (rel.startsWith('interaction-skills/') && rel.endsWith('.md')) {
+      return { domain: 'interaction', topic: rel.slice('interaction-skills/'.length, -'.md'.length) };
+    }
+    if (rel.startsWith('skills/') && rel.endsWith('/SKILL.md')) {
+      return { domain: 'user', topic: rel.slice('skills/'.length, -'/SKILL.md'.length) };
+    }
+    return null;
+  }
+
+  function skillMetaFromAgentSkillCommand(command: string): { kind: 'read' | 'write'; action?: 'write' | 'patch' | 'delete'; domain: string; topic: string } | null {
+    const match = command.match(/\bagent-skill(?:\.cmd)?\s+(view|validate|create|patch|delete)\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+    if (!match) return null;
+    const verb = match[1];
+    const id = (match[2] ?? match[3] ?? match[4] ?? '').replace(/^user\//, '').replace(/['"]+$/g, '');
+    if (!id || id.startsWith('--')) return null;
+    if (verb === 'view' || verb === 'validate') {
+      const parts = id.split('/');
+      const domain = parts.shift() || 'skill';
+      return { kind: 'read', domain, topic: parts.join('/') || id };
+    }
+    return {
+      kind: 'write',
+      action: verb === 'patch' ? 'patch' : verb === 'delete' ? 'delete' : 'write',
+      domain: 'user',
+      topic: id.replace(/^user\//, ''),
+    };
+  }
+
+  function skillMetaFromAgentSkillSearchOutput(preview: string): { domain: string; topic: string } | null {
+    const lines = preview.split(/\r?\n/);
+    const firstLine = lines[0]?.trim() ?? '';
+    if (!lines[1]?.trim().startsWith('matched:')) return null;
+    const match = firstLine.match(/^(domain|interaction|user)\/([^\s]+)$/);
+    if (!match) return null;
+    return { domain: match[1], topic: match[2] };
+  }
 
   function postProcess(e: HlEvent): HlEvent[] {
+    if (e.type === 'tool_result' && typeof e.preview === 'string') {
+      const meta = skillMetaFromAgentSkillSearchOutput(e.preview);
+      if (meta) return [e, { type: 'skill_used', path: 'agent-skill search result', domain: meta.domain, topic: meta.topic }];
+      return [e];
+    }
     if (e.type !== 'tool_call') return [e];
     const args = e.args as Record<string, unknown> | undefined;
     if (!args) return [e];
+    const rawCommand = typeof args.command === 'string' ? args.command : undefined;
+    if (rawCommand) {
+      const meta = skillMetaFromAgentSkillCommand(rawCommand);
+      if (meta?.kind === 'read') return [e, { type: 'skill_used', path: rawCommand, domain: meta.domain, topic: meta.topic }];
+      if (meta?.kind === 'write') {
+        return [e, {
+          type: 'skill_written',
+          path: rawCommand,
+          domain: meta.domain,
+          topic: meta.topic,
+          bytes: 0,
+          action: meta.action ?? 'write',
+        }];
+      }
+    }
     const rawPath = typeof args.file_path === 'string' ? args.file_path
                   : typeof args.path === 'string' ? args.path
                   : typeof args.target_file === 'string' ? args.target_file
@@ -502,12 +562,12 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
     if (isWrite) {
       const action = /edit|patch/i.test(e.name) ? 'patch' : 'write';
       if (resolved !== harnessHelpersAbs && resolved !== harnessSkillAbs) {
-        const m = resolved.match(skillPathRe);
-        if (m) extra.push({ type: 'skill_written', path: resolved, domain: m[1], topic: m[2], bytes: 0, action });
+        const m = skillMetaFromPath(resolved);
+        if (m) extra.push({ type: 'skill_written', path: resolved, domain: m.domain, topic: m.topic, bytes: 0, action });
       }
     } else if (isRead) {
-      const m = resolved.match(skillPathRe);
-      if (m) extra.push({ type: 'skill_used', path: resolved, domain: m[1], topic: m[2] });
+      const m = skillMetaFromPath(resolved);
+      if (m) extra.push({ type: 'skill_used', path: resolved, domain: m.domain, topic: m.topic });
     }
     return [e, ...extra];
   }

@@ -53,7 +53,7 @@ export const HlEventSkillWrittenSchema = z.object({
   domain: z.string(),
   topic: z.string(),
   bytes: z.number(),
-  action: z.enum(['write', 'patch']),
+  action: z.enum(['write', 'patch', 'delete']),
 });
 
 export const HlEventNotifySchema = z.object({

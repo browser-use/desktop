@@ -170,6 +170,122 @@ describe('runEngine harness watcher', () => {
     expect(events.some((event) => event.type === 'harness_edited')).toBe(false);
   });
 
+  test('emits skill events from provider-neutral agent-skill commands', async () => {
+    const script = [
+      "console.log(JSON.stringify({ type: 'view' }));",
+      "console.log(JSON.stringify({ type: 'shellView' }));",
+      "console.log(JSON.stringify({ type: 'create' }));",
+      "console.log(JSON.stringify({ type: 'delete' }));",
+      "console.log(JSON.stringify({ type: 'done' }));",
+    ].join('\n');
+    const engineId = registerFakeEngine(script, (line) => {
+      const event = JSON.parse(line) as { type?: string };
+      if (event.type === 'view') {
+        return {
+          events: [{
+            type: 'tool_call',
+            name: 'Bash',
+            args: { command: 'agent-skill view domain/linkedin/invitation-manager --json' },
+            iteration: 1,
+          }],
+        };
+      }
+      if (event.type === 'shellView') {
+        return {
+          events: [{
+            type: 'tool_call',
+            name: 'Bash',
+            args: { command: "/bin/zsh -lc 'agent-skill view interaction/screenshots'" },
+            iteration: 1,
+          }],
+        };
+      }
+      if (event.type === 'create') {
+        return {
+          events: [{
+            type: 'tool_call',
+            name: 'Bash',
+            args: { command: 'agent-skill create workflow/crm-triage --description "Reusable CRM triage" --json' },
+            iteration: 2,
+          }],
+        };
+      }
+      if (event.type === 'delete') {
+        return {
+          events: [{
+            type: 'tool_call',
+            name: 'Bash',
+            args: { command: 'agent-skill delete user/workflow/crm-triage --json' },
+            iteration: 3,
+          }],
+        };
+      }
+      if (event.type === 'done') return { events: [{ type: 'done', summary: 'ok', iterations: 1 }] };
+      return { events: [] };
+    });
+
+    const events = await runFakeEngine(engineId, harnessDir);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'skill_used',
+      domain: 'domain',
+      topic: 'linkedin/invitation-manager',
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'skill_used',
+      domain: 'interaction',
+      topic: 'screenshots',
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'skill_written',
+      domain: 'user',
+      topic: 'workflow/crm-triage',
+      action: 'write',
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'skill_written',
+      domain: 'user',
+      topic: 'workflow/crm-triage',
+      action: 'delete',
+    }));
+  });
+
+  test('emits a skill event from provider-neutral agent-skill search results', async () => {
+    const script = [
+      "console.log(JSON.stringify({ type: 'search' }));",
+      "console.log(JSON.stringify({ type: 'done' }));",
+    ].join('\n');
+    const engineId = registerFakeEngine(script, (line) => {
+      const event = JSON.parse(line) as { type?: string };
+      if (event.type === 'search') {
+        return {
+          events: [{
+            type: 'tool_result',
+            name: 'bash',
+            ok: true,
+            preview: [
+              'domain/github/scraping',
+              '  matched: id(github,scraping); title(github,scraping); body(github,scraping)',
+              '  `https://github.com` — public data.',
+              '  domain-skills/github/scraping.md',
+            ].join('\n'),
+            ms: 12,
+          }],
+        };
+      }
+      if (event.type === 'done') return { events: [{ type: 'done', summary: 'ok', iterations: 1 }] };
+      return { events: [] };
+    });
+
+    const events = await runFakeEngine(engineId, harnessDir);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'skill_used',
+      domain: 'domain',
+      topic: 'github/scraping',
+    }));
+  });
+
   test.skipIf(process.platform === 'win32')('exposes live pause and resume controls for the spawned process group', async () => {
     const script = [
       'let i = 0;',
