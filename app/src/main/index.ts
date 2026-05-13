@@ -28,6 +28,17 @@ if (process.platform === 'linux') {
 
 app.setName('Browser Use');
 
+// ---------------------------------------------------------------------------
+// Isolated userData override.
+// Precedence: --user-data-dir CLI flag > AGB_USER_DATA_DIR env > platform default.
+// MUST be applied before crash reporting, single-instance lock, or any
+// app.getPath('userData') call. Electron's lock is scoped through userData.
+// ---------------------------------------------------------------------------
+const resolvedUserData = resolveUserDataDir(process.argv, process.env);
+if (resolvedUserData.value) {
+  app.setPath('userData', resolvedUserData.value);
+}
+
 // Native-crash minidumps → userData/Crashpad/. Captures GPU process,
 // renderer process, and main-process native crashes that our
 // uncaughtException handlers (JS-only) miss. Local-only — no upload
@@ -139,16 +150,6 @@ process.on('unhandledRejection', (reason, promise) => {
     promise: String(promise),
   });
 });
-
-// ---------------------------------------------------------------------------
-// Isolated userData override.
-// Precedence: --user-data-dir CLI flag > AGB_USER_DATA_DIR env > platform default.
-// MUST be applied before any app.getPath('userData') call.
-// ---------------------------------------------------------------------------
-const resolvedUserData = resolveUserDataDir(process.argv, process.env);
-if (resolvedUserData.value) {
-  app.setPath('userData', resolvedUserData.value);
-}
 
 // ---------------------------------------------------------------------------
 // Remote debugging port — MUST be called before app.whenReady()

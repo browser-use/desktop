@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyBrowserHarnessEnv, browserHarnessReplPort } from '../../../src/main/hl/engines/browserHarnessEnv';
 import type { SpawnContext } from '../../../src/main/hl/engines/types';
@@ -35,5 +36,15 @@ describe('browser harness environment', () => {
     const env = applyBrowserHarnessEnv(spawnContext('target-a'), { CDP_REPL_PORT: '9876' });
 
     expect(env.CDP_REPL_PORT).toBe('9876');
+  });
+
+  it('puts provider-neutral agent-skill and Browser Harness JS CLIs on PATH', () => {
+    const env = applyBrowserHarnessEnv(spawnContext('target-a'), { PATH: '/usr/bin' });
+
+    expect(env.PATH?.split(path.delimiter).slice(0, 3)).toEqual([
+      '/tmp/harness/agent-skill',
+      '/tmp/harness/browser-harness-js/sdk',
+      '/usr/bin',
+    ]);
   });
 });

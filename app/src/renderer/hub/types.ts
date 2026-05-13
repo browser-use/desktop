@@ -7,7 +7,7 @@ export type HlEvent =
   | { type: 'done';        summary: string; iterations: number }
   | { type: 'error';       message: string }
   | { type: 'user_input';  text: string }
-  | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number; action: 'write' | 'patch' }
+  | { type: 'skill_written'; path: string; domain: string; topic: string; bytes: number; action: 'write' | 'patch' | 'delete' }
   | { type: 'skill_used'; path: string; domain?: string; topic: string }
   | { type: 'harness_edited'; target: 'helpers' | 'tools'; action: 'write' | 'patch'; path: string; added?: string[]; removed?: string[]; changed?: string[] }
   | { type: 'file_output'; name: string; path: string; size: number; mime: string }
@@ -57,7 +57,7 @@ export interface OutputEntry {
   groupEntries?: OutputEntry[];
   // harness_edited metadata
   harnessTarget?: 'helpers' | 'tools';
-  harnessAction?: 'write' | 'patch';
+  harnessAction?: 'write' | 'patch' | 'delete';
   added?: string[];
   removed?: string[];
   changed?: string[];
