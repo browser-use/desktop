@@ -147,6 +147,10 @@ vi.mock('../../../src/main/sessions/SessionDb', () => {
       return this.store.events.get(sessionId) ?? [];
     }
 
+    getFirstUserInputText(sessionId: string): string | null {
+      return (this.store.events.get(sessionId) ?? []).find((event) => event?.type === 'user_input')?.text ?? null;
+    }
+
     deleteSession(id: string): void {
       this.store.rows.delete(id);
       this.store.events.delete(id);
@@ -156,6 +160,7 @@ vi.mock('../../../src/main/sessions/SessionDb', () => {
     saveAttachment(): number { return 1; }
     getAttachmentsMeta(): [] { return []; }
     getLatestTurnAttachments(): [] { return []; }
+    getAttachmentsByTurnIndex(): [] { return []; }
     close(): void {}
   }
 
@@ -200,22 +205,48 @@ describe('SessionManager persistence', () => {
   });
 
   it('allows a stopped session to accept a follow-up after its browser is gone', () => {
-    const manager = new SessionManager(tempDbPath());
+    const dbPath = tempDbPath();
+    const manager = new SessionManager(dbPath);
     const id = manager.createSession('Open example.com');
 
     manager.dismissSession(id);
     const abortController = manager.resumeSession(id, 'Continue from here');
     const session = manager.getSession(id);
+    const row = mockState.stores.get(dbPath)?.rows.get(id);
 
     expect(abortController.signal.aborted).toBe(false);
+    expect(row?.prompt).toBe('Open example.com');
     expect(session?.status).toBe('running');
     expect(session?.error).toBeUndefined();
+    expect(session?.prompt).toBe('Open example.com');
+    expect(session?.output[0]).toEqual({ type: 'user_input', text: 'Open example.com' });
     expect(session?.output.at(-1)).toEqual({ type: 'user_input', text: 'Continue from here' });
 
     manager.destroy();
   });
 
-  it('reruns a session with an edited prompt as a fresh conversation', () => {
+  it('reruns a session with the original kickoff from the event log', () => {
+    const manager = new SessionManager(tempDbPath());
+    const id = manager.createSession('Open example.com');
+
+    manager.dismissSession(id);
+    manager.resumeSession(id, 'Continue from here');
+    manager.setEngineSessionId(id, 'thread-123');
+    const abortController = manager.rerunSession(id);
+    const session = manager.getSession(id);
+
+    expect(abortController.signal.aborted).toBe(false);
+    expect(session?.prompt).toBe('Open example.com');
+    expect(session?.status).toBe('running');
+    expect(session?.canResume).toBe(false);
+    expect(session?.output).toEqual([{ type: 'user_input', text: 'Open example.com' }]);
+    expect(manager.getInitialPrompt(id)).toBe('Open example.com');
+    expect(manager.getEngineSessionId(id)).toBeUndefined();
+
+    manager.destroy();
+  });
+
+  it('reruns a session with an edited kickoff as a fresh conversation', () => {
     const manager = new SessionManager(tempDbPath());
     const id = manager.createSession('Open example.com');
 
@@ -228,7 +259,7 @@ describe('SessionManager persistence', () => {
     expect(session?.prompt).toBe('Open example.org instead');
     expect(session?.status).toBe('running');
     expect(session?.canResume).toBe(false);
-    expect(session?.output).toEqual([]);
+    expect(session?.output).toEqual([{ type: 'user_input', text: 'Open example.org instead' }]);
     expect(manager.getEngineSessionId(id)).toBeUndefined();
 
     manager.destroy();

@@ -6,12 +6,14 @@ import type { AgentSession } from '../types';
 import { groupIntoTurns } from './groupIntoTurns';
 import { ChatTurn } from './ChatTurn';
 import { TerminalSpinner, Elapsed } from './TerminalSpinner';
+import { useCyclingVerb } from './spinnerVerbs';
 
 function ThinkingIndicator({ since }: { since: number }): React.ReactElement {
+  const verb = useCyclingVerb();
   return (
     <div className="chat-thinking" aria-live="polite">
       <TerminalSpinner />
-      <span className="chat-thinking__label">Working</span>
+      <span className="chat-thinking__label">{verb}</span>
       <Elapsed since={since} />
     </div>
   );
@@ -75,6 +77,8 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
   useImperativeHandle(fwdRef, () => containerRef.current as HTMLDivElement, []);
   const pinnedRef = useRef(true);
   const lastTurnsLenRef = useRef(0);
+  const lastSessionIdRef = useRef<string | null>(null);
+  const hasLoadedTurnsRef = useRef(false);
   // Tracks the wall-clock time of the most recent agent activity (any change
   // to the latest entry — new entry, streamed token, tool_result landing).
   // Entry timestamps are set at creation, so a long streaming "text" entry
@@ -93,12 +97,10 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
       outputTimestamps: sessionSlice.outputTimestamps,
     };
     const { entries } = adaptSession(fake);
-    // SessionManager is supposed to emit `session.prompt` as a leading
-    // user_input event, but in older sessions and some adapter paths that
-    // entry is missing — leaving the chat with no opening user bubble.
-    // Synthesize one from session.prompt when needed so the kickoff message
-    // is always visible at the top.
-    if (sessionSlice.prompt && (entries.length === 0 || entries[0].type !== 'user_input')) {
+    // The event log is the source of truth for user turns. Only synthesize the
+    // legacy prompt when there is no transcript at all; otherwise a stale
+    // sessions.prompt value can make a later follow-up look like the kickoff.
+    if (sessionSlice.prompt && entries.length === 0) {
       entries.unshift({
         id: `prompt-${sessionId}`,
         type: 'user_input',
@@ -108,6 +110,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
     }
     return groupIntoTurns(entries);
   }, [sessionId, sessionSlice]);
+  const hasStoredOutput = (sessionSlice?.output.length ?? 0) > 0;
 
   // Maintain a CSS variable for the latest turn's agent area min-height so
   // that, when the new user bubble snaps to TOP_GAP_PX below the viewport
@@ -153,12 +156,33 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const sessionChanged = lastSessionIdRef.current !== sessionId;
+    if (sessionChanged) {
+      lastSessionIdRef.current = sessionId;
+      lastTurnsLenRef.current = hasStoredOutput ? turns.length : 0;
+      hasLoadedTurnsRef.current = hasStoredOutput && turns.length > 0;
+      pinnedRef.current = true;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+
+    const previousTurnsLen = lastTurnsLenRef.current;
+    const hadLoadedTurns = hasLoadedTurnsRef.current;
+    lastTurnsLenRef.current = turns.length;
+
+    if (!hadLoadedTurns) {
+      hasLoadedTurnsRef.current = hasStoredOutput && turns.length > 0;
+      if (pinnedRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+      return;
+    }
+
     // When a new user turn lands, scroll so the latest turn sits at the top
     // of the viewport (ChatGPT-style). The .chat-turn--latest min-height in
     // chat.css reserves enough space below for that scroll to be possible.
-    const newUserTurn = turns.length > lastTurnsLenRef.current
+    const newUserTurn = turns.length > previousTurnsLen
       && turns[turns.length - 1]?.userEntry != null;
-    lastTurnsLenRef.current = turns.length;
 
     if (newUserTurn) {
       const latest = el.querySelector('.chat-turn--latest') as HTMLElement | null;
@@ -195,7 +219,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
     if (pinnedRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [turns]);
+  }, [sessionId, hasStoredOutput, turns]);
 
   useEffect(() => {
     // On session switch, snap to bottom.

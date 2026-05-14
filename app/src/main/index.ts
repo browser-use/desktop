@@ -531,7 +531,8 @@ app.whenReady().then(async () => {
 
     hidePill();
 
-    const id = sessionManager.createSession(validatedPrompt);
+    const initialAttachmentTurnIndex = attachments.length > 0 ? 0 : undefined;
+    const id = sessionManager.createSession(validatedPrompt, { attachmentTurnIndex: initialAttachmentTurnIndex });
     // Stamp the engine so the hub card shows the provider icon. Respect
     // an explicit engine from the pill payload, else default to the
     // canonical per-session default. getEngine() returns the legacy
@@ -544,7 +545,7 @@ app.whenReady().then(async () => {
       : DEFAULT_ENGINE_ID;
     sessionManager.setSessionEngine(id, pillEngineId);
     if (attachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(id);
+      const turnIndex = initialAttachmentTurnIndex ?? sessionManager.getNextAttachmentTurnIndex(id);
       for (const a of attachments) {
         sessionManager.saveAttachment(id, a, turnIndex);
       }
@@ -973,12 +974,13 @@ app.whenReady().then(async () => {
     }
     await browserPool.markSessionActive(validatedId);
 
+    let attachmentTurnIndex: number | undefined;
     if (resumeAttachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
+      attachmentTurnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
       for (const a of resumeAttachments) {
-        sessionManager.saveAttachment(validatedId, a, turnIndex);
+        sessionManager.saveAttachment(validatedId, a, attachmentTurnIndex);
       }
-      mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length, source });
+      mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex: attachmentTurnIndex, count: resumeAttachments.length, source });
     }
 
     let webContents = browserPool.getWebContents(validatedId);
@@ -1016,7 +1018,7 @@ app.whenReady().then(async () => {
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
     await stampConfiguredSessionModel(validatedId, engineId, source);
-    const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
+    const abortController = sessionManager.resumeSession(validatedId, validatedPrompt, { attachmentTurnIndex });
     if (resumeAttachments.length > 0) {
       mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length, source });
     }
@@ -1141,7 +1143,7 @@ app.whenReady().then(async () => {
         engineId,
         harnessDir: harnessDir(),
         sessionId: id,
-        prompt: sessionManager.getSession(id)!.prompt,
+        prompt: sessionManager.getInitialPrompt(id) ?? sessionManager.getSession(id)!.prompt,
         attachments: attachmentsForRun.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
         webContents: view.webContents,
         cdpPort: resolvedCdp.port,
@@ -1246,10 +1248,11 @@ app.whenReady().then(async () => {
       engineId,
       attachmentMeta: attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.bytes.byteLength })),
     });
-    const id = sessionManager.createSession(validatedPrompt);
+    const initialAttachmentTurnIndex = attachments.length > 0 ? 0 : undefined;
+    const id = sessionManager.createSession(validatedPrompt, { attachmentTurnIndex: initialAttachmentTurnIndex });
     sessionManager.setSessionEngine(id, engineId);
     if (attachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(id);
+      const turnIndex = initialAttachmentTurnIndex ?? sessionManager.getNextAttachmentTurnIndex(id);
       for (const a of attachments) {
         sessionManager.saveAttachment(id, a, turnIndex);
       }
@@ -1305,9 +1308,9 @@ app.whenReady().then(async () => {
     const idRaw = typeof payload === 'string' ? payload : payload?.id;
     const promptRaw = typeof payload === 'string' ? undefined : payload?.prompt;
     const validatedId = assertString(idRaw, 'id', 100);
-    const promptOverride = promptRaw == null ? undefined : assertString(promptRaw, 'prompt', 10000);
+    const kickoffOverride = promptRaw == null ? undefined : assertString(promptRaw, 'prompt', 10000);
     const t0 = Date.now();
-    mainLogger.info('main.sessions:rerun', { id: validatedId, edited: promptOverride !== undefined });
+    mainLogger.info('main.sessions:rerun', { id: validatedId, edited: kickoffOverride !== undefined });
 
     const session = sessionManager.getSession(validatedId);
     if (!session) return { error: 'Session not found' };
@@ -1317,7 +1320,8 @@ app.whenReady().then(async () => {
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
     await stampConfiguredSessionModel(validatedId, engineId, 'rerun');
-    const abortController = sessionManager.rerunSession(validatedId, promptOverride);
+    const abortController = sessionManager.rerunSession(validatedId, kickoffOverride);
+    const kickoffPrompt = sessionManager.getInitialPrompt(validatedId) ?? session.prompt;
     captureEvent('session_rerun', {
       engine: engineId,
     });
@@ -1351,7 +1355,7 @@ app.whenReady().then(async () => {
       engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
-      prompt: session.prompt,
+      prompt: kickoffPrompt,
       attachments: rerunAttachments.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
       webContents: view.webContents,
       cdpPort: resolvedCdp.port,

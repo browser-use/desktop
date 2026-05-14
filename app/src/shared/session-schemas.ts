@@ -45,6 +45,7 @@ export const HlEventErrorSchema = z.object({
 export const HlEventUserInputSchema = z.object({
   type: z.literal('user_input'),
   text: z.string(),
+  attachmentTurnIndex: z.number().int().nonnegative().optional(),
 });
 
 export const HlEventSkillWrittenSchema = z.object({

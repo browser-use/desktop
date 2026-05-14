@@ -11,8 +11,8 @@ export type Turn = {
  *
  * A turn starts at a `user_input` entry and continues until the next
  * `user_input` (or end). Entries before the first user_input go into a
- * leading "system" turn with userEntry = null (rare — session.prompt is
- * always emitted as user_input by SessionManager, so this is mostly defensive).
+ * leading "system" turn with userEntry = null (legacy sessions can be missing
+ * their kickoff event; new sessions persist it as user_input).
  */
 export function groupIntoTurns(entries: readonly OutputEntry[]): Turn[] {
   const turns: Turn[] = [];

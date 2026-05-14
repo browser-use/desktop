@@ -16,6 +16,9 @@ export type { AgentSession, SessionStatus, SessionEvents };
 
 const STUCK_TIMEOUT_MS = 30_000;
 
+type UserInputEvent = Extract<HlEvent, { type: 'user_input' }>;
+type AttachmentRow = { id: number; name: string; mime: string; bytes: Buffer; size: number; turn_index: number };
+
 function isRestorableUrl(url: string): boolean {
   if (!url || typeof url !== 'string') return false;
   try {
@@ -122,6 +125,8 @@ export class SessionManager extends EventEmitter {
     const events = this.db.getEvents(id);
     if (events.length > 0) {
       session.output = events;
+      const kickoff = this.firstUserInput(session)?.text;
+      if (kickoff) session.prompt = kickoff;
       mainLogger.info('SessionManager.hydrateOutput', { id, eventCount: events.length });
     }
     this.hydratedOutputs.add(id);
@@ -137,9 +142,63 @@ export class SessionManager extends EventEmitter {
     return this.on(event, listener as (...args: unknown[]) => void);
   }
 
+  private createUserInputEvent(text: string, attachmentTurnIndex?: number): UserInputEvent {
+    const event: UserInputEvent = { type: 'user_input', text };
+    if (attachmentTurnIndex !== undefined) {
+      event.attachmentTurnIndex = attachmentTurnIndex;
+    }
+    return event;
+  }
+
+  private firstUserInput(session: AgentSession): UserInputEvent | undefined {
+    return session.output.find((event): event is UserInputEvent => event.type === 'user_input');
+  }
+
+  private appendUserInputToLog(
+    id: string,
+    text: string,
+    opts: { emit?: boolean; attachmentTurnIndex?: number } = {},
+  ): UserInputEvent | null {
+    const session = this.sessions.get(id);
+    if (!session) {
+      mainLogger.warn('SessionManager.appendUserInputToLog', { id, reason: 'not_found' });
+      return null;
+    }
+    const event = this.createUserInputEvent(text, opts.attachmentTurnIndex);
+    session.output.push(event);
+    const seq = session.output.length - 1;
+    this.db.appendEvent(id, seq, event);
+    mainLogger.info('SessionManager.appendOutput.event', {
+      id,
+      seq,
+      type: event.type,
+      engine: session.engine ?? this.getSessionEngine(id),
+      model: session.model ?? null,
+      detail: this.describeEventForLog(event),
+    });
+    if (opts.emit !== false) {
+      this.emitEvent('session-output', id, event);
+      this.emitTermBytes(id, event);
+    }
+    return event;
+  }
+
+  getInitialPrompt(id: string): string | undefined {
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+    this.hydrateOutput(id);
+    return this.firstUserInput(session)?.text ?? (session.prompt || undefined);
+  }
+
+  private getSnapshotPrompt(session: AgentSession): string {
+    return this.firstUserInput(session)?.text
+      ?? this.db.getFirstUserInputText(session.id)
+      ?? session.prompt;
+  }
+
   // -- public API -----------------------------------------------------------
 
-  createSession(prompt: string, opts?: { originChannel?: string; originConversationId?: string }): string {
+  createSession(prompt: string, opts?: { originChannel?: string; originConversationId?: string; attachmentTurnIndex?: number }): string {
     const id = randomUUID();
     const now = Date.now();
     const session: AgentSession = {
@@ -153,6 +212,7 @@ export class SessionManager extends EventEmitter {
     };
     this.sessions.set(id, session);
     this.db.insertSession({ id, prompt, status: 'draft', createdAt: now, originChannel: opts?.originChannel, originConversationId: opts?.originConversationId });
+    this.appendUserInputToLog(id, prompt, { emit: false, attachmentTurnIndex: opts?.attachmentTurnIndex });
     mainLogger.info('SessionManager.createSession', { id, promptLength: prompt.length, originChannel: opts?.originChannel ?? null });
     this.emitEvent('session-created', { ...session });
     return id;
@@ -171,6 +231,7 @@ export class SessionManager extends EventEmitter {
       throw new Error(`Session ${id} is ${session.status}, expected draft or idle`);
     }
 
+    const resumed = session.status === 'idle';
     session.status = 'running';
     this.db.updateSessionStatus(id, 'running');
     const abortController = new AbortController();
@@ -178,17 +239,13 @@ export class SessionManager extends EventEmitter {
 
     this.resetStuckTimer(id);
 
-    // Emit the initial prompt as a user_input term event so a freshly-mounted
-    // xterm sees the user's message at the top of the live stream. It isn't
-    // persisted as an HlEvent (session.prompt already holds it), and replay
-    // synthesizes it from session.prompt in getTermReplay().
     if (session.output.length === 0 && session.prompt) {
-      this.emitTermBytes(id, { type: 'user_input', text: session.prompt });
+      this.appendUserInputToLog(id, session.prompt, { emit: false });
     }
 
     mainLogger.info('SessionManager.startSession', {
       id,
-      resumed: session.output.length > 0,
+      resumed,
       engine: session.engine ?? this.getSessionEngine(id),
       model: session.model ?? null,
     });
@@ -375,8 +432,10 @@ export class SessionManager extends EventEmitter {
     if (!session) return '';
     this.hydrateOutput(id);
     const events: HlEvent[] = [];
-    if (session.prompt) events.push({ type: 'user_input', text: session.prompt });
     events.push(...session.output);
+    if (events.length === 0 && session.prompt) {
+      events.push({ type: 'user_input', text: session.prompt });
+    }
     return eventsToTermBytes(events);
   }
 
@@ -431,7 +490,7 @@ export class SessionManager extends EventEmitter {
     this.emitEvent('session-completed', { ...session });
   }
 
-  resumeSession(id: string, prompt: string): AbortController {
+  resumeSession(id: string, prompt: string, opts: { attachmentTurnIndex?: number } = {}): AbortController {
     const session = this.sessions.get(id);
     if (!session) {
       throw new Error(`Session not found: ${id}`);
@@ -441,17 +500,10 @@ export class SessionManager extends EventEmitter {
     }
 
     this.hydrateOutput(id);
-    const userEvent: HlEvent = { type: 'user_input', text: prompt };
-    session.output.push(userEvent);
-    const seq = session.output.length - 1;
-    this.db.appendEvent(id, seq, userEvent);
-    this.emitEvent('session-output', id, userEvent);
-    this.emitTermBytes(id, userEvent);
+    this.appendUserInputToLog(id, prompt, { attachmentTurnIndex: opts.attachmentTurnIndex });
 
-    session.prompt = prompt;
     session.status = 'running';
     session.error = undefined;
-    this.db.updateSessionPrompt(id, prompt);
     this.db.updateSessionStatus(id, 'running');
     const abortController = new AbortController();
     this.abortControllers.set(id, abortController);
@@ -493,17 +545,21 @@ export class SessionManager extends EventEmitter {
     mainLogger.info('SessionManager.deleteSession', { id });
   }
 
-  rerunSession(id: string, promptOverride?: string): AbortController {
+  rerunSession(id: string, kickoffOverride?: string): AbortController {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session not found: ${id}`);
+    this.hydrateOutput(id);
 
     const ctrl = this.abortControllers.get(id);
     if (ctrl) { ctrl.abort(); this.abortControllers.delete(id); }
     this.clearStuckTimer(id);
 
-    if (promptOverride !== undefined) {
-      session.prompt = promptOverride;
-      this.db.updateSessionPrompt(id, promptOverride);
+    const originalUserInput = this.firstUserInput(session);
+    const nextPrompt = kickoffOverride ?? originalUserInput?.text ?? session.prompt;
+    const attachmentTurnIndex = originalUserInput?.attachmentTurnIndex;
+    if (session.prompt !== nextPrompt) {
+      session.prompt = nextPrompt;
+      this.db.updateSessionPrompt(id, nextPrompt);
     }
     session.output = [];
     session.error = undefined;
@@ -525,14 +581,10 @@ export class SessionManager extends EventEmitter {
     this.abortControllers.set(id, abortController);
     this.resetStuckTimer(id);
 
-    // After clearing the terminal (`\x1bc`), re-emit the user prompt so the
-    // rerun starts with the user's message visible at the top.
-    if (session.prompt) {
-      this.emitTermBytes(id, { type: 'user_input', text: session.prompt });
-    }
-
-    mainLogger.info('SessionManager.rerunSession', { id, promptLength: session.prompt.length });
     this.emitEvent('session-updated', { ...session });
+    this.appendUserInputToLog(id, nextPrompt, { attachmentTurnIndex });
+
+    mainLogger.info('SessionManager.rerunSession', { id, promptLength: nextPrompt.length });
     return abortController;
   }
 
@@ -556,10 +608,17 @@ export class SessionManager extends EventEmitter {
     return this.db.getAttachmentsMeta(sessionId);
   }
 
-  // For rerun / start: only the latest turn's attachments are replayed, because
-  // `session.prompt` is updated to the latest follow-up prompt on resume. Older
-  // turns' attachments are already represented textually in priorMessages.
-  loadAttachmentsForRun(sessionId: string): Array<{ id: number; name: string; mime: string; bytes: Buffer; size: number; turn_index: number }> {
+  loadAttachmentsForRun(sessionId: string): AttachmentRow[] {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      this.hydrateOutput(sessionId);
+      const kickoff = this.firstUserInput(session);
+      if (kickoff) {
+        return kickoff.attachmentTurnIndex === undefined
+          ? []
+          : this.db.getAttachmentsByTurnIndex(sessionId, kickoff.attachmentTurnIndex);
+      }
+    }
     return this.db.getLatestTurnAttachments(sessionId);
   }
 
@@ -587,14 +646,14 @@ export class SessionManager extends EventEmitter {
     const session = this.sessions.get(id);
     if (!session) return undefined;
     this.hydrateOutput(id);
-    return { ...session };
+    return { ...session, prompt: this.getSnapshotPrompt(session) };
   }
 
   getResourceInfo(id: string): { prompt: string; status: SessionStatus; engine: string | null } | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
     return {
-      prompt: session.prompt,
+      prompt: this.getSnapshotPrompt(session),
       status: session.status,
       engine: session.engine ?? this.getSessionEngine(id),
     };
@@ -611,7 +670,7 @@ export class SessionManager extends EventEmitter {
     });
     return list
       .sort((a, b) => b.createdAt - a.createdAt)
-      .map((s) => ({ ...s, output: [] }));
+      .map((s) => ({ ...s, prompt: this.getSnapshotPrompt(s), output: [] }));
   }
 
   /** Store the provider conversation id reported by the engine stream. */
@@ -757,7 +816,7 @@ export class SessionManager extends EventEmitter {
       case 'notify':
         return { level: event.level, messageLength: event.message.length };
       case 'user_input':
-        return { textLength: event.text.length };
+        return { textLength: event.text.length, attachmentTurnIndex: event.attachmentTurnIndex ?? null };
       case 'thinking':
         return { textLength: event.text.length };
     }
