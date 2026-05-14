@@ -292,8 +292,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
           {lockedEngine
             ? (
               <span
-                className="engine-picker engine-picker--locked"
-                title={`Engine: ${ENGINE_DISPLAY_NAMES[lockedEngine] ?? lockedEngine} — locked for this session`}
+                className="engine-picker engine-picker--locked has-tooltip"
+                data-tooltip={`Engine can't be changed mid-run - locked to ${ENGINE_DISPLAY_NAMES[lockedEngine] ?? lockedEngine} for this session`}
               >
                 <span className="engine-picker__toggle engine-picker__toggle--readonly">
                   <EngineLogo id={lockedEngine} />

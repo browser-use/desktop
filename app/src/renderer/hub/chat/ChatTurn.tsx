@@ -7,6 +7,7 @@ import { ToolGroup } from './ToolGroup';
 import { Linkify } from './Linkify';
 import { useToast } from '@/renderer/components/base/Toast';
 import { TerminalSpinner, Elapsed } from './TerminalSpinner';
+import { useCyclingVerb } from './spinnerVerbs';
 import { parseUserMessage } from './parseUserMessage';
 import { FinderIcon } from '@/renderer/shared/editorIcons';
 
@@ -245,7 +246,7 @@ function AssistantActions({
  * Adapts upward when upstream gets far ahead so lag stays bounded. Idles raf
  * once caught up.
  */
-function useTypewriter(target: string, baseCharsPerSec = 70, startInstant = false): string {
+function useTypewriter(target: string, baseCharsPerSec = 110, startInstant = false): string {
   // shownLen is ONLY used to trigger re-renders. The raf loop reads/writes
   // shownLenRef exclusively — never shownLen directly — so React re-renders
   // can't race with in-flight raf advances.
@@ -276,8 +277,8 @@ function useTypewriter(target: string, baseCharsPerSec = 70, startInstant = fals
 
     if (prev < tgt.length) {
       const gap = tgt.length - prev;
-      // Adaptive rate: catch up faster when far behind, cap at 2.5×.
-      const rate = Math.min(baseCharsPerSec * 2.5, baseCharsPerSec + gap * 0.4);
+      // Adaptive rate: catch up faster when far behind, cap at 3×.
+      const rate = Math.min(baseCharsPerSec * 3, baseCharsPerSec + gap * 0.4);
       state.accum += (dt / 1000) * rate;
       const advance = Math.floor(state.accum);
       if (advance > 0) {
@@ -373,7 +374,7 @@ function StreamingProse({
   // If we mount with `done` already true (re-opening a finished task), skip
   // the animation entirely. Without this the typewriter would re-stream every
   // completed message from scratch each time you reopen the chat.
-  const shown = useTypewriter(target, 70, done);
+  const shown = useTypewriter(target, 110, done);
   const caughtUp = shown.length >= target.length;
   const stillStreaming = !done || !caughtUp;
   return (
@@ -747,6 +748,17 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
   return out;
 }
 
+function InflightLabel({ since }: { since: number }): React.ReactElement {
+  const verb = useCyclingVerb();
+  return (
+    <div className="chat-thinking" aria-live="polite">
+      <TerminalSpinner />
+      <span className="chat-thinking__label">{verb}</span>
+      <Elapsed since={since} />
+    </div>
+  );
+}
+
 export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest }: ChatTurnProps): React.ReactElement {
   const showInflight = inflightSince !== undefined;
   return (
@@ -760,13 +772,7 @@ export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest
       )}
       {(showInflight || turn.agentEntries.length > 0 || isLatest) && (
         <div className="chat-agent">
-          {showInflight && (
-            <div className="chat-thinking" aria-live="polite">
-              <TerminalSpinner />
-              <span className="chat-thinking__label">Working</span>
-              <Elapsed since={inflightSince!} />
-            </div>
-          )}
+          {showInflight && <InflightLabel since={inflightSince!} />}
           {renderAgentEntries(turn.agentEntries, showInflight)}
           {!showInflight && isLatest && (
             <AssistantActions
