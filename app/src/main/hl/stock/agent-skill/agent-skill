@@ -292,7 +292,10 @@ function validateEntry(entry) {
   const errors = [];
   const warnings = [];
   if (!entry.title.trim()) errors.push('missing title');
-  if (!entry.description.trim() && !String(data.description || '').trim()) errors.push('missing description');
+  // Description MUST come from frontmatter - falling back to the first
+  // paragraph used to mask broken skills and surface raw markdown (H2 hooks,
+  // code fences) anywhere the description was rendered.
+  if (!String(data.description || '').trim()) errors.push('missing frontmatter description (add `description: ...` to the front-matter block)');
   if (entry.bytes > 100_000) warnings.push('skill is large; move examples/templates/scripts into support files');
   if (!/(^|\n)#{1,3}\s+/m.test(entry.content)) warnings.push('no markdown section headings found');
   if (!/(when|use|run|step|verify|check|done|success)/i.test(entry.content)) {

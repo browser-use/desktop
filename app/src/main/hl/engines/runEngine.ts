@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { engineLogger } from '../../logger';
 import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType, loadBrowserCodeConfig } from '../../identity/authStore';
-import { helpersPath, skillPath } from '../harness';
+import { helpersPath, skillPath, skillMetaFromPath as resolveSkillMetaFromPath } from '../harness';
 import { get as getAdapter } from './registry';
 import { spawnCli } from './cliSpawn';
 import { registerResourceOwner, unregisterResourceOwner } from '../../resourceMonitor';
@@ -492,18 +492,9 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
   //    reads. Harness edits are emitted by the file watcher above, using actual
   //    file content as the source of truth instead of provider-specific tool
   //    metadata.
+  // Shared resolver - keep path <-> skill-id conversion in one place (see harness.ts).
   function skillMetaFromPath(resolved: string): { domain: string; topic: string } | null {
-    const rel = path.relative(opts.harnessDir, resolved).split(path.sep).join('/');
-    if (rel.startsWith('domain-skills/') && rel.endsWith('.md')) {
-      return { domain: 'domain', topic: rel.slice('domain-skills/'.length, -'.md'.length) };
-    }
-    if (rel.startsWith('interaction-skills/') && rel.endsWith('.md')) {
-      return { domain: 'interaction', topic: rel.slice('interaction-skills/'.length, -'.md'.length) };
-    }
-    if (rel.startsWith('skills/') && rel.endsWith('/SKILL.md')) {
-      return { domain: 'user', topic: rel.slice('skills/'.length, -'/SKILL.md'.length) };
-    }
-    return null;
+    return resolveSkillMetaFromPath(resolved, opts.harnessDir);
   }
 
   function skillMetaFromSkillId(id: string): { domain: string; topic: string } | null {

@@ -743,6 +743,153 @@
   to { visibility: hidden; }
 }
 
+/* Expandable card for skill_used / skill_written. Collapsed: single-row pill
+   (label / title / chevron). Expanded: description, file stats, reveal action. */
+.chat-skill-card {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  color: var(--color-fg-primary);
+  overflow: hidden;
+  transition: border-color 120ms ease;
+}
+.chat-skill-card--expanded { border-color: var(--color-border-default); }
+
+.chat-skill-card__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  line-height: 1.5;
+  transition: background-color 120ms ease;
+}
+.chat-skill-card__head:hover {
+  background-color: color-mix(in srgb, var(--color-fg-primary) 4%, transparent);
+}
+.chat-skill-card__head:focus-visible {
+  outline: 2px solid var(--color-accent-default);
+  outline-offset: -2px;
+}
+
+.chat-skill-card__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-fg-tertiary);
+  flex-shrink: 0;
+}
+
+.chat-skill-card__title {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--color-fg-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-skill-card__chev {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--color-fg-tertiary);
+}
+
+.chat-skill-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--color-border-subtle);
+  background-color: var(--color-bg-base);
+}
+
+.chat-skill-card__loading {
+  font-size: 12px;
+  color: var(--color-fg-tertiary);
+  font-style: italic;
+}
+
+.chat-skill-card__error {
+  font-size: 12px;
+  color: var(--color-status-error);
+}
+
+.chat-skill-card__desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-fg-primary);
+}
+.chat-skill-card__desc-empty {
+  color: var(--color-fg-tertiary);
+  font-style: italic;
+}
+
+.chat-skill-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 11.5px;
+  color: var(--color-fg-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chat-skill-card__dot { opacity: 0.6; }
+
+.chat-skill-card__action {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  text-transform: uppercase;
+  font-family: inherit;
+}
+.chat-skill-card__action--write { color: var(--color-status-success); }
+.chat-skill-card__action--patch { color: var(--color-accent-default); }
+.chat-skill-card__action--delete { color: var(--color-status-error); }
+
+.chat-skill-card__actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.chat-skill-card__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 4px 10px 4px 7px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+.chat-skill-card__btn:hover {
+  color: var(--color-fg-primary);
+  background-color: var(--color-bg-overlay);
+}
+.chat-skill-card__btn--finder span {
+  white-space: nowrap;
+}
 .chat-step__chip {
   display: inline-flex;
   align-items: center;

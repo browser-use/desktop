@@ -66,6 +66,46 @@ export function agentSkillDir(): string { return path.join(harnessDir(), 'agent-
 export function userSkillsDir(): string { return path.join(harnessDir(), 'skills'); }
 
 /**
+ * Skill IDs are `<domain>/<topic>` strings (e.g. `user/fun/page-word-count`,
+ * `domain/github/repo`, `interaction/cookies`). The on-disk layout differs per
+ * domain - these helpers are the single source of truth for the conversion so
+ * the engine post-processor and any IPC handler stay aligned.
+ */
+export interface SkillId { domain: string; topic: string }
+
+export function skillPathFromMeta(meta: SkillId, rootDir: string = harnessDir()): string | null {
+  const topic = meta.topic.replace(/\.md$/i, '');
+  if (!topic) return null;
+  if (meta.domain === 'user') return path.join(rootDir, 'skills', topic, 'SKILL.md');
+  if (meta.domain === 'domain') return path.join(rootDir, 'domain-skills', topic + '.md');
+  if (meta.domain === 'interaction') return path.join(rootDir, 'interaction-skills', topic + '.md');
+  return null;
+}
+
+export function skillMetaFromPath(resolved: string, rootDir: string = harnessDir()): SkillId | null {
+  const rel = path.relative(rootDir, resolved).split(path.sep).join('/');
+  if (rel.startsWith('domain-skills/') && rel.endsWith('.md')) {
+    return { domain: 'domain', topic: rel.slice('domain-skills/'.length, -'.md'.length) };
+  }
+  if (rel.startsWith('interaction-skills/') && rel.endsWith('.md')) {
+    return { domain: 'interaction', topic: rel.slice('interaction-skills/'.length, -'.md'.length) };
+  }
+  if (rel.startsWith('skills/') && rel.endsWith('/SKILL.md')) {
+    return { domain: 'user', topic: rel.slice('skills/'.length, -'/SKILL.md'.length) };
+  }
+  return null;
+}
+
+export function skillIdToPath(skillId: string, rootDir: string = harnessDir()): string | null {
+  const cleaned = skillId.replace(/['"]+$/g, '');
+  if (!cleaned || cleaned.startsWith('--')) return null;
+  const parts = cleaned.split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  const [domain, ...rest] = parts;
+  return skillPathFromMeta({ domain, topic: rest.join('/') }, rootDir);
+}
+
+/**
  * Ensure `<userData>/harness/` exists and contains the stock files.
  * - Writes helpers.js if missing OR if the on-disk version predates the
  *   browser-harness-js bridge.

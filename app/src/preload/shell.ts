@@ -228,6 +228,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:download-output', filePath),
     revealOutput: (filePath: string): Promise<{ revealed: boolean }> =>
       ipcRenderer.invoke('sessions:reveal-output', filePath),
+    readSkill: (payload: { domainTopic?: string; absPath?: string }): Promise<
+      | { ok: true; path: string; filename: string; sizeBytes: number; mtimeMs: number; lineCount: number; title: string; description: string; body: string; truncated: boolean }
+      | { ok: false; error: string }
+    > => ipcRenderer.invoke('sessions:read-skill', payload),
     listEditors: (): Promise<Array<{ id: string; name: string }>> =>
       ipcRenderer.invoke('sessions:list-editors'),
     openInEditor: (editorId: string, filePath: string): Promise<{ opened: boolean }> =>

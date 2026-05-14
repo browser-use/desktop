@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Markdown } from '../Markdown';
 import type { OutputEntry } from '../types';
 import type { Turn } from './groupIntoTurns';
@@ -8,6 +8,7 @@ import { Linkify } from './Linkify';
 import { useToast } from '@/renderer/components/base/Toast';
 import { TerminalSpinner, Elapsed } from './TerminalSpinner';
 import { parseUserMessage } from './parseUserMessage';
+import { FinderIcon } from '@/renderer/shared/editorIcons';
 
 const USER_BUBBLE_CLAMP_LINES = 10;
 const USER_BUBBLE_CLAMP_CHARS = 600;
@@ -464,6 +465,112 @@ function FileCard({ entry }: { entry: OutputEntry }): React.ReactElement {
   );
 }
 
+type SkillMeta =
+  | { ok: true; path: string; filename: string; sizeBytes: number; mtimeMs: number; lineCount: number; title: string; description: string; body: string; truncated: boolean }
+  | { ok: false; error: string };
+
+function SkillCard({ entry, variant }: { entry: OutputEntry; variant: 'used' | 'written' }): React.ReactElement {
+  // `content` is shaped "domain/topic" (e.g. "user/fun/page-word-count").
+  // For skill_used domain may be omitted; in that case the whole string is the topic.
+  const raw = entry.content || '';
+  const absPath = entry.tool || '';
+  const domainTopic = /^(user|domain|interaction)\//.test(raw)
+    ? raw
+    : (raw ? `user/${raw}` : undefined);
+  const action = entry.harnessAction;
+  const label = variant === 'written'
+    ? (action === 'delete' ? 'Skill deleted' : action === 'patch' ? 'Skill updated' : 'Skill written')
+    : 'Skill used';
+
+  const [expanded, setExpanded] = useState(false);
+  const [meta, setMeta] = useState<SkillMeta | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async (): Promise<void> => {
+    const api = window.electronAPI?.sessions?.readSkill;
+    if (!api) {
+      setMeta({ ok: false, error: 'readSkill API unavailable' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const isAbs = absPath.startsWith('/') && absPath.endsWith('.md');
+      const res = await api({
+        domainTopic,
+        absPath: isAbs ? absPath : undefined,
+      });
+      console.log('[SkillCard] readSkill', { raw, absPath, ok: res.ok });
+      setMeta(res);
+    } catch (err) {
+      console.error('[SkillCard] readSkill threw', err);
+      setMeta({ ok: false, error: String(err) });
+    } finally {
+      setLoading(false);
+    }
+  }, [raw, absPath, domainTopic]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const toggle = useCallback((): void => {
+    setExpanded((prev) => !prev);
+  }, []);
+
+  const displayTitle = meta?.ok
+    ? (meta.title || meta.filename.replace(/\.md$/i, '') || 'Untitled skill')
+    : (meta == null || loading ? 'Loading skill...' : 'Skill unavailable');
+
+  return (
+    <div
+      className={`chat-skill-card chat-skill-card--${variant}${action ? ` chat-skill-card--${action}` : ''}${expanded ? ' chat-skill-card--expanded' : ''}`}
+    >
+      <button
+        type="button"
+        className="chat-skill-card__head"
+        onClick={toggle}
+        aria-expanded={expanded}
+        aria-controls={`skill-body-${entry.id}`}
+        title={expanded ? 'Collapse' : 'Show details'}
+      >
+        <span className="chat-skill-card__label">{label}</span>
+        <span className="chat-skill-card__title">{displayTitle}</span>
+        <span className="chat-skill-card__chev" aria-hidden>{expanded ? '▾' : '▸'}</span>
+      </button>
+      {expanded && (
+        <div id={`skill-body-${entry.id}`} className="chat-skill-card__body">
+          {loading && <div className="chat-skill-card__loading">Loading...</div>}
+          {meta?.ok === false && (
+            <div className="chat-skill-card__error">Could not read this skill: {meta.error}</div>
+          )}
+          {meta?.ok === true && (
+            <>
+              <div className="chat-skill-card__desc">
+                {meta.description || <span className="chat-skill-card__desc-empty">No description.</span>}
+              </div>
+              <div className="chat-skill-card__actions">
+                <button
+                  type="button"
+                  className="chat-skill-card__btn chat-skill-card__btn--finder"
+                  aria-label={`Reveal ${displayTitle} in Finder`}
+                  title="Reveal in Finder"
+                  onClick={() => {
+                    void window.electronAPI?.sessions?.revealOutput?.(meta.path)
+                      .catch((err) => console.error('[SkillCard] revealOutput failed', err));
+                  }}
+                >
+                  <FinderIcon />
+                  <span>Reveal in Finder</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentEntry({
   entry,
 }: {
@@ -508,10 +615,10 @@ function AgentEntry({
       return <div className="chat-step__error"><Linkify>{entry.content}</Linkify></div>;
 
     case 'skill_used':
-      return <span className="chat-step__chip">skill · {entry.content}</span>;
+      return <SkillCard entry={entry} variant="used" />;
 
     case 'skill_written':
-      return <span className="chat-step__chip">wrote skill · {entry.content}</span>;
+      return <SkillCard entry={entry} variant="written" />;
 
     case 'harness_edited':
       return <span className="chat-step__chip">edited {entry.content}</span>;

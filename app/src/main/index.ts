@@ -108,7 +108,7 @@ import {
 import { assertString, assertAttachments, type ValidatedAttachment } from './ipc-validators';
 // Agent loop: CLI subprocess driving the browser harness. Engine is
 // pluggable (claude-code, codex, …) — see src/main/hl/engines/.
-import { bootstrapHarness, harnessDir } from './hl/harness';
+import { bootstrapHarness, harnessDir, skillIdToPath, skillMetaFromPath } from './hl/harness';
 import { runEngine, DEFAULT_ENGINE_ID } from './hl/engines';
 import type { EngineRunControl } from './hl/engines/types';
 import { getEngine, setEngine, type EngineId } from './hl/engine';
@@ -1529,14 +1529,123 @@ app.whenReady().then(async () => {
     return { ...result, installed };
   });
 
+  // Read a skill file by domain/topic (e.g. "user/fun/page-word-count") OR by
+  // absolute path under the harness dir. Returns light metadata (title from the
+  // first H1 or frontmatter `name`, description from frontmatter `description`)
+  // plus the raw body capped at 64 KB so the renderer can
+  // expand a SkillCard inline without a full file viewer.
+  ipcMain.handle('sessions:read-skill', async (_event, payload: { domainTopic?: string; absPath?: string }) => {
+    const MAX_BYTES = 64 * 1024;
+    const domainTopic = typeof payload?.domainTopic === 'string' ? payload.domainTopic.trim() : '';
+    const absPathIn = typeof payload?.absPath === 'string' ? payload.absPath.trim() : '';
+
+    // Resolution delegates to the shared `skillIdToPath` in harness.ts - that
+    // helper knows the on-disk layout (user skills are dirs containing SKILL.md;
+    // domain/interaction skills are flat .md files). When the caller already
+    // has an absolute path we trust it as a second candidate.
+    const candidates: string[] = [];
+    if (domainTopic) {
+      const resolved = skillIdToPath(domainTopic);
+      if (resolved) candidates.push(resolved);
+    }
+    if (absPathIn && path.isAbsolute(absPathIn) && absPathIn.endsWith('.md')) {
+      candidates.push(path.resolve(absPathIn));
+    }
+
+    const root = path.resolve(harnessDir());
+    let resolved: string | null = null;
+    for (const c of candidates) {
+      const r = path.resolve(c);
+      if (!r.startsWith(root + path.sep)) continue;
+      try {
+        const stat = fs.statSync(r);
+        if (stat.isFile()) { resolved = r; break; }
+      } catch {
+        // try next
+      }
+    }
+    if (!resolved) {
+      mainLogger.info('main.sessions:read-skill.notFound', { domainTopic, absPath: absPathIn, tried: candidates.length });
+      return { ok: false, error: 'skill not found' };
+    }
+
+    let body: string;
+    let truncated: boolean;
+    let sizeBytes: number;
+    let mtimeMs: number;
+    try {
+      const stat = fs.statSync(resolved);
+      sizeBytes = stat.size;
+      mtimeMs = stat.mtimeMs;
+      const fd = fs.openSync(resolved, 'r');
+      try {
+        const buf = Buffer.alloc(Math.min(MAX_BYTES, sizeBytes));
+        const n = fs.readSync(fd, buf, 0, buf.length, 0);
+        body = buf.slice(0, n).toString('utf-8');
+        truncated = sizeBytes > buf.length;
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (err) {
+      mainLogger.warn('main.sessions:read-skill.readFailed', { path: resolved, error: (err as Error).message });
+      return { ok: false, error: 'read failed' };
+    }
+
+    // Parse optional YAML frontmatter (first --- block). Only `name` and
+    // `description` are extracted; we intentionally don't pull in a full YAML
+    // parser for this - skills follow a flat single-line `key: value` convention.
+    let title = '';
+    let description = '';
+    let stripped = body;
+    const fmMatch = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (fmMatch) {
+      const fm = fmMatch[1];
+      for (const line of fm.split(/\r?\n/)) {
+        const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$/);
+        if (!m) continue;
+        const key = m[1].toLowerCase();
+        const value = m[2].replace(/^["']|["']$/g, '');
+        if (key === 'name' && !title) title = value;
+        if (key === 'description' && !description) description = value;
+      }
+      stripped = body.slice(fmMatch[0].length);
+    }
+    if (!title) {
+      const h1 = stripped.match(/^#\s+(.+?)\s*$/m);
+      if (h1) title = h1[1].trim();
+    }
+    // Description comes from frontmatter ONLY. The agent-skill validator now
+    // enforces that every skill ships with a real `description:` line, so
+    // there's no longer a body-paragraph fallback - that fallback used to
+    // surface raw markdown (H2 hooks, code fences) as the skill summary.
+
+    const lineCount = body.split('\n').length;
+    mainLogger.info('main.sessions:read-skill.ok', { path: resolved, sizeBytes, truncated });
+    return {
+      ok: true,
+      path: resolved,
+      filename: path.basename(resolved),
+      sizeBytes,
+      mtimeMs,
+      lineCount,
+      title,
+      description,
+      body,
+      truncated,
+    };
+  });
+
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {
     const validated = assertString(filePath, 'filePath', 2000);
     const resolvedPath = path.isAbsolute(validated)
       ? path.resolve(validated)
       : path.resolve(harnessDir(), validated);
-    const outputsRoot = path.resolve(harnessDir(), 'outputs');
-    if (!resolvedPath.startsWith(outputsRoot + path.sep)) {
-      throw new Error('refused: path outside outputs dir');
+    const harnessRoot = path.resolve(harnessDir());
+    const outputsRoot = path.resolve(harnessRoot, 'outputs');
+    const isOutputFile = resolvedPath.startsWith(outputsRoot + path.sep);
+    const isSkillFile = skillMetaFromPath(resolvedPath, harnessRoot) !== null;
+    if (!isOutputFile && !isSkillFile) {
+      throw new Error('refused: path outside outputs or skills dir');
     }
     shell.showItemInFolder(resolvedPath);
     mainLogger.info('main.sessions:reveal-output', { path: resolvedPath });
