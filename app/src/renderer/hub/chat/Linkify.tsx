@@ -30,9 +30,10 @@ function reveal(rawPath: string): void {
   // a `.` after a filename when the extension is also a sentence end).
   const clean = rawPath.replace(/[.,;:!?)\]]+$/, '');
   console.log('[Linkify] reveal', clean);
-  void window.electronAPI?.sessions
-    ?.revealOutput?.(clean)
-    .catch((err) => console.warn('[Linkify] revealOutput failed', err));
+  const revealResult = window.electronAPI?.sessions?.revealOutput?.(clean);
+  if (revealResult && typeof revealResult.catch === 'function') {
+    void revealResult.catch((err) => console.warn('[Linkify] revealOutput failed', err));
+  }
 }
 
 interface LinkifyProps {

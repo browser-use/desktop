@@ -13,7 +13,8 @@ import type { AgentSession, HlEvent } from '../types';
  *   3. `session-updated` IPC → patchSession (non-output fields: status,
  *      costUsd, lastActivityAt, etc). We never let this channel rewrite the
  *      output array — that's owned by sessionOutput so we don't double-append.
- *   4. `sessions:browser-gone` → patchSession({ hasBrowser: false })
+ *   4. `sessions:browser-attached` / `sessions:browser-gone` →
+ *      patchSession({ hasBrowser })
  *
  * No useSessionsQuery dependency. Old grid/dashboard consumers keep their
  * own query in parallel; chat reads only from the store.
@@ -65,6 +66,16 @@ export function useSessionsBridge(): void {
       }
     };
 
+    const applyBrowserState = (id: string, hasBrowser: boolean): void => {
+      const store = useSessionsStore.getState();
+      if (!store.byId[id]) {
+        if (hasBrowser) console.log('[useSessionsBridge] browserAttached for unknown id', id);
+        return;
+      }
+      if (hasBrowser) console.log('[useSessionsBridge] browserAttached', { id });
+      store.patchSession(id, { hasBrowser });
+    };
+
     api.sessions
       .listAll()
       .then((all) => {
@@ -90,19 +101,11 @@ export function useSessionsBridge(): void {
     });
 
     const unsubBrowserGone = api.on.sessionBrowserGone((id) => {
-      const store = useSessionsStore.getState();
-      if (!store.byId[id]) return;
-      store.patchSession(id, { hasBrowser: false });
+      enqueueOrRun(() => applyBrowserState(id, false));
     });
 
     const unsubBrowserAttached = api.on.sessionBrowserAttached((id) => {
-      const store = useSessionsStore.getState();
-      if (!store.byId[id]) {
-        console.log('[useSessionsBridge] browserAttached for unknown id', id);
-        return;
-      }
-      console.log('[useSessionsBridge] browserAttached', { id });
-      store.patchSession(id, { hasBrowser: true });
+      enqueueOrRun(() => applyBrowserState(id, true));
     });
 
     return () => {

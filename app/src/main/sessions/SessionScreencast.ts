@@ -88,6 +88,7 @@ export class SessionScreencast {
         dbg.attach(CDP_PROTOCOL_VERSION);
       } catch (err) {
         mainLogger.warn('SessionScreencast.start.attachFailed', { sessionId, error: (err as Error).message });
+        if (parking.parkedByUs && previewWindow) this.pool.releasePreviewParking(sessionId, previewWindow);
         return { ok: false, reason: 'attach_failed' };
       }
     }

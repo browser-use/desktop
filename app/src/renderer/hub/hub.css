@@ -2066,7 +2066,7 @@ button:focus:not(:focus-visible) {
   /* Treat the whole path as one wrappable token so it breaks cleanly at the
      line edge instead of fracturing on every hyphen in a UUID. */
   overflow-wrap: anywhere;
-  word-break: break-all;
+  word-break: normal;
 }
 
 .md-output-path:hover {
