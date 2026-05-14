@@ -263,6 +263,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:resume', { id, prompt, attachments }),
     rerun: (id: string): Promise<{ rerun?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:rerun', id),
+    editAndRerun: (id: string, prompt: string): Promise<{ rerun?: boolean; error?: string }> =>
+      ipcRenderer.invoke('sessions:rerun', { id, prompt }),
     previewStart: (id: string, opts?: { maxWidth?: number; maxHeight?: number }): Promise<{ ok: boolean; reason?: string }> =>
       ipcRenderer.invoke('sessions:preview-start', { id, ...(opts ?? {}) }),
     previewStop: (id: string): Promise<void> =>

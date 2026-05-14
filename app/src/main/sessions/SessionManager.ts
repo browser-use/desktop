@@ -493,7 +493,7 @@ export class SessionManager extends EventEmitter {
     mainLogger.info('SessionManager.deleteSession', { id });
   }
 
-  rerunSession(id: string): AbortController {
+  rerunSession(id: string, promptOverride?: string): AbortController {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session not found: ${id}`);
 
@@ -501,6 +501,10 @@ export class SessionManager extends EventEmitter {
     if (ctrl) { ctrl.abort(); this.abortControllers.delete(id); }
     this.clearStuckTimer(id);
 
+    if (promptOverride !== undefined) {
+      session.prompt = promptOverride;
+      this.db.updateSessionPrompt(id, promptOverride);
+    }
     session.output = [];
     session.error = undefined;
     session.status = 'running';

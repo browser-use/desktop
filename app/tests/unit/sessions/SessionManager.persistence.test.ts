@@ -215,6 +215,25 @@ describe('SessionManager persistence', () => {
     manager.destroy();
   });
 
+  it('reruns a session with an edited prompt as a fresh conversation', () => {
+    const manager = new SessionManager(tempDbPath());
+    const id = manager.createSession('Open example.com');
+
+    manager.startSession(id);
+    manager.setEngineSessionId(id, 'thread-123');
+    const abortController = manager.rerunSession(id, 'Open example.org instead');
+    const session = manager.getSession(id);
+
+    expect(abortController.signal.aborted).toBe(false);
+    expect(session?.prompt).toBe('Open example.org instead');
+    expect(session?.status).toBe('running');
+    expect(session?.canResume).toBe(false);
+    expect(session?.output).toEqual([]);
+    expect(manager.getEngineSessionId(id)).toBeUndefined();
+
+    manager.destroy();
+  });
+
   it('pauses a running session without aborting the live run and resumes it in place', () => {
     const manager = new SessionManager(tempDbPath());
     const id = manager.createSession('Open example.com');

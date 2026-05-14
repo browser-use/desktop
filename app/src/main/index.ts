@@ -1301,10 +1301,13 @@ app.whenReady().then(async () => {
     return resumeSessionWithAgent(validatedId, validatedPrompt, resumeAttachments, 'resume');
   });
 
-  ipcMain.handle('sessions:rerun', async (_event, id: string) => {
-    const validatedId = assertString(id, 'id', 100);
+  ipcMain.handle('sessions:rerun', async (_event, payload: string | { id?: unknown; prompt?: unknown }) => {
+    const idRaw = typeof payload === 'string' ? payload : payload?.id;
+    const promptRaw = typeof payload === 'string' ? undefined : payload?.prompt;
+    const validatedId = assertString(idRaw, 'id', 100);
+    const promptOverride = promptRaw == null ? undefined : assertString(promptRaw, 'prompt', 10000);
     const t0 = Date.now();
-    mainLogger.info('main.sessions:rerun', { id: validatedId });
+    mainLogger.info('main.sessions:rerun', { id: validatedId, edited: promptOverride !== undefined });
 
     const session = sessionManager.getSession(validatedId);
     if (!session) return { error: 'Session not found' };
@@ -1314,7 +1317,7 @@ app.whenReady().then(async () => {
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
     await stampConfiguredSessionModel(validatedId, engineId, 'rerun');
-    const abortController = sessionManager.rerunSession(validatedId);
+    const abortController = sessionManager.rerunSession(validatedId, promptOverride);
     captureEvent('session_rerun', {
       engine: engineId,
     });
