@@ -195,7 +195,7 @@ export class SessionScreencast {
 
   private cleanupPreview(sessionId: string, preview: ActivePreview): void {
     this.detachIfOwned(preview);
-    if (!preview.parkedByUs || !this.window || this.window.isDestroyed()) return;
+    if (!preview.parkedByUs) return;
     this.pool.releasePreviewParking(sessionId, this.window);
   }
 

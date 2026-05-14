@@ -70,7 +70,15 @@ export const useSessionsStore = create<SessionsState>()(
         // overwrite the per-index slot as they're appended.
         const seeded = seedOutputTimestamps(s);
         if (prev) {
-          state.byId[s.id] = { ...prev, ...seeded, hasBrowser: seeded.hasBrowser ?? prev.hasBrowser };
+          state.byId[s.id] = {
+            ...prev,
+            ...seeded,
+            output: prev.output.length > 0 ? prev.output : seeded.output,
+            outputTimestamps: prev.output.length > 0
+              ? (prev.outputTimestamps ?? seeded.outputTimestamps)
+              : seeded.outputTimestamps,
+            hasBrowser: seeded.hasBrowser ?? prev.hasBrowser,
+          };
         } else {
           state.byId[s.id] = seeded;
         }

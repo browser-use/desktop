@@ -55,6 +55,15 @@ const runNpm = (args: string[], cwd: string): void => {
   execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { cwd, stdio: 'inherit' });
 };
 
+function isViteOutputPath(file: string): boolean {
+  const normalized = file.split(path.sep).join('/');
+  if (normalized === '/.vite' || normalized.startsWith('/.vite/')) return true;
+  if (normalized === '.vite' || normalized.startsWith('.vite/')) return true;
+  if (!path.isAbsolute(file)) return false;
+  const rel = path.relative(__dirname, file).split(path.sep).join('/');
+  return rel === '.vite' || rel.startsWith('.vite/');
+}
+
 // ---------------------------------------------------------------------------
 // Forge configuration
 // ---------------------------------------------------------------------------
@@ -73,7 +82,7 @@ const config: ForgeConfig = {
     // packageAfterPrune hook below, and app-update.yml is copied as a resource.
     ignore: (file) => {
       if (!file) return false;
-      return !file.startsWith('/.vite');
+      return !isViteOutputPath(file);
     },
 
     // macOS bundle identity — only set when credentials are available.

@@ -27,6 +27,7 @@ export function useSessionsBridge(): void {
     let cancelled = false;
     let hydrated = false;
     const pending: Array<() => void> = [];
+    const pendingOutputBySession = new Map<string, HlEvent[]>();
 
     const enqueueOrRun = (fn: () => void): void => {
       if (hydrated) fn();
@@ -36,10 +37,20 @@ export function useSessionsBridge(): void {
     const applyOutput = (id: string, event: HlEvent): void => {
       const store = useSessionsStore.getState();
       if (!store.byId[id]) {
-        console.log('[useSessionsBridge] sessionOutput ignored (unknown session)', { id, type: event.type });
+        const pendingForSession = pendingOutputBySession.get(id) ?? [];
+        pendingForSession.push(event);
+        pendingOutputBySession.set(id, pendingForSession);
+        console.log('[useSessionsBridge] sessionOutput buffered (unknown session)', { id, type: event.type });
         return;
       }
       store.appendEvent(id, event);
+    };
+
+    const flushPendingOutput = (id: string): void => {
+      const events = pendingOutputBySession.get(id);
+      if (!events || events.length === 0) return;
+      pendingOutputBySession.delete(id);
+      for (const event of events) applyOutput(id, event);
     };
 
     const applyUpdated = (session: AgentSession): void => {
@@ -48,6 +59,7 @@ export function useSessionsBridge(): void {
       if (!prev) {
         // First time seeing this session (e.g. just created) — full insert.
         store.upsertSession(session);
+        flushPendingOutput(session.id);
         return;
       }
       // Patch only non-output fields. Output is driven by session-output.
@@ -110,6 +122,7 @@ export function useSessionsBridge(): void {
 
     return () => {
       cancelled = true;
+      pendingOutputBySession.clear();
       unsubOutput();
       unsubUpdated();
       unsubBrowserGone();

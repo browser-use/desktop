@@ -128,4 +128,31 @@ describe('useSessionsBridge', () => {
 
     act(() => root.unmount());
   });
+
+  it('buffers startup output until a session-updated event inserts the session', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const listAll = deferred<AgentSession[]>();
+    const handlers = installApi(listAll.promise);
+    const { root } = renderBridge();
+
+    act(() => {
+      handlers.sessionOutput?.(id, { type: 'thinking', text: 'first live token' });
+    });
+    await act(async () => {
+      listAll.resolve([]);
+      await listAll.promise;
+    });
+
+    expect(useSessionsStore.getState().byId[id]).toBeUndefined();
+
+    act(() => {
+      handlers.sessionUpdated?.(session({ id, status: 'running', output: [] }));
+    });
+
+    expect(useSessionsStore.getState().byId[id]?.output).toEqual([
+      { type: 'thinking', text: 'first live token' },
+    ]);
+
+    act(() => root.unmount());
+  });
 });

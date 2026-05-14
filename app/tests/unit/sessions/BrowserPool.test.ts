@@ -276,6 +276,20 @@ describe('BrowserPool — attach/detach', () => {
     expect(win.contentView.children.filter((child: unknown) => child === view)).toHaveLength(1);
     expect(view!.getBounds()).toEqual({ x: 100, y: 50, width: 800, height: 600 });
   });
+
+  it('clears preview parking state even when the preview window is gone', async () => {
+    const view = pool.create('s1');
+    expect(view).not.toBeNull();
+    instrumentLifecycle(view!);
+
+    const parking = await pool.parkForPreview('s1', win);
+    expect(parking).toEqual({ ok: true, parkedByUs: true });
+    expect(pool.getStats().sessions[0].attached).toBe(true);
+
+    pool.releasePreviewParking('s1', null);
+
+    expect(pool.getStats().sessions[0].attached).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

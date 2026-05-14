@@ -802,17 +802,19 @@ export class BrowserPool {
     return { ok: true, parkedByUs };
   }
 
-  releasePreviewParking(sessionId: string, window: BrowserWindow): void {
+  releasePreviewParking(sessionId: string, window: BrowserWindow | null): void {
     const entry = this.entries.get(sessionId);
     if (!entry || !entry.attached || !entry.parked) return;
 
-    try {
-      window.contentView.removeChildView(entry.view);
-    } catch (err) {
-      browserLogger.warn('BrowserPool.releasePreviewParking.removeError', {
-        sessionId,
-        error: (err as Error).message,
-      });
+    if (window && !window.isDestroyed()) {
+      try {
+        window.contentView.removeChildView(entry.view);
+      } catch (err) {
+        browserLogger.warn('BrowserPool.releasePreviewParking.removeError', {
+          sessionId,
+          error: (err as Error).message,
+        });
+      }
     }
     entry.attached = false;
     entry.parked = false;

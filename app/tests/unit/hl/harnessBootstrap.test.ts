@@ -23,7 +23,9 @@ const {
   browserHarnessJsDir,
   helpersPath,
   interactionSkillsDir,
+  skillIdToPath,
   skillPath,
+  skillPathFromMeta,
   toolsPath,
   userSkillsDir,
 } = await import('../../../src/main/hl/harness');
@@ -71,5 +73,19 @@ describe('bootstrapHarness browser-harness-js materialization', () => {
       expect(fs.statSync(cli).mode & 0o111).not.toBe(0);
       expect(fs.statSync(agentSkill).mode & 0o111).not.toBe(0);
     }
+  });
+
+  test('rejects traversal and absolute skill IDs before converting to paths', () => {
+    const root = path.join(mockState.userData, 'harness');
+
+    expect(skillIdToPath('domain/github/repo', root)).toBe(path.join(root, 'domain-skills', 'github/repo.md'));
+    expect(skillIdToPath('interaction/screenshots.md', root)).toBe(path.join(root, 'interaction-skills', 'screenshots.md'));
+    expect(skillIdToPath('domain/../secret', root)).toBeNull();
+    expect(skillIdToPath('domain/./github', root)).toBeNull();
+    expect(skillIdToPath('domain//github', root)).toBeNull();
+    expect(skillIdToPath('/domain/github', root)).toBeNull();
+    expect(skillIdToPath('domain/C:/secret', root)).toBeNull();
+    expect(skillPathFromMeta({ domain: 'user', topic: '../secret' }, root)).toBeNull();
+    expect(skillPathFromMeta({ domain: 'domain', topic: '/github/repo' }, root)).toBeNull();
   });
 });

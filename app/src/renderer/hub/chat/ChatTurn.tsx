@@ -8,7 +8,7 @@ import { Linkify } from './Linkify';
 import { useToast } from '@/renderer/components/base/Toast';
 import { TerminalSpinner, Elapsed } from './TerminalSpinner';
 import { useCyclingVerb } from './spinnerVerbs';
-import { parseUserMessage } from './parseUserMessage';
+import { formatUserMessageWithQuote, parseUserMessage } from './parseUserMessage';
 import { FinderIcon } from '@/renderer/shared/editorIcons';
 
 const USER_BUBBLE_CLAMP_LINES = 10;
@@ -95,7 +95,7 @@ function UserBubble({ content, onEdit, onShare }: {
   const submitEdit = (): void => {
     const next = draft.trim();
     if (!next || !onEdit) return;
-    onEdit(next);
+    onEdit(formatUserMessageWithQuote(quote, next));
     setEditing(false);
   };
 
@@ -696,8 +696,10 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
   const hoistedIds = new Set<string>();
   for (const e of entries) {
     if (e.type === 'file_output' && e.fileMime?.startsWith('image/')) {
-      hoistedIds.add(e.id);
-      if (lastDoneIdx >= 0) hoistedImages.push(e);
+      if (lastDoneIdx >= 0) {
+        hoistedIds.add(e.id);
+        hoistedImages.push(e);
+      }
     }
   }
 

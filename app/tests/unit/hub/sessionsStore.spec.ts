@@ -38,4 +38,25 @@ describe('sessionsStore hydration', () => {
     expect(merged.output).toEqual([{ type: 'thinking', text: 'live event' }]);
     expect(merged.outputTimestamps).toHaveLength(1);
   });
+
+  it('upsertSession preserves newer live output over stale session snapshots', () => {
+    const store = useSessionsStore.getState();
+    const id = '11111111-1111-4111-8111-111111111111';
+
+    store.upsertSession(session({ id, status: 'running', output: [] }));
+    store.appendEvent(id, { type: 'thinking', text: 'live event' });
+    const liveTimestamps = useSessionsStore.getState().byId[id]?.outputTimestamps;
+
+    store.upsertSession(session({
+      id,
+      status: 'idle',
+      output: [{ type: 'done', summary: 'stale snapshot', iterations: 1 }],
+      outputTimestamps: [2000],
+    }));
+
+    const merged = useSessionsStore.getState().byId[id];
+    expect(merged.status).toBe('idle');
+    expect(merged.output).toEqual([{ type: 'thinking', text: 'live event' }]);
+    expect(merged.outputTimestamps).toBe(liveTimestamps);
+  });
 });

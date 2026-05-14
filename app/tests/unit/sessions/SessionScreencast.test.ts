@@ -30,7 +30,9 @@ function makeScreencast(wc: WebContents | null): {
   screencast: SessionScreencast;
   sent: ReturnType<typeof vi.fn>;
   pool: BrowserPool;
+  setWindowDestroyed: (destroyed: boolean) => void;
 } {
+  let windowDestroyed = false;
   const pool = {
     getWebContents: vi.fn(() => wc),
     parkForPreview: vi.fn(async () => ({ ok: true, parkedByUs: false })),
@@ -39,10 +41,15 @@ function makeScreencast(wc: WebContents | null): {
   const sent = vi.fn();
   const screencast = new SessionScreencast(pool);
   screencast.setWindow({
-    isDestroyed: vi.fn(() => false),
+    isDestroyed: vi.fn(() => windowDestroyed),
     webContents: { send: sent },
   } as unknown as BrowserWindow);
-  return { screencast, sent, pool };
+  return {
+    screencast,
+    sent,
+    pool,
+    setWindowDestroyed: (destroyed: boolean) => { windowDestroyed = destroyed; },
+  };
 }
 
 afterEach(() => {
@@ -118,6 +125,19 @@ describe('SessionScreencast', () => {
 
     expect(pool.releasePreviewParking).toHaveBeenCalledWith('s1', expect.anything());
     expect(screencast.isActive('s1')).toBe(false);
+  });
+
+  it('releases preview parking on stop even after the preview window is destroyed', async () => {
+    const wc = mockWebContents();
+    const { screencast, sent, pool, setWindowDestroyed } = makeScreencast(wc);
+    vi.mocked(pool.parkForPreview).mockResolvedValue({ ok: true, parkedByUs: true });
+
+    await expect(screencast.start('s1')).resolves.toEqual({ ok: true });
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledWith('session-preview-frame', 's1', 'jpeg-bytes'));
+    setWindowDestroyed(true);
+    await screencast.stop('s1');
+
+    expect(pool.releasePreviewParking).toHaveBeenCalledWith('s1', expect.anything());
   });
 
   it('stops cleanly while a capture is still in flight', async () => {
