@@ -50,6 +50,28 @@ function UserBubble({ content, onEdit, onShare }: {
   const [expanded, setExpanded] = useState(false);
   const clamped = isLong && !expanded;
   const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(body);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizeEditArea = (): void => {
+    const ta = editTextareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  };
+
+  useEffect(() => { if (!editing) setDraft(body); }, [body, editing]);
+  useEffect(() => {
+    if (!editing) return;
+    requestAnimationFrame(() => {
+      const ta = editTextareaRef.current;
+      if (!ta) return;
+      resizeEditArea();
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    });
+  }, [editing]);
 
   const handleCopy = async () => {
     try {
@@ -59,6 +81,58 @@ function UserBubble({ content, onEdit, onShare }: {
       toast.show({ variant: 'error', title: 'Copy failed' });
     }
   };
+
+  const startEdit = (): void => {
+    setDraft(body);
+    setEditing(true);
+  };
+  const cancelEdit = (): void => {
+    setEditing(false);
+    setDraft(body);
+  };
+  const submitEdit = (): void => {
+    const next = draft.trim();
+    if (!next || !onEdit) return;
+    onEdit(next);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="chat-bubble__wrap chat-bubble__wrap--editing">
+        <div className="chat-bubble chat-bubble--editing">
+          {quote && (
+            <div className="chat-bubble__quote">{quote}</div>
+          )}
+          <textarea
+            ref={editTextareaRef}
+            className="chat-bubble__edit-input"
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); resizeEditArea(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                submitEdit();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelEdit();
+              }
+            }}
+            placeholder="Edit your message..."
+          />
+        </div>
+        <div className="chat-bubble__edit-actions">
+          <button type="button" className="chat-bubble__edit-cancel" onClick={cancelEdit}>Cancel</button>
+          <button
+            type="button"
+            className="chat-bubble__edit-send"
+            onClick={submitEdit}
+            disabled={draft.trim().length === 0 || draft.trim() === body.trim()}
+          >Send</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-bubble__wrap">
@@ -101,7 +175,7 @@ function UserBubble({ content, onEdit, onShare }: {
             type="button"
             aria-label="Edit message"
             title="Edit message"
-            onClick={() => onEdit(body)}
+            onClick={startEdit}
           >
             <EditIcon />
           </button>
@@ -116,6 +190,48 @@ interface ChatTurnProps {
   inflightSince?: number;
   onEditMessage?: (text: string) => void;
   onShare?: () => void;
+  isLatest?: boolean;
+}
+
+function AssistantActions({
+  content,
+  onShare,
+}: {
+  content: string;
+  onShare?: () => void;
+}): React.ReactElement | null {
+  const toast = useToast();
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(content);
+      toast.show({ variant: 'success', title: 'Copied to clipboard' });
+    } catch {
+      toast.show({ variant: 'error', title: 'Copy failed' });
+    }
+  };
+  if (!content) return null;
+  return (
+    <div className="chat-assistant-actions">
+      <button
+        type="button"
+        aria-label="Copy response"
+        title="Copy"
+        onClick={() => { void handleCopy(); }}
+      >
+        <CopyIcon />
+      </button>
+      {onShare && (
+        <button
+          type="button"
+          aria-label="Share conversation"
+          title="Share"
+          onClick={onShare}
+        >
+          <ShareIcon />
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -283,6 +399,71 @@ function FloatedImage({ entry }: { entry: OutputEntry }): React.ReactElement {
   );
 }
 
+function formatBytes(n?: number): string {
+  if (!n || n <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = n;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
+  return `${v < 10 && u > 0 ? v.toFixed(1) : Math.round(v)} ${units[u]}`;
+}
+
+function FileCard({ entry }: { entry: OutputEntry }): React.ReactElement {
+  const absPath = entry.tool ?? '';
+  const name = entry.content || absPath.split('/').pop() || 'file';
+  const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : '';
+  const isImage = entry.fileMime?.startsWith('image/');
+  const sizeLabel = formatBytes(entry.fileSize);
+  const metaParts = [ext, sizeLabel].filter(Boolean);
+  const reveal = (e?: React.MouseEvent): void => {
+    e?.preventDefault();
+    void window.electronAPI?.sessions?.revealOutput?.(absPath)
+      .catch((err) => console.error('[FileCard] revealOutput failed', err));
+  };
+  const download = (e: React.MouseEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    void window.electronAPI?.sessions?.downloadOutput?.(absPath)
+      .catch((err) => console.error('[FileCard] downloadOutput failed', err));
+  };
+  return (
+    <div
+      className="chat-file-card"
+      role="button"
+      tabIndex={0}
+      onClick={reveal}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reveal(); } }}
+      title={`Reveal ${name} in file manager`}
+    >
+      <div className="chat-file-card__thumb">
+        {isImage && absPath ? (
+          <img src={`chatfile://files${encodeURI(absPath)}`} alt="" loading="lazy" />
+        ) : (
+          <span className="chat-file-card__ext">{ext || 'FILE'}</span>
+        )}
+      </div>
+      <div className="chat-file-card__body">
+        <div className="chat-file-card__name">{name}</div>
+        {metaParts.length > 0 && (
+          <div className="chat-file-card__meta">{metaParts.join(' · ')}</div>
+        )}
+      </div>
+      <button
+        type="button"
+        className="chat-file-card__download"
+        onClick={download}
+        aria-label={`Open ${name}`}
+        title="Open file"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path d="M8 2v8m0 0l-3-3m3 3l3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M3 12.5v.5A1.5 1.5 0 004.5 14.5h7a1.5 1.5 0 001.5-1.5v-.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function AgentEntry({
   entry,
 }: {
@@ -349,7 +530,7 @@ function AgentEntry({
           </a>
         );
       }
-      return <span className="chat-step__chip">file · <Linkify>{entry.content}</Linkify></span>;
+      return <FileCard entry={entry} />;
     }
 
     case 'notify':
@@ -459,10 +640,10 @@ function renderAgentEntries(entries: OutputEntry[], isLive: boolean): React.Reac
   return out;
 }
 
-export function ChatTurn({ turn, inflightSince, onEditMessage, onShare }: ChatTurnProps): React.ReactElement {
+export function ChatTurn({ turn, inflightSince, onEditMessage, onShare, isLatest }: ChatTurnProps): React.ReactElement {
   const showInflight = inflightSince !== undefined;
   return (
-    <div className="chat-turn">
+    <div className={`chat-turn${isLatest ? ' chat-turn--latest' : ''}`}>
       {turn.userEntry && (
         <UserBubble
           content={turn.userEntry.content}
@@ -470,7 +651,7 @@ export function ChatTurn({ turn, inflightSince, onEditMessage, onShare }: ChatTu
           onShare={onShare}
         />
       )}
-      {(showInflight || turn.agentEntries.length > 0) && (
+      {(showInflight || turn.agentEntries.length > 0 || isLatest) && (
         <div className="chat-agent">
           {showInflight && (
             <div className="chat-thinking" aria-live="polite">
@@ -480,6 +661,12 @@ export function ChatTurn({ turn, inflightSince, onEditMessage, onShare }: ChatTu
             </div>
           )}
           {renderAgentEntries(turn.agentEntries, showInflight)}
+          {!showInflight && isLatest && (
+            <AssistantActions
+              content={turn.agentEntries.find((e) => e.type === 'done')?.content ?? ''}
+              onShare={onShare}
+            />
+          )}
         </div>
       )}
     </div>

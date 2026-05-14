@@ -20,6 +20,12 @@ export interface AgentSession {
   status: SessionStatus;
   createdAt: number;
   output: HlEvent[];
+  /**
+   * Wall-clock arrival time (ms epoch) for each event in `output`, parallel-
+   * indexed. Live events get real arrival times; DB-loaded sessions fall back
+   * to `createdAt + index`.
+   */
+  outputTimestamps?: number[];
   error?: string;
   group?: string;
   hasBrowser?: boolean;
@@ -49,6 +55,7 @@ export interface OutputEntry {
   type: 'thinking' | 'tool_call' | 'tool_result' | 'text' | 'done' | 'error' | 'user_input' | 'skill_written' | 'skill_used' | 'harness_edited' | 'file_output' | 'notify';
   timestamp: number;
   content: string;
+  rawIdx?: number;
   tool?: string;
   duration?: number;
   result?: ToolResult;
@@ -68,8 +75,8 @@ export interface OutputEntry {
 
 let _adapterId = 0;
 
-export function hlEventToOutputEntry(event: HlEvent, timestamp: number): OutputEntry {
-  const id = `oe-${++_adapterId}`;
+export function hlEventToOutputEntry(event: HlEvent, timestamp: number, stableId?: string): OutputEntry {
+  const id = stableId ?? `oe-${++_adapterId}`;
 
   switch (event.type) {
     case 'thinking':
@@ -128,9 +135,13 @@ export function adaptSession(session: AgentSession): {
 } {
   // turn_usage events are persisted for audit + session-total roll-up in the
   // main process; they have no row in the UI log so we drop them here.
-  const visibleOutput = session.output.filter(
-    (e): e is Exclude<HlEvent, { type: 'turn_usage' }> => e.type !== 'turn_usage',
-  );
+  const visibleWithIdx: Array<{ e: Exclude<HlEvent, { type: 'turn_usage' }>; rawIdx: number }> = [];
+  for (let i = 0; i < session.output.length; i++) {
+    const e = session.output[i];
+    if (e.type === 'turn_usage') continue;
+    visibleWithIdx.push({ e, rawIdx: i });
+  }
+  const visibleOutput = visibleWithIdx.map((v) => v.e);
 
   // When the agent reads/writes a domain-skills/interaction-skills .md file,
   // postProcess (runEngine) emits BOTH the original tool_call (e.g. Read with
@@ -160,8 +171,15 @@ export function adaptSession(session: AgentSession): {
       }
     }
   }
-  const filteredOutput = visibleOutput.filter((_, i) => !skipIdx.has(i));
-  const raw = filteredOutput.map((e, i) => hlEventToOutputEntry(e, session.createdAt + i));
+  const filteredWithIdx = visibleWithIdx.filter((_, i) => !skipIdx.has(i));
+  const sidPrefix = session.id.slice(0, 12);
+  const tsArr = session.outputTimestamps;
+  const raw = filteredWithIdx.map(({ e, rawIdx }) => {
+    const ts = (tsArr && typeof tsArr[rawIdx] === 'number') ? tsArr[rawIdx] : (session.createdAt + rawIdx);
+    const entry = hlEventToOutputEntry(e, ts, `oe-${sidPrefix}-${rawIdx}`);
+    entry.rawIdx = rawIdx;
+    return entry;
+  });
 
   const merged: OutputEntry[] = [];
   for (const entry of raw) {

@@ -4,6 +4,7 @@ import { TaskInput, type TaskInputHandle, type TaskInputSubmission } from '../Ta
 import { ChatTranscript } from './ChatTranscript';
 import { BrowserPreview } from './BrowserPreview';
 import { useSessionsStore } from '../state/sessionsStore';
+import { useUIStore } from '../state/uiStore';
 import { STATUS_LABEL } from '../constants';
 import { useTextSelection } from './useTextSelection';
 import { QuoteSelectionButton } from './QuoteSelectionButton';
@@ -82,51 +83,55 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
   const taskInputRef = useRef<TaskInputHandle>(null);
   const selection = useTextSelection(transcriptRef);
   const [quotedText, setQuotedText] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
   const toast = useToast();
 
   // Clear the active quote when switching sessions so it doesn't leak across.
-  useEffect(() => { setQuotedText(null); setEditing(false); }, [sessionId]);
+  useEffect(() => { setQuotedText(null); }, [sessionId]);
 
-  const onEditMessage = useCallback((text: string) => {
-    console.log('[ChatPane] edit message', { length: text.length });
-    setEditing(true);
+  const onEditMessage = useCallback(async (text: string) => {
+    const api = window.electronAPI;
+    if (!api) return;
+    console.log('[ChatPane] editAndRerun', { sessionId, length: text.length });
     setQuotedText(null);
-    taskInputRef.current?.setText(text);
-  }, []);
+    try {
+      const res = await api.sessions.editAndRerun(sessionId, text);
+      if (res?.error) {
+        console.error('[ChatPane] editAndRerun error', res.error);
+        toast.show({ variant: 'error', title: 'Edit failed', message: res.error });
+      } else {
+        toast.show({ variant: 'success', title: 'Conversation reset with edited prompt' });
+      }
+    } catch (err) {
+      console.error('[ChatPane] editAndRerun threw', err);
+      toast.show({ variant: 'error', title: 'Edit failed', message: String(err) });
+    }
+  }, [sessionId, toast]);
 
   const onShare = useCallback(() => {
     toast.show({ variant: 'info', title: 'Share coming soon', message: 'HTML export is wired but not yet implemented.' });
   }, [toast]);
 
+  // Terminal sessions can't accept follow-ups, so the floating Quote button
+  // re-targets the Dashboard's TaskInput instead of this pane's composer.
+  // We seed a one-shot prompt in the UI store and navigate home; Dashboard
+  // consumes it on mount.
+  const isTerminal = header?.canResume === false || header?.status === 'stopped';
   const onQuote = useCallback((text: string) => {
-    console.log('[ChatPane] quote', { length: text.length });
+    console.log('[ChatPane] quote', { length: text.length, isTerminal });
+    if (isTerminal) {
+      const composed = formatUserMessageWithQuote(text, '');
+      useUIStore.getState().setPendingDashboardPrompt(composed);
+      onExit();
+      return;
+    }
     setQuotedText(text);
-  }, []);
+  }, [isTerminal, onExit]);
 
   const onSubmit = useCallback(
     async (sub: TaskInputSubmission) => {
       const api = window.electronAPI;
       if (!api) {
         console.warn('[ChatPane] no electronAPI');
-        return;
-      }
-      if (editing) {
-        console.log('[ChatPane] editAndRerun submit', { sessionId, promptLength: sub.prompt.length });
-        try {
-          const res = await api.sessions.editAndRerun(sessionId, sub.prompt);
-          if (res?.error) {
-            console.error('[ChatPane] editAndRerun error', res.error);
-            toast.show({ variant: 'error', title: 'Edit failed', message: res.error });
-          } else {
-            setEditing(false);
-            setQuotedText(null);
-            toast.show({ variant: 'success', title: 'Conversation reset with edited prompt' });
-          }
-        } catch (err) {
-          console.error('[ChatPane] editAndRerun threw', err);
-          toast.show({ variant: 'error', title: 'Edit failed', message: String(err) });
-        }
         return;
       }
       const composed = formatUserMessageWithQuote(quotedText, sub.prompt);
@@ -145,15 +150,8 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         console.error('[ChatPane] resume threw', err);
       }
     },
-    [sessionId, quotedText, editing, toast],
+    [sessionId, quotedText],
   );
-
-  const onCancel = useCallback(() => {
-    const api = window.electronAPI;
-    if (!api) return;
-    console.log('[ChatPane] cancel', { sessionId });
-    api.sessions.cancel(sessionId).catch((err) => console.error('[ChatPane] cancel failed', err));
-  }, [sessionId]);
 
   const onRerun = useCallback(() => {
     const api = window.electronAPI;
@@ -171,6 +169,56 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
     api.sessions.resume(sessionId, 'Continue from where you left off', [])
       .catch((err) => console.error('[ChatPane] resume failed', err));
   }, [sessionId]);
+
+  const onPause = useCallback(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    console.log('[ChatPane] pause', { sessionId });
+    api.sessions.pause(sessionId).catch((err) => console.error('[ChatPane] pause failed', err));
+  }, [sessionId]);
+
+  // Two-step Escape to pause a running task. First press arms the action
+  // and shows a hint above the composer; second press within the timeout
+  // actually pauses. No-op when the agent is idle/paused/terminal.
+  const isBusy = header?.status === 'running' || header?.status === 'stuck';
+  const [escArmed, setEscArmed] = useState(false);
+  const escTimerRef = useRef<number | null>(null);
+  const disarmEsc = useCallback(() => {
+    setEscArmed(false);
+    if (escTimerRef.current != null) {
+      window.clearTimeout(escTimerRef.current);
+      escTimerRef.current = null;
+    }
+  }, []);
+  // Disarm whenever the agent leaves the busy state (e.g. it finished on
+  // its own) so a stale arm doesn't carry over into the next run.
+  useEffect(() => {
+    if (!isBusy && escArmed) disarmEsc();
+  }, [isBusy, escArmed, disarmEsc]);
+  useEffect(() => {
+    if (!isBusy) return;
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      e.preventDefault();
+      if (escArmed) {
+        disarmEsc();
+        onPause();
+        return;
+      }
+      setEscArmed(true);
+      if (escTimerRef.current != null) window.clearTimeout(escTimerRef.current);
+      escTimerRef.current = window.setTimeout(() => {
+        setEscArmed(false);
+        escTimerRef.current = null;
+      }, 2500);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isBusy, escArmed, onPause, disarmEsc]);
+  useEffect(() => () => { if (escTimerRef.current != null) window.clearTimeout(escTimerRef.current); }, []);
 
   const composer = useMemo(() => {
     if (!header) return null;
@@ -191,24 +239,20 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
 
     const isPaused = header.status === 'paused';
 
-    // While running, still allow follow-ups — backend queues them (resume()
-    // returns `queued: true` if mid-step). Show a small hint above the input.
+    // While running, follow-ups are queued by the backend. No persistent hint
+    // — Escape pauses the run instead (see the global keydown effect above).
+    // First Esc shows a one-shot "press again" confirmation; second Esc within
+    // the timeout actually pauses.
     return (
       <>
-        {isBusy && (
-          <p className="chat-composer__hint">
-            Agent is {header.status === 'stuck' ? 'stuck' : 'running'} — your message will be queued.
-            {' '}
-            <button
-              className="chat-composer__cancel"
-              style={{ marginLeft: 6, padding: '1px 8px', fontSize: 10 }}
-              onClick={onCancel}
-            >Cancel run</button>
+        {escArmed && isBusy && (
+          <p className="chat-composer__hint chat-composer__hint--armed">
+            Press Esc again to pause chat
           </p>
         )}
         {isPaused && (
           <p className="chat-composer__hint">
-            Agent is paused.
+            Chat paused.
             {' '}
             <button
               className="chat-composer__cancel"
@@ -217,20 +261,10 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
             >Resume</button>
           </p>
         )}
-        {editing && (
-          <p className="chat-composer__hint">
-            Editing your first message — submitting will rewrite the conversation from here.
-            {' '}
-            <button
-              className="chat-composer__cancel"
-              style={{ marginLeft: 6, padding: '1px 8px', fontSize: 10 }}
-              onClick={() => { setEditing(false); taskInputRef.current?.setText(''); }}
-            >Cancel edit</button>
-          </p>
-        )}
         <TaskInput
           ref={taskInputRef}
           onSubmit={onSubmit}
+          lockedEngine={header.engine}
           topSlot={quotedText ? (
             <div className="chat-quote-preview" role="region" aria-label="Quoted text">
               <div className="chat-quote-preview__bar" aria-hidden />
@@ -246,7 +280,7 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
         />
       </>
     );
-  }, [header, onSubmit, onCancel, onExit, onRerun, onResumeRun, quotedText, editing]);
+  }, [header, onSubmit, onExit, onRerun, onResumeRun, quotedText, escArmed]);
 
   if (!header) {
     return (
@@ -319,7 +353,11 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
           {composer}
         </div>
       </div>
-      <QuoteSelectionButton selection={selection} onQuote={onQuote} />
+      <QuoteSelectionButton
+        selection={selection}
+        onQuote={onQuote}
+        label={isTerminal ? 'Reference in new chat' : 'Quote'}
+      />
     </div>
   );
 }

@@ -93,6 +93,8 @@ function ChevronDown({ rotated }: { rotated: boolean }): React.ReactElement {
 }
 
 export function ToolGroup({ entries }: ToolGroupProps): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
+
   // A single tool isn't a group — render it as a standalone ToolBlock so the
   // header doesn't read "Read AGENTS.md" twice (once in the group chip, once
   // inside the expanded body).
@@ -100,9 +102,6 @@ export function ToolGroup({ entries }: ToolGroupProps): React.ReactElement {
 
   const runningIdx = entries.findIndex((e) => !e.result);
   const isInFlight = runningIdx !== -1;
-  // Default open while in-flight; once expanded by the user (or auto-open on
-  // first mount), stay open. Manual click toggles in either direction.
-  const [expanded, setExpanded] = useState(true);
 
   const headerText = (() => {
     if (isInFlight) {

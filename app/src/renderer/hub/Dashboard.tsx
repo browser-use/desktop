@@ -8,6 +8,7 @@ import { ParentSize } from '@visx/responsive';
 import { TaskInput } from './TaskInput';
 import type { TaskInputHandle } from './TaskInput';
 import { DashboardBackground } from './DashboardBackground';
+import { useUIStore } from './state/uiStore';
 import type { AgentSession } from './types';
 
 const HOUR = 3600 * 1000;
@@ -114,6 +115,21 @@ export function Dashboard({ sessions, onSubmitTask }: DashboardProps): React.Rea
   // drops the caret straight into the chat box.
   useEffect(() => {
     const id = window.setTimeout(() => taskInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  // Consume a one-shot pending prompt from the UI store. Set by ChatPane
+  // when the user quotes from a terminal session via "Reference in new
+  // chat" — we drop the quoted block into the input and clear so the
+  // signal doesn't replay on a later mount.
+  useEffect(() => {
+    const pending = useUIStore.getState().pendingDashboardPrompt;
+    if (!pending) return;
+    console.log('[Dashboard] consuming pendingDashboardPrompt', { length: pending.length });
+    const id = window.setTimeout(() => {
+      taskInputRef.current?.setText(pending);
+      useUIStore.getState().setPendingDashboardPrompt(null);
+    }, 0);
     return () => window.clearTimeout(id);
   }, []);
 

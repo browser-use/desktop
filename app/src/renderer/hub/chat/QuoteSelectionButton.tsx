@@ -4,6 +4,8 @@ import { clearSelection, type TextSelectionSnapshot } from './useTextSelection';
 interface QuoteSelectionButtonProps {
   selection: TextSelectionSnapshot | null;
   onQuote: (text: string) => void;
+  /** Button label. Defaults to "Quote"; terminal sessions pass "Reference in new chat". */
+  label?: string;
 }
 
 const BTN_HEIGHT = 28;
@@ -29,14 +31,15 @@ function QuoteIcon(): React.ReactElement {
  * Click prevents-default on mousedown so the browser doesn't drop the
  * selection before our handler runs.
  */
-export function QuoteSelectionButton({ selection, onQuote }: QuoteSelectionButtonProps): React.ReactElement | null {
+export function QuoteSelectionButton({ selection, onQuote, label = 'Quote' }: QuoteSelectionButtonProps): React.ReactElement | null {
   if (!selection) return null;
 
   const { rect, text } = selection;
   // Measure-after-paint isn't easy here; use a known approximate width. The
   // CSS sets min-width and the inner content centers, so a slight
-  // mis-measurement just shifts a few px.
-  const approxWidth = 76;
+  // mis-measurement just shifts a few px. Long labels (e.g. "Reference in
+  // new chat") get a wider estimate so we don't clip into the viewport edge.
+  const approxWidth = label.length > 6 ? 7 * label.length + 36 : 76;
 
   let top = rect.top - BTN_HEIGHT - GAP;
   if (top < HORIZONTAL_MARGIN) top = rect.bottom + GAP;
@@ -58,7 +61,7 @@ export function QuoteSelectionButton({ selection, onQuote }: QuoteSelectionButto
       }}
     >
       <QuoteIcon />
-      <span>Quote</span>
+      <span>{label}</span>
     </button>
   );
 }

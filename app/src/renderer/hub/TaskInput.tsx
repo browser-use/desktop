@@ -8,7 +8,13 @@ import React, {
   useState,
 } from 'react';
 import { INPUT_PLACEHOLDER } from './constants';
-import { EnginePicker } from './EnginePicker';
+import { EnginePicker, EngineLogo } from './EnginePicker';
+
+const ENGINE_DISPLAY_NAMES: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  browsercode: 'BrowserCode',
+};
 import {
   classifyAttachmentMime,
   maxBytesForAttachmentMime,
@@ -36,6 +42,11 @@ interface TaskInputProps {
    *  text preview so it visually extends the box rather than floating
    *  awkwardly above it. */
   topSlot?: React.ReactNode;
+  /** When supplied, the engine picker is hidden and submissions report this
+   *  engine id. Used by the chat composer on existing sessions because the
+   *  backend's resume path is hard-locked to `getSessionEngine(id)` — showing
+   *  a picker would imply you could switch mid-session, which you cannot. */
+  lockedEngine?: string;
 }
 
 const ENGINE_STORAGE_KEY = 'hub.selectedEngine';
@@ -85,7 +96,7 @@ async function readFileBytes(file: File): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit, topSlot }, ref) {
+export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit, topSlot, lockedEngine }, ref) {
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
   const [attachments, setAttachments] = useState<TaskInputAttachment[]>([]);
@@ -159,12 +170,12 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const trimmed = value.trim();
     if (!trimmed && attachments.length === 0) return;
     console.log('[TaskInput] submit', { promptLength: trimmed.length, attachmentCount: attachments.length });
-    onSubmit({ prompt: trimmed, attachments, engine });
+    onSubmit({ prompt: trimmed, attachments, engine: lockedEngine ?? engine });
     setValue('');
     setAttachments([]);
     setErrorMsg(null);
     textareaRef.current?.focus();
-  }, [value, attachments, engine, onSubmit]);
+  }, [value, attachments, engine, lockedEngine, onSubmit]);
 
   const onEngineChange = useCallback((id: string) => {
     setEngine(id);
@@ -278,7 +289,20 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
           >
             <PaperclipIcon />
           </button>
-          <EnginePicker value={engine} onChange={onEngineChange} />
+          {lockedEngine
+            ? (
+              <span
+                className="engine-picker engine-picker--locked"
+                title={`Engine: ${ENGINE_DISPLAY_NAMES[lockedEngine] ?? lockedEngine} — locked for this session`}
+              >
+                <span className="engine-picker__toggle engine-picker__toggle--readonly">
+                  <EngineLogo id={lockedEngine} />
+                  <span className="engine-picker__name">{ENGINE_DISPLAY_NAMES[lockedEngine] ?? lockedEngine}</span>
+                </span>
+              </span>
+            )
+            : <EnginePicker value={engine} onChange={onEngineChange} />
+          }
           <input
             ref={fileInputRef}
             type="file"

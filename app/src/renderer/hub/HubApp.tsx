@@ -24,11 +24,6 @@ type SettingsOpenPayload = {
 };
 
 let sessionCounter = MOCK_SESSIONS.length + 1;
-let entryCounter = 1000;
-
-function uid(prefix: string): string {
-  return `${prefix}-${++entryCounter}`;
-}
 
 function PlusIcon(): React.ReactElement {
   return (
@@ -37,78 +32,6 @@ function PlusIcon(): React.ReactElement {
     </svg>
   );
 }
-
-function GridIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function DashboardIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="1.5" width="11" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="1.5" y="8.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8.5" y="8.5" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function SettingsIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M5.73 1.68a1.25 1.25 0 0 1 2.54 0l.1.44a1.25 1.25 0 0 0 1.63.8l.42-.16a1.25 1.25 0 0 1 1.58 1.73l-.2.4a1.25 1.25 0 0 0 .37 1.55l.35.27a1.25 1.25 0 0 1-.44 2.2l-.43.13a1.25 1.25 0 0 0-.86 1.46l.08.44a1.25 1.25 0 0 1-1.97 1.27l-.33-.3a1.25 1.25 0 0 0-1.6-.06l-.36.27a1.25 1.25 0 0 1-2.03-1.17l.05-.44a1.25 1.25 0 0 0-.92-1.42l-.43-.12a1.25 1.25 0 0 1-.33-2.22l.37-.26a1.25 1.25 0 0 0 .44-1.53l-.18-.41A1.25 1.25 0 0 1 4.7 2.93l.42.17a1.25 1.25 0 0 0 1.6-.86l.11-.44Z" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  );
-}
-
-interface HubViewToggleProps {
-  viewMode: ViewMode;
-  setViewMode: (mode: ViewMode) => void;
-  onOpenSettings: () => void;
-  tipDashboard: string;
-  tipGrid: string;
-  tipSettings: string;
-}
-
-const HubViewToggle = React.memo(function HubViewToggle({
-  viewMode, setViewMode, onOpenSettings, tipDashboard, tipGrid, tipSettings,
-}: HubViewToggleProps): React.ReactElement {
-  return (
-    <div className="hub-toolbar__view-toggle" role="radiogroup" aria-label="View mode">
-      <button
-        className={`hub-toolbar__view-btn${viewMode === 'dashboard' ? ' hub-toolbar__view-btn--active' : ''}`}
-        onClick={() => setViewMode('dashboard')}
-        aria-label="Dashboard"
-        data-tip={tipDashboard}
-      >
-        <DashboardIcon />
-      </button>
-      <button
-        className={`hub-toolbar__view-btn${viewMode === 'grid' ? ' hub-toolbar__view-btn--active' : ''}`}
-        onClick={() => setViewMode('grid')}
-        aria-label="Grid view"
-        data-tip={tipGrid}
-      >
-        <GridIcon />
-      </button>
-      <button
-        className={`hub-toolbar__view-btn${viewMode === 'settings' ? ' hub-toolbar__view-btn--active' : ''}`}
-        onClick={onOpenSettings}
-        aria-label="Settings"
-        data-tip={tipSettings}
-      >
-        <SettingsIcon />
-      </button>
-    </div>
-  );
-});
 
 export function HubApp(): React.ReactElement {
   const isMock = import.meta.env.VITE_MOCK_MODE === '1';
@@ -184,10 +107,6 @@ export function HubApp(): React.ReactElement {
       return saved === 'top' ? 'top' : 'side';
     } catch { return 'side'; }
   });
-  const setTabsPosition = useCallback((pos: 'side' | 'top') => {
-    setTabsPositionRaw(pos);
-    try { window.localStorage.setItem('hub-tabs-position', pos); } catch { /* ignore */ }
-  }, []);
   useEffect(() => {
     const onChange = (e: Event): void => {
       const next = (e as CustomEvent<{ position: 'side' | 'top' }>).detail?.position;
@@ -411,10 +330,10 @@ export function HubApp(): React.ReactElement {
     knownIdsRef.current = new Set(sessions.map((s) => s.id));
     if (!newSession) return;
     const globalIdx = sessions.findIndex((s) => s.id === newSession.id);
-    console.log('[HubApp] new session detected -> focus', { id: newSession.id, globalIdx });
-    setViewMode('grid');
+    console.log('[HubApp] new session detected -> chat', { id: newSession.id, globalIdx });
+    enterChat(newSession.id);
     setFocusIndex(globalIdx);
-  }, [sessions, setViewMode]);
+  }, [sessions, enterChat]);
 
   useEffect(() => {
     const visible = sessions;
@@ -545,21 +464,6 @@ export function HubApp(): React.ReactElement {
     console.log('[HubApp] selectSession', { id });
   }, [sessions]);
 
-  const visibleCount = sessions.length;
-  const gridPageSize = Math.max(1, gridColumns);
-  const gridTotalPages = Math.max(1, Math.ceil(visibleCount / gridPageSize));
-  const gridSafePage = Math.min(gridPage, gridTotalPages - 1);
-  const goToPage = useCallback((target: number) => {
-    const clamped = Math.max(0, Math.min(target, gridTotalPages - 1));
-    const visible = sessions;
-    const firstOnPage = visible[clamped * gridPageSize];
-    if (firstOnPage) {
-      const globalIdx = sessions.findIndex((s) => s.id === firstOnPage.id);
-      if (globalIdx >= 0) setFocusIndex(globalIdx);
-    }
-    setGridPage(clamped);
-  }, [gridTotalPages, gridPageSize, sessions]);
-
   const selectedSessionId = sessions[focusIndex]?.id ?? null;
 
   return (
@@ -572,16 +476,7 @@ export function HubApp(): React.ReactElement {
             settingsShortcut={shortcutFor('goto.settings')}
           />
         </div>
-        <div className="hub-toolbar__center">
-          <HubViewToggle
-            viewMode={viewMode}
-            setViewMode={setViewMode}
-            onOpenSettings={() => openSettingsPage()}
-            tipDashboard={tip('Dashboard', 'goto.dashboard')}
-            tipGrid={tip('Grid view', 'goto.agents')}
-            tipSettings={tip('Settings', 'goto.settings')}
-          />
-        </div>
+        <div className="hub-toolbar__center" />
         <div className="hub-toolbar__right">
           {/* Grid density + pager removed — single-pane (1x1) layout. */}
           {viewMode !== 'dashboard' && (
@@ -599,7 +494,6 @@ export function HubApp(): React.ReactElement {
             <button
               className="hub-toolbar__zoom"
               onClick={() => {
-                const api = (window as unknown as { electronAPI?: { on?: { zoomChanged?: (cb: (f: number) => void) => () => void } } }).electronAPI;
                 setZoomFactor(1.0);
                 localStorage.setItem('hub-zoom-factor', '1');
               }}

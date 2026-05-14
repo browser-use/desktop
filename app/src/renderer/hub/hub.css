@@ -1687,6 +1687,16 @@ button:focus:not(:focus-visible) {
   color: var(--color-fg-primary);
 }
 
+/* Read-only badge variant used in the chat composer to surface the engine
+   without implying it's switchable mid-session. No hover state, no chevron,
+   no pointer cursor. */
+.engine-picker__toggle--readonly,
+.engine-picker__toggle--readonly:hover {
+  cursor: default;
+  background-color: transparent;
+  color: var(--color-fg-secondary);
+}
+
 .engine-picker__name {
   white-space: nowrap;
 }
@@ -2053,6 +2063,10 @@ button:focus:not(:focus-visible) {
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
+  /* Treat the whole path as one wrappable token so it breaks cleanly at the
+     line edge instead of fracturing on every hyphen in a UUID. */
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .md-output-path:hover {
@@ -4078,10 +4092,10 @@ button:focus:not(:focus-visible) {
   line-height: 1.25;
 }
 
-.md h1 { font-size: var(--font-size-md); }
-.md h2 { font-size: var(--font-size-sm); }
+.md h1 { font-size: var(--font-size-xl); margin-top: 12px; }
+.md h2 { font-size: var(--font-size-lg); margin-top: 10px; }
 .md h3,
-.md h4 { font-size: var(--font-size-xs); }
+.md h4 { font-size: var(--font-size-md); }
 
 .md strong { color: var(--color-fg-primary); font-weight: 600; }
 .md em { font-style: italic; }

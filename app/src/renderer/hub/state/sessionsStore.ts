@@ -35,11 +35,19 @@ export const useSessionsStore = create<SessionsState>()(
 
       upsertSession: (s) => set((state) => {
         const prev = state.byId[s.id];
+        // Seed outputTimestamps when missing. DB-loaded sessions don't carry
+        // per-event timestamps yet (no schema column for it), so we fall back
+        // to session.createdAt + index — stable but coarse. Live events that
+        // arrive later via appendEvent will get real Date.now() stamps and
+        // overwrite the per-index slot as they're appended.
+        const seeded: AgentSession = {
+          ...s,
+          outputTimestamps: s.outputTimestamps ?? s.output.map((_, i) => s.createdAt + i),
+        };
         if (prev) {
-          // Merge — preserve fields the patch doesn't carry
-          state.byId[s.id] = { ...prev, ...s, hasBrowser: s.hasBrowser ?? prev.hasBrowser };
+          state.byId[s.id] = { ...prev, ...seeded, hasBrowser: seeded.hasBrowser ?? prev.hasBrowser };
         } else {
-          state.byId[s.id] = s;
+          state.byId[s.id] = seeded;
         }
         state.order = reorder(state.byId);
         console.log('[sessionsStore] upsertSession', { id: s.id, status: s.status });
@@ -63,8 +71,11 @@ export const useSessionsStore = create<SessionsState>()(
           console.warn('[sessionsStore] appendEvent missing id', id);
           return;
         }
+        const now = Date.now();
         prev.output.push(event);
-        prev.lastActivityAt = Date.now();
+        if (!prev.outputTimestamps) prev.outputTimestamps = [];
+        prev.outputTimestamps.push(now);
+        prev.lastActivityAt = now;
         state.order = reorder(state.byId);
       }),
 
