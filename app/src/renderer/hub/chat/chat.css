@@ -862,7 +862,7 @@
 /* Tables inside assistant prose. Full-width, breathing rows, zebra-striped
    for scannability, and horizontally scrollable on narrow viewports so wide
    tables don't blow out the column. */
-.md table {
+.chat-pane .md table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -875,7 +875,7 @@
   /* Wrap the table in a horizontal-scroll container via display:block on
      narrow screens — kept as a media-query fallback below. */
 }
-.md thead th {
+.chat-pane .md thead th {
   background-color: color-mix(in srgb, var(--color-fg-primary) 6%, var(--color-bg-elevated));
   color: var(--color-fg-primary);
   font-weight: 600;
@@ -884,35 +884,35 @@
   border-bottom: 1px solid var(--color-border-default);
   white-space: nowrap;
 }
-.md tbody td,
-.md tbody th {
+.chat-pane .md tbody td,
+.chat-pane .md tbody th {
   padding: 10px 14px;
   border-bottom: 1px solid var(--color-border-subtle);
   vertical-align: top;
   color: var(--color-fg-primary);
 }
-.md tbody tr:last-child td,
-.md tbody tr:last-child th {
+.chat-pane .md tbody tr:last-child td,
+.chat-pane .md tbody tr:last-child th {
   border-bottom: none;
 }
-.md tbody tr:nth-child(even) td,
-.md tbody tr:nth-child(even) th {
+.chat-pane .md tbody tr:nth-child(even) td,
+.chat-pane .md tbody tr:nth-child(even) th {
   background-color: color-mix(in srgb, var(--color-fg-primary) 2.5%, transparent);
 }
-.md tbody th {
+.chat-pane .md tbody th {
   font-weight: 550;
   text-align: left;
   color: var(--color-fg-secondary);
 }
-.md td code,
-.md th code {
+.chat-pane .md td code,
+.chat-pane .md th code {
   font-size: 12.5px;
   padding: 1px 5px;
 }
 /* Narrow viewports: allow horizontal scroll instead of wrapping the table
    contents into illegible squeezes. */
 @media (max-width: 720px) {
-  .md table { display: block; overflow-x: auto; white-space: nowrap; }
+  .chat-pane .md table { display: block; overflow-x: auto; white-space: nowrap; }
 }
 
 /* Plain-text rendering used while the typewriter is still typing. Inherits

@@ -51,6 +51,25 @@ interface ActiveStream {
   lastLogAt: number;
 }
 
+type LayoutViewport = {
+  clientWidth?: number;
+  clientHeight?: number;
+  pageX?: number;
+  pageY?: number;
+};
+
+type ScreenshotParams = {
+  format: PreviewOptions['format'];
+  quality?: number;
+  clip?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scale: number;
+  };
+};
+
 export class SessionScreencast {
   private readonly streams = new Map<string, ActiveStream>();
   private readonly pool: BrowserPool;
@@ -102,10 +121,36 @@ export class SessionScreencast {
       if (wc.isDestroyed()) return;
       stream.inFlight = true;
       try {
-        const result = await dbg.sendCommand('Page.captureScreenshot', {
+        const params: ScreenshotParams = {
           format: merged.format,
           quality: merged.quality,
-        }) as { data: string };
+        };
+        try {
+          const metrics = await dbg.sendCommand('Page.getLayoutMetrics') as {
+            cssVisualViewport?: LayoutViewport;
+            cssLayoutViewport?: LayoutViewport;
+            layoutViewport?: LayoutViewport;
+          };
+          const viewport = metrics.cssVisualViewport ?? metrics.cssLayoutViewport ?? metrics.layoutViewport;
+          const width = Math.floor(viewport?.clientWidth ?? 0);
+          const height = Math.floor(viewport?.clientHeight ?? 0);
+          if (width > 0 && height > 0) {
+            const scale = Math.min(1, merged.maxWidth / width, merged.maxHeight / height);
+            if (scale < 1) {
+              params.clip = {
+                x: viewport?.pageX ?? 0,
+                y: viewport?.pageY ?? 0,
+                width,
+                height,
+                scale,
+              };
+            }
+          }
+        } catch (err) {
+          mainLogger.debug('SessionScreencast.metrics.error', { sessionId, error: (err as Error).message });
+        }
+
+        const result = await dbg.sendCommand('Page.captureScreenshot', params) as { data: string };
 
         stream.framesSeen += 1;
         const now = Date.now();

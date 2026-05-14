@@ -247,7 +247,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
       >
-        {topSlot}
         {attachments.length > 0 && (
           <div className="task-input__chips">
             {attachments.map((a, i) => (
@@ -266,6 +265,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             ))}
           </div>
         )}
+        {topSlot}
         {errorMsg && <div className="task-input__error">{errorMsg}</div>}
         <textarea
           ref={textareaRef}

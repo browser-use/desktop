@@ -7,6 +7,7 @@ type SessionsState = {
   byId: Record<string, AgentSession>;
   order: string[];
   hydrate: (sessions: readonly AgentSession[]) => void;
+  mergeHydrate: (sessions: readonly AgentSession[]) => void;
   upsertSession: (s: AgentSession) => void;
   patchSession: (id: string, patch: Partial<AgentSession>) => void;
   appendEvent: (id: string, event: HlEvent) => void;
@@ -19,6 +20,13 @@ function reorder(byId: Record<string, AgentSession>): string[] {
     .map((s) => s.id);
 }
 
+function seedOutputTimestamps(s: AgentSession): AgentSession {
+  return {
+    ...s,
+    outputTimestamps: s.outputTimestamps ?? s.output.map((_, i) => s.createdAt + i),
+  };
+}
+
 export const useSessionsStore = create<SessionsState>()(
   subscribeWithSelector(
     immer((set) => ({
@@ -27,10 +35,30 @@ export const useSessionsStore = create<SessionsState>()(
 
       hydrate: (sessions) => set((state) => {
         const next: Record<string, AgentSession> = {};
-        for (const s of sessions) next[s.id] = s;
+        for (const s of sessions) next[s.id] = seedOutputTimestamps(s);
         state.byId = next;
         state.order = reorder(next);
         console.log('[sessionsStore] hydrate', { count: sessions.length });
+      }),
+
+      mergeHydrate: (sessions) => set((state) => {
+        const next: Record<string, AgentSession> = { ...state.byId };
+        for (const s of sessions) {
+          const seeded = seedOutputTimestamps(s);
+          const prev = state.byId[s.id];
+          next[s.id] = prev
+            ? {
+                ...seeded,
+                ...prev,
+                output: prev.output.length > 0 ? prev.output : seeded.output,
+                outputTimestamps: prev.outputTimestamps ?? seeded.outputTimestamps,
+                hasBrowser: prev.hasBrowser ?? seeded.hasBrowser,
+              }
+            : seeded;
+        }
+        state.byId = next;
+        state.order = reorder(next);
+        console.log('[sessionsStore] mergeHydrate', { count: sessions.length });
       }),
 
       upsertSession: (s) => set((state) => {
@@ -40,10 +68,7 @@ export const useSessionsStore = create<SessionsState>()(
         // to session.createdAt + index — stable but coarse. Live events that
         // arrive later via appendEvent will get real Date.now() stamps and
         // overwrite the per-index slot as they're appended.
-        const seeded: AgentSession = {
-          ...s,
-          outputTimestamps: s.outputTimestamps ?? s.output.map((_, i) => s.createdAt + i),
-        };
+        const seeded = seedOutputTimestamps(s);
         if (prev) {
           state.byId[s.id] = { ...prev, ...seeded, hasBrowser: seeded.hasBrowser ?? prev.hasBrowser };
         } else {

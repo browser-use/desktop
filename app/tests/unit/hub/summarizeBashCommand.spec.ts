@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeBashCommand } from '../../../src/renderer/hub/chat/toolLabels';
+import { getToolBashCommand, parseBashResult, summarizeBashCommand } from '../../../src/renderer/hub/chat/toolLabels';
 
 describe('summarizeBashCommand', () => {
   it('returns null for unknown commands', () => {
@@ -222,5 +222,23 @@ describe('summarizeBashCommand', () => {
   it('strips leading "cd X &&" before a browser-harness call', () => {
     const cmd = `/bin/zsh -lc "cd /work && browser-harness-js 'await connectToAssignedTarget()'"`;
     expect(summarizeBashCommand(cmd)?.completed).toBe('Connected to browser');
+  });
+});
+
+describe('parseBashResult', () => {
+  it('recovers failed status metadata from truncated JSON', () => {
+    const raw = '{"stdout":"","stderr":"boom","exit_code":2,"status":"failed","duration_ms":123';
+    expect(parseBashResult(raw)).toEqual({
+      output: 'boom',
+      isError: true,
+      durationMs: 123,
+    });
+  });
+});
+
+describe('getToolBashCommand', () => {
+  it('returns the full structured bash command without display truncation', () => {
+    const command = `printf '${'x'.repeat(120)}'`;
+    expect(getToolBashCommand('bash', JSON.stringify({ command }))).toBe(command);
   });
 });

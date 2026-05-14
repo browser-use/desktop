@@ -154,25 +154,26 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
+function getStructuredToolArgs(argsContent: string): Record<string, unknown> | null {
+  const parsed = tryParseJSON(argsContent);
+  if (!parsed) return null;
+  // Unwrap Codex-style nested {id, type, command_execution: {...}}
+  for (const v of Object.values(parsed)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const inner = v as Record<string, unknown>;
+      if ('command' in inner || 'url' in inner || 'file_path' in inner) return inner;
+    }
+  }
+  return parsed;
+}
+
 /**
  * Pull a one-line "primary parameter" out of a tool_call args payload.
  * Handles flat (Claude) and nested (Codex `{id, type, command_execution: {command}}`)
  * shapes. Returns '' when nothing useful surfaces.
  */
 export function getToolDisplayValue(toolName: string | undefined, argsContent: string): string {
-  const parsed = tryParseJSON(argsContent);
-  const args: Record<string, unknown> | null = (() => {
-    if (!parsed) return null;
-    // Unwrap Codex-style nested {id, type, command_execution: {...}}
-    for (const v of Object.values(parsed)) {
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        const inner = v as Record<string, unknown>;
-        if ('command' in inner || 'url' in inner || 'file_path' in inner) return inner;
-      }
-    }
-    return parsed;
-  })();
-
+  const args = getStructuredToolArgs(argsContent);
   const type = getToolType(toolName);
 
   if (args) {
@@ -215,6 +216,15 @@ export function getToolDisplayValue(toolName: string | undefined, argsContent: s
   return truncate(argsContent.split('\n')[0], 80);
 }
 
+export function getToolBashCommand(toolName: string | undefined, argsContent: string): string {
+  if (getToolType(toolName) !== 'bash') return '';
+  const args = getStructuredToolArgs(argsContent);
+  if (args) {
+    return asString(args.command) ?? asString(args.cmd) ?? '';
+  }
+  return argsContent;
+}
+
 /**
  * Parse bash backend wrappers. Codex (and browser-harness) wrap shell results
  * as { stdout, stderr, exit_code, status, duration_ms, aggregated_output, ... }.
@@ -253,6 +263,14 @@ function extractJsonField(raw: string, field: string): string | undefined {
   const m = raw.match(re);
   if (!m) return undefined;
   return decodeJsonString(m[1]);
+}
+
+function extractJsonNumberField(raw: string, field: string): number | undefined {
+  const re = new RegExp(`"${field}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, 'm');
+  const m = raw.match(re);
+  if (!m) return undefined;
+  const value = Number(m[1]);
+  return Number.isFinite(value) ? value : undefined;
 }
 
 /**
@@ -523,18 +541,14 @@ export function parseBashResult(raw: string | undefined): BashResult {
   const stderr = asString(parsed?.stderr)?.trim() ?? extractJsonField(raw, 'stderr')?.trim() ?? '';
   const aggregated = asString(parsed?.aggregated_output)?.trim()
     ?? extractJsonField(raw, 'aggregated_output')?.trim() ?? '';
-  const exit = typeof parsed?.exit_code === 'number' ? parsed.exit_code : null;
-  const status = asString(parsed?.status);
-  const duration = typeof parsed?.duration_ms === 'number' ? parsed.duration_ms : undefined;
+  const exit = typeof parsed?.exit_code === 'number' ? parsed.exit_code : extractJsonNumberField(raw, 'exit_code') ?? null;
+  const status = asString(parsed?.status) ?? extractJsonField(raw, 'status');
+  const duration = typeof parsed?.duration_ms === 'number' ? parsed.duration_ms : extractJsonNumberField(raw, 'duration_ms');
   const isError = (exit !== null && exit !== 0) || status === 'failed' || (!!stderr && !stdout && !aggregated);
 
-  let output = '';
-  if (isError && stderr) output = stderr;
-  else if (stdout) output = stdout;
-  else if (aggregated) output = aggregated;
-  else if (stderr) output = stderr;
-  else if (parsed) output = JSON.stringify(parsed, null, 2);
-  else output = raw.trim(); // truly unparseable — show raw
+  const output = isError && stderr
+    ? stderr
+    : stdout || aggregated || stderr || (parsed ? JSON.stringify(parsed, null, 2) : raw.trim());
 
   return { output, isError, durationMs: duration };
 }

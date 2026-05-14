@@ -6,6 +6,7 @@ import {
   getToolType,
   getToolLabel,
   getToolDisplayValue,
+  getToolBashCommand,
   parseBashResult,
   summarizeBashCommand,
   stripShellWrapper,
@@ -148,14 +149,15 @@ export function ToolBlock({ entry }: ToolBlockProps): React.ReactElement {
   const type = getToolType(entry.tool);
   let label = getToolLabel(entry.tool, status);
   let displayValue = getToolDisplayValue(entry.tool, entry.content);
+  const fullBashCommand = type === 'bash' ? getToolBashCommand(entry.tool, entry.content) : '';
 
   // For bash, keep the original (unwrapped) command separate from the friendly
   // chip value — the expansion's "Command" block should show what actually ran,
   // not the summary phrase.
-  const rawBashCommand = type === 'bash' ? stripShellWrapper(displayValue || entry.content || '') : '';
+  const rawBashCommand = type === 'bash' ? stripShellWrapper(fullBashCommand || displayValue || entry.content || '') : '';
 
   if (type === 'bash') {
-    const summary = summarizeBashCommand(displayValue || entry.content);
+    const summary = summarizeBashCommand(rawBashCommand || displayValue || entry.content);
     if (summary) {
       label = inFlight ? summary.active : summary.completed;
       displayValue = summary.value;

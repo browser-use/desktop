@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useSessionsStore } from './sessionsStore';
+import type { AgentSession, HlEvent } from '../types';
 
 /**
  * Pure event-driven mirror of session state into the Zustand store.
@@ -23,31 +24,24 @@ export function useSessionsBridge(): void {
     if (!api) return;
 
     let cancelled = false;
+    let hydrated = false;
+    const pending: Array<() => void> = [];
 
-    api.sessions
-      .listAll()
-      .then((all) => {
-        if (cancelled) return;
-        console.log('[useSessionsBridge] initial hydrate', { count: all.length });
-        useSessionsStore.getState().hydrate(all);
-      })
-      .catch((err) => {
-        console.error('[useSessionsBridge] listAll failed', err);
-      });
+    const enqueueOrRun = (fn: () => void): void => {
+      if (hydrated) fn();
+      else pending.push(fn);
+    };
 
-    const unsubOutput = api.on.sessionOutput((id, event) => {
+    const applyOutput = (id: string, event: HlEvent): void => {
       const store = useSessionsStore.getState();
-      // If the session isn't in the store yet (race on first event before
-      // listAll resolves), drop the event — listAll will deliver the full
-      // session including this event when it lands.
       if (!store.byId[id]) {
-        console.log('[useSessionsBridge] sessionOutput ignored (not hydrated yet)', { id, type: event.type });
+        console.log('[useSessionsBridge] sessionOutput ignored (unknown session)', { id, type: event.type });
         return;
       }
       store.appendEvent(id, event);
-    });
+    };
 
-    const unsubUpdated = api.on.sessionUpdated((session) => {
+    const applyUpdated = (session: AgentSession): void => {
       const store = useSessionsStore.getState();
       const prev = store.byId[session.id];
       if (!prev) {
@@ -60,16 +54,39 @@ export function useSessionsBridge(): void {
       // sessionBrowserGone channels — never let session-updated overwrite it
       // with undefined (it's computed lazily in sessions:list-all and isn't
       // stored on the in-memory session record).
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { output: _o, hasBrowser: _hb, ...rest } = session;
       // Rerun: SessionManager bumps createdAt and clears session.output, then
       // emits session-updated. Without resetting here the transcript keeps
       // showing the prior run's messages until new events arrive.
       if (session.createdAt > prev.createdAt) {
-        store.patchSession(session.id, { ...rest, output: [] });
+        store.patchSession(session.id, { ...rest, output: [], outputTimestamps: [] });
       } else {
         store.patchSession(session.id, rest);
       }
+    };
+
+    api.sessions
+      .listAll()
+      .then((all) => {
+        if (cancelled) return;
+        console.log('[useSessionsBridge] initial hydrate', { count: all.length });
+        useSessionsStore.getState().mergeHydrate(all);
+        hydrated = true;
+        pending.splice(0).forEach((fn) => fn());
+      })
+      .catch((err) => {
+        console.error('[useSessionsBridge] listAll failed', err);
+        if (cancelled) return;
+        hydrated = true;
+        pending.splice(0).forEach((fn) => fn());
+      });
+
+    const unsubOutput = api.on.sessionOutput((id, event) => {
+      enqueueOrRun(() => applyOutput(id, event));
+    });
+
+    const unsubUpdated = api.on.sessionUpdated((session) => {
+      enqueueOrRun(() => applyUpdated(session));
     });
 
     const unsubBrowserGone = api.on.sessionBrowserGone((id) => {

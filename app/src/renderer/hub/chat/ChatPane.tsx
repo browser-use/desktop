@@ -132,6 +132,7 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
       const api = window.electronAPI;
       if (!api) {
         console.warn('[ChatPane] no electronAPI');
+        toast.show({ variant: 'error', title: 'Message not sent', message: 'Desktop bridge is unavailable.' });
         return;
       }
       const composed = formatUserMessageWithQuote(quotedText, sub.prompt);
@@ -144,13 +145,18 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
       try {
         const res = await api.sessions.resume(sessionId, composed, sub.attachments);
         console.log('[ChatPane] resume result', res);
-        if (res.error) console.error('[ChatPane] resume error', res.error);
-        else setQuotedText(null);
+        if (res.error) {
+          console.error('[ChatPane] resume error', res.error);
+          toast.show({ variant: 'error', title: 'Message not sent', message: res.error });
+        } else {
+          setQuotedText(null);
+        }
       } catch (err) {
         console.error('[ChatPane] resume threw', err);
+        toast.show({ variant: 'error', title: 'Message not sent', message: String(err) });
       }
     },
-    [sessionId, quotedText],
+    [sessionId, quotedText, toast],
   );
 
   const onRerun = useCallback(() => {

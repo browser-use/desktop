@@ -131,9 +131,9 @@ export function HubApp(): React.ReactElement {
     try { window.localStorage.setItem('hub-cmdbar-visible', '0'); } catch { /* ignore */ }
   }, []);
 
-  const showBrowserViews = useCallback(() => {
-    window.electronAPI?.sessions?.viewsSetVisible?.(true)?.catch(() => {});
-  }, []);
+  const restoreBrowserViewsForCurrentMode = useCallback(() => {
+    window.electronAPI?.sessions?.viewsSetVisible?.(viewMode === 'grid')?.catch(() => {});
+  }, [viewMode]);
 
   const openSettingsPage = useCallback((payload?: SettingsOpenPayload) => {
     window.electronAPI?.pill.hide();
@@ -229,12 +229,12 @@ export function HubApp(): React.ReactElement {
     'meta.escape': () => {
       if (helpOpen) {
         setHelpOpen(false);
-        if (viewMode !== 'settings') showBrowserViews();
+        restoreBrowserViewsForCurrentMode();
         return;
       }
       setFocusIndex(-1);
     },
-  }), [sessions, orderedSessions, focusIndex, helpOpen, viewMode, setViewMode, openSettingsPage, showBrowserViews]);
+  }), [sessions, orderedSessions, focusIndex, helpOpen, setViewMode, openSettingsPage, restoreBrowserViewsForCurrentMode]);
 
   const vim = useVimKeys(vimHandlers);
 
@@ -259,10 +259,10 @@ export function HubApp(): React.ReactElement {
   useEffect(() => {
     const unsub = window.electronAPI?.on?.pillToggled?.(() => {
       setHelpOpen(false);
-      if (viewMode !== 'settings') showBrowserViews();
+      restoreBrowserViewsForCurrentMode();
     });
     return unsub;
-  }, [showBrowserViews, viewMode]);
+  }, [restoreBrowserViewsForCurrentMode]);
 
   // Main-process signal (e.g. fired by onboarding:complete after Skip) telling
   // the hub to switch to a specific view regardless of the saved preference.
@@ -652,7 +652,7 @@ export function HubApp(): React.ReactElement {
         open={helpOpen}
         onClose={() => {
           setHelpOpen(false);
-          if (viewMode !== 'settings') showBrowserViews();
+          restoreBrowserViewsForCurrentMode();
         }}
         keybindings={vim.keybindings}
         onOpenSettings={() => {

@@ -45,7 +45,7 @@ export function QuoteSelectionButton({ selection, onQuote, label = 'Quote' }: Qu
   if (top < HORIZONTAL_MARGIN) top = rect.bottom + GAP;
   const centerX = rect.left + rect.width / 2;
   let left = centerX - approxWidth / 2;
-  const maxLeft = window.innerWidth - approxWidth - HORIZONTAL_MARGIN;
+  const maxLeft = Math.max(HORIZONTAL_MARGIN, window.innerWidth - approxWidth - HORIZONTAL_MARGIN);
   if (left < HORIZONTAL_MARGIN) left = HORIZONTAL_MARGIN;
   if (left > maxLeft) left = maxLeft;
 

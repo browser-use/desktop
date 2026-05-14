@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Highlight, themes, type Language } from 'prism-react-renderer';
 import { Markdown } from '../Markdown';
+import { useThemeMode } from '../../design/useThemeMode';
 
 interface CodeBlockProps {
   label: string;
@@ -32,29 +33,11 @@ function CheckIcon(): React.ReactElement {
 /**
  * Bordered, syntax-highlighted code block with a header bar (label + copy).
  * The header is sticky-feeling: matches the cloud's bash-code-block pattern.
- * Theme is dark-on-light by default and re-tints automatically via
- * prefers-color-scheme through the parent .chat-pane theme variables.
  */
 export function CodeBlock({ label, code, language, asMarkdown, isError }: CodeBlockProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
-  // Detect dark mode via the parent's resolved color. We can't easily get the
-  // theme name here so we sniff the bg color brightness on mount; not perfect
-  // but cheap. The hub themes set --color-bg-base which we read.
-  const isDark = (() => {
-    if (typeof window === 'undefined') return false;
-    const v = getComputedStyle(document.documentElement).getPropertyValue('--color-bg-base').trim();
-    if (!v) return false;
-    // Parse hex / rgb to brightness < 128 → dark
-    const m = v.match(/#?([0-9a-f]{6}|[0-9a-f]{3})/i);
-    if (m) {
-      const hex = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
-      const r = parseInt(hex.slice(0, 2), 16);
-      const g = parseInt(hex.slice(2, 4), 16);
-      const b = parseInt(hex.slice(4, 6), 16);
-      return (r * 299 + g * 587 + b * 114) / 1000 < 128;
-    }
-    return false;
-  })();
+  const { resolved } = useThemeMode();
+  const isDark = resolved === 'dark';
 
   const onCopy = async (e: React.MouseEvent): Promise<void> => {
     e.stopPropagation();
