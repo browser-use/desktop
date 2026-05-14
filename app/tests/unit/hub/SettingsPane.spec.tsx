@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPane } from '../../../src/renderer/hub/SettingsPane';
 import type { ActionId, KeyBinding } from '../../../src/renderer/hub/keybindings';
+import { ToastProvider } from '../../../src/renderer/components/base/Toast';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,14 +53,16 @@ function renderSettingsPane(onUpdateBinding: (id: ActionId, keys: string[]) => P
   const root = createRoot(container);
   act(() => {
     root.render(
-      <SettingsPane
-        keybindings={[createPaneBinding]}
-        overrides={{}}
-        onUpdateBinding={onUpdateBinding}
-        onResetBinding={vi.fn()}
-        onResetAll={vi.fn()}
-        formatShortcut={(shortcut) => shortcut}
-      />,
+      <ToastProvider>
+        <SettingsPane
+          keybindings={[createPaneBinding]}
+          overrides={{}}
+          onUpdateBinding={onUpdateBinding}
+          onResetBinding={vi.fn()}
+          onResetAll={vi.fn()}
+          formatShortcut={(shortcut) => shortcut}
+        />
+      </ToastProvider>,
     );
   });
   return { container, root };
