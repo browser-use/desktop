@@ -1214,14 +1214,17 @@ app.whenReady().then(async () => {
   // Chat-side browser preview via CDP screencast. Renderer starts/stops per
   // mount; we never auto-start so a session without a chat-view consumer
   // costs zero CPU.
-  ipcMain.handle('sessions:preview-start', async (_evt, payload: { id: unknown; maxWidth?: unknown; maxHeight?: unknown }) => {
+  ipcMain.handle('sessions:preview-start', async (_evt, payload: { id: unknown }) => {
     const id = typeof payload?.id === 'string' ? payload.id : '';
     if (!id) return { ok: false, reason: 'bad_id' };
-    const maxWidth = typeof payload.maxWidth === 'number' ? payload.maxWidth : 480;
-    const maxHeight = typeof payload.maxHeight === 'number' ? payload.maxHeight : 300;
-    return sessionScreencast.start(id, { maxWidth, maxHeight });
+    return sessionScreencast.start(id);
   });
-  ipcMain.handle('sessions:preview-stop', async (_evt, id: unknown) => {
+  ipcMain.handle('sessions:preview-stop', async (_evt, payload: unknown) => {
+    const id = typeof payload === 'string'
+      ? payload
+      : (payload && typeof payload === 'object' && typeof (payload as { id?: unknown }).id === 'string'
+          ? (payload as { id: string }).id
+          : '');
     if (typeof id !== 'string' || !id) return;
     await sessionScreencast.stop(id);
   });
@@ -1660,15 +1663,12 @@ app.whenReady().then(async () => {
     if (!shellWindow) return;
     const view = browserPool.getView(id);
     if (!view) return;
-    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
-    // (Intentionally no setZoomFactor here — previously we recomputed zoom
-    // on every resize to fit the emulated viewport, but that clobbered any
-    // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser
-    // was "resetting itself" on layout changes.)
     const children = shellWindow.contentView.children;
-    if (!children.includes(view)) {
-      shellWindow.contentView.addChildView(view);
+    if (!browserPool.isAttached(id) || !children.includes(view)) {
+      const ok = browserPool.attachToWindow(id, shellWindow, bounds);
+      if (!ok) return;
     }
+    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
     // Keep takeover overlay tracking the browser rect and sitting above it.
     // Use the fitted (centered) rect so the overlay aligns with the visible
     // view, not the wider hub box.

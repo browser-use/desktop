@@ -54,6 +54,7 @@ export function HubApp(): React.ReactElement {
   // every other view-mode consumer); we just extend it with 'chat'.
   const chatSessionId = useUIStore((s) => s.chatSessionId);
   const setChatSession = useUIStore((s) => s.setChatSession);
+  const keepBrowserParkedForChatRef = useRef(false);
 
   useEffect(() => {
     console.log('[HubApp] sessions changed', { count: sessions.length, ts: Date.now(), ids: sessions.map((s) => s.id.slice(0, 8)) });
@@ -72,15 +73,22 @@ export function HubApp(): React.ReactElement {
     return 'dashboard';
   });
   const setViewMode = useCallback((mode: ViewMode) => {
+    const shouldShowBrowserViews = mode === 'grid';
+    keepBrowserParkedForChatRef.current = mode === 'chat';
+    if (!shouldShowBrowserViews) {
+      window.electronAPI?.sessions?.viewsSetVisible?.(false)?.catch(() => {});
+    }
     setViewModeRaw(mode);
     // Browser views are only used by AgentPane (grid mode). Hide everywhere else
     // so they don't bleed through the chat/dashboard/settings UI.
-    const shouldShowBrowserViews = mode === 'grid';
-    window.electronAPI?.sessions?.viewsSetVisible?.(shouldShowBrowserViews)?.catch(() => {});
+    if (shouldShowBrowserViews) {
+      window.electronAPI?.sessions?.viewsSetVisible?.(true)?.catch(() => {});
+    }
     if (mode === 'dashboard' || mode === 'grid') {
       try { window.localStorage.setItem('hub-view-mode', mode); } catch { /* ignore */ }
     }
   }, []);
+  const shouldDetachBrowserOnPaneUnmount = useCallback(() => !keepBrowserParkedForChatRef.current, []);
   const enterChat = useCallback((id: string) => {
     console.log('[HubApp] enterChat', { id });
     setChatSession(id);
@@ -289,14 +297,6 @@ export function HubApp(): React.ReactElement {
   }, []);
 
   // Grid density auto-clamp removed — grid is always 1x1.
-
-  useEffect(() => {
-    const api = window.electronAPI;
-    if (!api || isMock) return;
-    sessions.forEach((s) => {
-      api.sessions.viewDetach(s.id).catch(() => {});
-    });
-  }, [viewMode, gridColumns, gridPage]);
 
   // Logs overlay is anchored to the AgentPane, which only renders in 'grid'
   // view. Hide it whenever the user switches away so it doesn't float over
@@ -618,6 +618,7 @@ export function HubApp(): React.ReactElement {
                         openSettingsPage();
                       }}
                       onOpenChat={enterChat}
+                      shouldDetachBrowserOnUnmount={shouldDetachBrowserOnPaneUnmount}
                       followUpShortcut={shortcutFor('action.followUp')}
                     />
                   );

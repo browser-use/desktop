@@ -1,77 +1,62 @@
-/**
- * SessionScreencast — per-session preview thumbnail driver.
- *
- * Polls `Page.captureScreenshot` via the WebContentsView's debugger every
- * `intervalMs` (default 1s) and forwards the JPEG bytes to the renderer as
- * `session-preview-frame(id, base64)`. Works regardless of whether the
- * BrowserView is currently attached to the window — captureScreenshot
- * runs in the renderer and doesn't require an on-screen compositor pass.
- *
- * This is intentionally simpler than `Page.startScreencast` (which would
- * have required keeping the view in the window tree). 1Hz is plenty for a
- * "what is the agent looking at" thumbnail; the user clicks through to grid
- * for live interaction.
- *
- * Lifecycle:
- *   - start(id):  attach debugger if not already, kick off the poll loop.
- *   - stop(id):   clear the interval, detach debugger if we attached it.
- *                 Idempotent.
- */
-
-import type { BrowserPool } from './BrowserPool';
 import type { BrowserWindow, Debugger, WebContents } from 'electron';
 import { mainLogger } from '../logger';
+import type { BrowserPool } from './BrowserPool';
 
 const CDP_PROTOCOL_VERSION = '1.3';
 
+type PreviewFormat = 'jpeg' | 'png';
+
 interface PreviewOptions {
-  format: 'jpeg' | 'png';
-  quality?: number;
-  maxWidth: number;
-  maxHeight: number;
-  /** Poll interval in milliseconds. */
+  format: PreviewFormat;
+  quality: number;
   intervalMs: number;
 }
 
-const DEFAULT_OPTS: PreviewOptions = {
+const DEFAULT_OPTIONS: PreviewOptions = {
   format: 'jpeg',
-  quality: 50,
-  maxWidth: 480,
-  maxHeight: 300,
+  quality: 55,
   intervalMs: 1000,
 };
+const CAPTURE_TIMEOUT_MS = 2500;
 
-interface ActiveStream {
+interface ActivePreview {
   wc: WebContents;
   dbg: Debugger;
+  options: PreviewOptions;
+  timer: NodeJS.Timeout;
   attachedByUs: boolean;
-  timer: NodeJS.Timeout | null;
   inFlight: boolean;
-  framesSeen: number;
-  lastLogAt: number;
+  stopped: boolean;
+  framesSent: number;
+  lastFrameLogAt: number;
+  parkedByUs: boolean;
 }
 
-type LayoutViewport = {
-  clientWidth?: number;
-  clientHeight?: number;
-  pageX?: number;
-  pageY?: number;
+type CaptureScreenshotParams = {
+  format: PreviewFormat;
+  quality?: number;
+  captureBeyondViewport: boolean;
+  fromSurface: boolean;
 };
 
-type ScreenshotParams = {
-  format: PreviewOptions['format'];
-  quality?: number;
-  clip?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    scale: number;
-  };
-};
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`capture_timeout_${timeoutMs}ms`)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 export class SessionScreencast {
-  private readonly streams = new Map<string, ActiveStream>();
+  private readonly previews = new Map<string, ActivePreview>();
   private readonly pool: BrowserPool;
   private window: BrowserWindow | null = null;
 
@@ -84,15 +69,18 @@ export class SessionScreencast {
   }
 
   async start(sessionId: string, opts: Partial<PreviewOptions> = {}): Promise<{ ok: boolean; reason?: string }> {
-    if (this.streams.has(sessionId)) {
-      mainLogger.debug('SessionScreencast.start.alreadyStreaming', { sessionId });
-      return { ok: true };
-    }
+    if (this.previews.has(sessionId)) return { ok: true };
+
+    const previewWindow = this.window && !this.window.isDestroyed() ? this.window : null;
+    const parking = previewWindow ? await this.pool.parkForPreview(sessionId, previewWindow) : { ok: true, parkedByUs: false };
+    if (!parking.ok) return { ok: false, reason: parking.reason ?? 'park_failed' };
+
     const wc = this.pool.getWebContents(sessionId);
     if (!wc || wc.isDestroyed()) {
-      mainLogger.debug('SessionScreencast.start.noWebContents', { sessionId });
+      if (parking.parkedByUs && previewWindow) this.pool.releasePreviewParking(sessionId, previewWindow);
       return { ok: false, reason: 'no_view' };
     }
+
     const dbg = wc.debugger;
     const wasAttached = dbg.isAttached();
     if (!wasAttached) {
@@ -103,114 +91,119 @@ export class SessionScreencast {
         return { ok: false, reason: 'attach_failed' };
       }
     }
-    const merged: PreviewOptions = { ...DEFAULT_OPTS, ...opts };
 
-    const stream: ActiveStream = {
+    const options = { ...DEFAULT_OPTIONS, ...opts };
+    const preview: ActivePreview = {
       wc,
       dbg,
+      options,
       attachedByUs: !wasAttached,
-      timer: null,
+      timer: setInterval(() => {
+        void this.capture(sessionId);
+      }, options.intervalMs),
       inFlight: false,
-      framesSeen: 0,
-      lastLogAt: 0,
+      stopped: false,
+      framesSent: 0,
+      lastFrameLogAt: 0,
+      parkedByUs: parking.parkedByUs,
     };
 
-    const tick = async (): Promise<void> => {
-      if (!this.streams.has(sessionId)) return;
-      if (stream.inFlight) return; // skip if previous capture still pending
-      if (wc.isDestroyed()) return;
-      stream.inFlight = true;
-      try {
-        const params: ScreenshotParams = {
-          format: merged.format,
-          quality: merged.quality,
-        };
-        try {
-          const metrics = await dbg.sendCommand('Page.getLayoutMetrics') as {
-            cssVisualViewport?: LayoutViewport;
-            cssLayoutViewport?: LayoutViewport;
-            layoutViewport?: LayoutViewport;
-          };
-          const viewport = metrics.cssVisualViewport ?? metrics.cssLayoutViewport ?? metrics.layoutViewport;
-          const width = Math.floor(viewport?.clientWidth ?? 0);
-          const height = Math.floor(viewport?.clientHeight ?? 0);
-          if (width > 0 && height > 0) {
-            const scale = Math.min(1, merged.maxWidth / width, merged.maxHeight / height);
-            if (scale < 1) {
-              params.clip = {
-                x: viewport?.pageX ?? 0,
-                y: viewport?.pageY ?? 0,
-                width,
-                height,
-                scale,
-              };
-            }
-          }
-        } catch (err) {
-          mainLogger.debug('SessionScreencast.metrics.error', { sessionId, error: (err as Error).message });
-        }
-
-        const result = await dbg.sendCommand('Page.captureScreenshot', params) as { data: string };
-
-        stream.framesSeen += 1;
-        const now = Date.now();
-        if (now - stream.lastLogAt > 5000) {
-          stream.lastLogAt = now;
-          mainLogger.info('SessionScreencast.frame', {
-            sessionId,
-            framesSeen: stream.framesSeen,
-            bytes: result.data.length,
-          });
-        }
-        if (this.window && !this.window.isDestroyed()) {
-          this.window.webContents.send('session-preview-frame', sessionId, result.data);
-        }
-      } catch (err) {
-        const msg = (err as Error).message;
-        mainLogger.warn('SessionScreencast.capture.error', { sessionId, error: msg });
-      } finally {
-        stream.inFlight = false;
-      }
-    };
-
-    stream.timer = setInterval(() => { void tick(); }, merged.intervalMs);
-    this.streams.set(sessionId, stream);
-    // Kick off the first frame immediately so the placeholder swaps within
-    // the first poll-interval rather than waiting a full second.
-    void tick();
+    this.previews.set(sessionId, preview);
+    void this.capture(sessionId);
 
     mainLogger.info('SessionScreencast.start.ok', {
       sessionId,
-      attachedByUs: !wasAttached,
-      intervalMs: merged.intervalMs,
-      maxWidth: merged.maxWidth,
-      maxHeight: merged.maxHeight,
+      intervalMs: options.intervalMs,
+      format: options.format,
+      attachedByUs: preview.attachedByUs,
     });
     return { ok: true };
   }
 
   async stop(sessionId: string): Promise<void> {
-    const s = this.streams.get(sessionId);
-    if (!s) return;
-    this.streams.delete(sessionId);
-    if (s.timer) {
-      clearInterval(s.timer);
-      s.timer = null;
-    }
-    // Deliberately do NOT detach the debugger here. React StrictMode causes
-    // rapid setup/cleanup/setup cycles; thrashing attach/detach drops
-    // in-flight CDP commands and can leave the next start in a half-attached
-    // state. The debugger is cheap to keep attached — Electron cleans up
-    // when the WebContents is destroyed.
-    mainLogger.info('SessionScreencast.stop.ok', { sessionId, framesSeen: s.framesSeen });
+    const preview = this.previews.get(sessionId);
+    if (!preview) return;
+
+    this.previews.delete(sessionId);
+    preview.stopped = true;
+    clearInterval(preview.timer);
+    if (!preview.inFlight) this.cleanupPreview(sessionId, preview);
+
+    mainLogger.info('SessionScreencast.stop.ok', {
+      sessionId,
+      framesSent: preview.framesSent,
+    });
   }
 
   async stopAll(): Promise<void> {
-    const ids = Array.from(this.streams.keys());
-    await Promise.all(ids.map((id) => this.stop(id)));
+    await Promise.all(Array.from(this.previews.keys()).map((id) => this.stop(id)));
   }
 
   isActive(sessionId: string): boolean {
-    return this.streams.has(sessionId);
+    return this.previews.has(sessionId);
+  }
+
+  private async capture(sessionId: string): Promise<void> {
+    const preview = this.previews.get(sessionId);
+    if (!preview || preview.inFlight || preview.stopped) return;
+
+    if (preview.wc.isDestroyed()) {
+      await this.stop(sessionId);
+      return;
+    }
+
+    preview.inFlight = true;
+    try {
+      const params: CaptureScreenshotParams = {
+        format: preview.options.format,
+        captureBeyondViewport: false,
+        // The browser view is parked with a 1px window intersection so Chromium
+        // keeps a compositor surface alive without covering the chat UI.
+        fromSurface: true,
+      };
+      if (preview.options.format === 'jpeg') params.quality = preview.options.quality;
+
+      const result = await withTimeout(
+        preview.dbg.sendCommand('Page.captureScreenshot', params) as Promise<{ data?: unknown }>,
+        CAPTURE_TIMEOUT_MS,
+      );
+      if (preview.stopped || this.previews.get(sessionId) !== preview) return;
+      if (typeof result.data !== 'string' || result.data.length === 0) return;
+
+      preview.framesSent += 1;
+      const now = Date.now();
+      if (preview.framesSent === 1 || now - preview.lastFrameLogAt >= 5000) {
+        preview.lastFrameLogAt = now;
+        mainLogger.info('SessionScreencast.frame', {
+          sessionId,
+          framesSent: preview.framesSent,
+          bytes: result.data.length,
+        });
+      }
+      if (this.window && !this.window.isDestroyed()) {
+        this.window.webContents.send('session-preview-frame', sessionId, result.data);
+      }
+    } catch (err) {
+      const error = (err as Error).message;
+      mainLogger.warn(error.startsWith('capture_timeout_') ? 'SessionScreencast.capture.timeout' : 'SessionScreencast.capture.error', { sessionId, error });
+    } finally {
+      preview.inFlight = false;
+      if (preview.stopped) this.cleanupPreview(sessionId, preview);
+    }
+  }
+
+  private cleanupPreview(sessionId: string, preview: ActivePreview): void {
+    this.detachIfOwned(preview);
+    if (!preview.parkedByUs || !this.window || this.window.isDestroyed()) return;
+    this.pool.releasePreviewParking(sessionId, this.window);
+  }
+
+  private detachIfOwned(preview: ActivePreview): void {
+    if (!preview.attachedByUs || preview.wc.isDestroyed() || !preview.dbg.isAttached()) return;
+    try {
+      preview.dbg.detach();
+    } catch (err) {
+      mainLogger.debug('SessionScreencast.detach.error', { error: (err as Error).message });
+    }
   }
 }

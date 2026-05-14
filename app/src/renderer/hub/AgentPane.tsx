@@ -700,14 +700,16 @@ interface AgentPaneProps {
   onOpenFollowUp?: () => void;
   onOpenSettings?: () => void;
   onOpenChat?: (sessionId: string) => void;
+  shouldDetachBrowserOnUnmount?: () => boolean;
   followUpShortcut?: string;
   cycleShortcut?: string;
 }
 
-export function AgentPane({ session, focused, onRerun, onResume, onPause, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, onOpenChat, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+export function AgentPane({ session, focused, onRerun, onResume, onPause, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, onOpenChat, shouldDetachBrowserOnUnmount, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
   const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
   const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
   const paneRef = useRef<HTMLDivElement>(null);
+  const pendingUnmountDetachRef = useRef<number | null>(null);
   const [browserDead, setBrowserDead] = useState(false);
   const [browserMissing, setBrowserMissing] = useState(false);
   const [frameRect, setFrameRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -738,6 +740,13 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
       setBrowserDead(false);
     }
   }, [session.id, session.status]);
+
+  useEffect(() => {
+    if (session.hasBrowser) {
+      setBrowserDead(false);
+      setBrowserMissing(false);
+    }
+  }, [session.id, session.hasBrowser]);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -792,7 +801,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
     if (!paneEl) return;
     const api = window.electronAPI;
     if (!api) return;
-    if (browserDead) {
+    if (browserDead && !session.hasBrowser) {
       // Dead browser — ensure any lingering view is detached.
       // Keep frameRect so the "Browser ended" overlay can paint over the
       // pane__output slot; nulling it leaves the pane black with no label.
@@ -833,6 +842,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
             api.takeover?.hide(session.id).catch(() => {});
           } else {
             attachSucceeded = true;
+            setBrowserDead(false);
             setBrowserMissing(false);
             if (session.status === 'running') {
               void api.takeover?.show(session.id, bounds, overlayMode);
@@ -913,17 +923,32 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
       window.removeEventListener('pane:layout-change', onLayoutChange);
       if (rafScheduled) cancelAnimationFrame(rafScheduled);
     };
-  }, [session.id, computeBounds, browserDead, session.status, session.primarySite]);
+  }, [session.id, computeBounds, browserDead, session.hasBrowser, session.status, session.primarySite]);
 
   useEffect(() => {
+    if (pendingUnmountDetachRef.current !== null) {
+      window.clearTimeout(pendingUnmountDetachRef.current);
+      pendingUnmountDetachRef.current = null;
+    }
     return () => {
       const api = window.electronAPI;
       if (!api) return;
-      console.log('[AgentPane] unmount -> detach', { id: session.id });
-      api.sessions.viewDetach(session.id).catch(() => {});
-      api.takeover?.hide(session.id).catch(() => {});
+      const sessionId = session.id;
+      // React dev StrictMode replays effect cleanup/setup on mount; defer the
+      // real detach so the immediate setup can cancel it.
+      pendingUnmountDetachRef.current = window.setTimeout(() => {
+        pendingUnmountDetachRef.current = null;
+        if (shouldDetachBrowserOnUnmount && !shouldDetachBrowserOnUnmount()) {
+          console.log('[AgentPane] unmount -> keep browser parked offscreen', { id: sessionId });
+          api.takeover?.hide(sessionId).catch(() => {});
+          return;
+        }
+        console.log('[AgentPane] unmount -> detach', { id: sessionId });
+        api.sessions.viewDetach(sessionId).catch(() => {});
+        api.takeover?.hide(sessionId).catch(() => {});
+      }, 0);
     };
-  }, [session.id]);
+  }, [session.id, shouldDetachBrowserOnUnmount]);
 
   // Hide the takeover overlay whenever the session leaves 'running' state.
   // Show is driven by the bounds-update effect above so it tracks the same
@@ -940,6 +965,12 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
   const statusText = STATUS_LABEL[session.status] ?? session.status;
   const isCancellation = !!session.error && session.error.toLowerCase().includes('cancel');
   const showErrorUi = !!session.error && !isCancellation;
+  const hasLiveBrowser = session.hasBrowser && !browserDead && !browserMissing;
+  const endedWithoutBrowser = !hasLiveBrowser && (
+    session.status === 'stopped' ||
+    session.status === 'idle' ||
+    session.status === 'stuck'
+  );
   const isRunningLike = session.status === 'running' || session.status === 'stuck';
   const isPaused = session.status === 'paused';
   const canResume = Boolean(
@@ -1124,13 +1155,13 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
         {session.status === 'running' && <div className="pane__progress-bar" />}
       </div>
 
-      {frameRect && (showErrorUi || browserDead || browserMissing || session.status === 'draft' || session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck') && (() => {
+      {frameRect && (showErrorUi || browserDead || browserMissing || session.status === 'draft' || endedWithoutBrowser) && (() => {
         const isStarting = !showErrorUi && !browserDead && !browserMissing && session.status === 'draft';
         const browserLine = browserDead
           ? 'Browser ended'
           : browserMissing
             ? (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser stopped' : 'No browser started yet')
-            : (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser ended' : null);
+            : (endedWithoutBrowser ? 'Browser ended' : null);
         const primaryLine = showErrorUi
           ? friendlyError(session.error!)
           : isCancellation

@@ -1,9 +1,32 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { BrowserWindow } from 'electron';
 import { BrowserPool } from '../../../src/main/sessions/BrowserPool';
 import { contentViewStub } from '../../fixtures/electron-mock';
 
-function mockWindow(): any {
-  return { contentView: { ...contentViewStub } };
+type MockWindow = {
+  contentView: {
+    children: unknown[];
+    addChildView: (view: unknown) => void;
+    removeChildView: (view: unknown) => void;
+  };
+};
+
+function mockWindow(): BrowserWindow & MockWindow {
+  const children: unknown[] = [];
+  return {
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1200, height: 900 })),
+    contentView: {
+      ...contentViewStub,
+      children,
+      addChildView: vi.fn((view: unknown) => {
+        if (!children.includes(view)) children.push(view);
+      }),
+      removeChildView: vi.fn((view: unknown) => {
+        const index = children.indexOf(view);
+        if (index >= 0) children.splice(index, 1);
+      }),
+    },
+  } as unknown as BrowserWindow & MockWindow;
 }
 
 function instrumentLifecycle(view: NonNullable<ReturnType<BrowserPool['create']>>) {
@@ -174,7 +197,7 @@ describe('BrowserPool — concurrency', () => {
 
 describe('BrowserPool — attach/detach', () => {
   let pool: BrowserPool;
-  let win: any;
+  let win: BrowserWindow & MockWindow;
 
   beforeEach(() => {
     pool = new BrowserPool(5);
@@ -219,21 +242,16 @@ describe('BrowserPool — attach/detach', () => {
     expect(ok).toBe(true);
   });
 
-  it('re-centers an attached view using the current zoom factor after manual zoom changes', () => {
-    pool.create('s1');
-    pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
-
-    const view = pool.getView('s1');
+  it('keeps an attached view edge-to-edge and resets page zoom', () => {
+    const view = pool.create('s1');
     expect(view).not.toBeNull();
-
-    (view!.webContents as { getZoomFactor?: () => number }).getZoomFactor = () => 0.5;
+    const setZoomFactor = vi.fn<(factor: number) => void>();
+    (view!.webContents as unknown as { setZoomFactor: (factor: number) => void }).setZoomFactor = setZoomFactor;
 
     const ok = pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
     expect(ok).toBe(true);
-    // emulatedWidth is clamped to MAX_EMULATED_VIEWPORT_WIDTH (1920); at
-    // zoom 0.5 the rendered width is 960, leaving (2000-960)/2 = 520px
-    // letterbox on each side.
-    expect(view!.getBounds()).toEqual({ x: 520, y: 0, width: 960, height: 900 });
+    expect(view!.getBounds()).toEqual({ x: 0, y: 0, width: 2000, height: 900 });
+    expect(setZoomFactor).toHaveBeenLastCalledWith(1);
   });
 
   it('destroy detaches if currently attached', () => {
@@ -241,6 +259,22 @@ describe('BrowserPool — attach/detach', () => {
     pool.attachToWindow('s1', win, { x: 0, y: 0, width: 800, height: 600 });
     pool.destroy('s1', win);
     expect(pool.activeCount).toBe(0);
+  });
+
+  it('parks temporarily hidden views at the window edge without collapsing their viewport', () => {
+    const view = pool.create('s1');
+    expect(view).not.toBeNull();
+
+    pool.attachToWindow('s1', win, { x: 100, y: 50, width: 800, height: 600 });
+    expect(win.contentView.children).toContain(view);
+
+    pool.temporarilyDetachAll(win);
+    expect(win.contentView.children).toContain(view);
+    expect(view!.getBounds()).toEqual({ x: 1199, y: 899, width: 800, height: 600 });
+
+    pool.reattachAll(win);
+    expect(win.contentView.children.filter((child: unknown) => child === view)).toHaveLength(1);
+    expect(view!.getBounds()).toEqual({ x: 100, y: 50, width: 800, height: 600 });
   });
 });
 
@@ -271,29 +305,23 @@ describe('BrowserPool — getTabs', () => {
 
 describe('BrowserPool — fitted resize', () => {
   let pool: BrowserPool;
-  let win: any;
 
   beforeEach(() => {
     pool = new BrowserPool(5);
-    win = mockWindow();
   });
 
   afterEach(() => { pool.destroyAll(); });
 
-  it('uses the current zoom factor when fitting bounds after a zoom change', () => {
-    pool.create('s1');
-    pool.attachToWindow('s1', win, { x: 0, y: 0, width: 2000, height: 900 });
-
-    const view = pool.getView('s1');
+  it('keeps fitted resize edge-to-edge and resets page zoom', () => {
+    const view = pool.create('s1');
     expect(view).not.toBeNull();
-
-    (view!.webContents as { getZoomFactor?: () => number }).getZoomFactor = () => 0.5;
+    const setZoomFactor = vi.fn<(factor: number) => void>();
+    (view!.webContents as unknown as { setZoomFactor: (factor: number) => void }).setZoomFactor = setZoomFactor;
 
     const fitted = pool.setViewBoundsFitted('s1', { x: 0, y: 0, width: 2000, height: 900 });
-    // emulatedWidth clamped to MAX (1920); at zoom 0.5 → renderedWidth 960,
-    // x letterbox = (2000-960)/2 = 520.
-    expect(fitted).toEqual({ x: 520, y: 0, width: 960, height: 900 });
-    expect(view!.getBounds()).toEqual({ x: 520, y: 0, width: 960, height: 900 });
+    expect(fitted).toEqual({ x: 0, y: 0, width: 2000, height: 900 });
+    expect(view!.getBounds()).toEqual({ x: 0, y: 0, width: 2000, height: 900 });
+    expect(setZoomFactor).toHaveBeenLastCalledWith(1);
   });
 });
 
