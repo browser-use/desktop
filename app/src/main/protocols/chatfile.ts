@@ -20,6 +20,10 @@ import { harnessDir } from '../hl/harness';
 
 export const CHATFILE_SCHEME = 'chatfile';
 
+function withTrailingSep(p: string): string {
+  return p.endsWith(path.sep) ? p : p + path.sep;
+}
+
 export function registerChatfilePrivileges(): void {
   protocol.registerSchemesAsPrivileged([
     {
@@ -40,7 +44,18 @@ export function registerChatfilePrivileges(): void {
 }
 
 export function registerChatfileHandler(): void {
-  const root = path.resolve(path.join(harnessDir(), 'outputs')) + path.sep;
+  const configuredRoot = path.resolve(path.join(harnessDir(), 'outputs'));
+  let canonicalRoot: string | null = null;
+
+  const getRoot = (): string => {
+    if (canonicalRoot) return canonicalRoot;
+    try {
+      canonicalRoot = withTrailingSep(fs.realpathSync(configuredRoot));
+    } catch {
+      canonicalRoot = withTrailingSep(configuredRoot);
+    }
+    return canonicalRoot;
+  };
 
   protocol.handle(CHATFILE_SCHEME, async (req) => {
     let absPath: string;
@@ -60,6 +75,7 @@ export function registerChatfileHandler(): void {
       return new Response('not found', { status: 404 });
     }
 
+    const root = getRoot();
     if (!realPath.startsWith(root)) {
       mainLogger.warn('chatfile.deniedOutsideRoot', { requested: absPath, realPath, root });
       return new Response('forbidden', { status: 403 });
@@ -70,5 +86,5 @@ export function registerChatfileHandler(): void {
     return net.fetch(pathToFileURL(realPath).toString());
   });
 
-  mainLogger.info('chatfile.registered', { root });
+  mainLogger.info('chatfile.registered', { root: configuredRoot });
 }

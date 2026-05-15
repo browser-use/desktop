@@ -52,6 +52,12 @@ function makeScreencast(wc: WebContents | null): {
   };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => { resolve = res; });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -84,6 +90,29 @@ describe('SessionScreencast', () => {
     await vi.waitFor(() => expect(wc.debugger.sendCommand).toHaveBeenCalledTimes(1));
 
     await screencast.stop('s1');
+  });
+
+  it('does not leave an orphan capture interval after concurrent duplicate starts', async () => {
+    vi.useFakeTimers();
+    const wc = mockWebContents({ attached: true });
+    const { screencast, pool } = makeScreencast(wc);
+    const gate = deferred<{ ok: boolean; parkedByUs: boolean }>();
+    let callCount = 0;
+    vi.mocked(pool.parkForPreview).mockImplementation(async () => {
+      await gate.promise;
+      return { ok: true, parkedByUs: callCount++ === 0 };
+    });
+
+    const first = screencast.start('s1');
+    const second = screencast.start('s1');
+    gate.resolve({ ok: true, parkedByUs: true });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }]);
+    await vi.waitFor(() => expect(wc.debugger.sendCommand).toHaveBeenCalledTimes(1));
+    expect(vi.getTimerCount()).toBe(1);
+
+    await screencast.stop('s1');
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('returns no_view when there is no browser to capture', async () => {

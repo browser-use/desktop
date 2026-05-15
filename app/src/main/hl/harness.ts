@@ -74,8 +74,8 @@ export function userSkillsDir(): string { return path.join(harnessDir(), 'skills
 export interface SkillId { domain: string; topic: string }
 
 function sanitizeSkillTopic(rawTopic: string): string | null {
-  const topic = rawTopic.replace(/\.md$/i, '').replace(/\\/g, '/');
-  if (!topic || topic.startsWith('/') || path.isAbsolute(rawTopic)) return null;
+  const topic = rawTopic.trim().replace(/^['"]+|['"]+$/g, '').replace(/\.md$/i, '').replace(/\\/g, '/');
+  if (!topic || topic.startsWith('/') || path.isAbsolute(rawTopic) || path.isAbsolute(topic)) return null;
   const segments = topic.split('/');
   if (segments.some((segment) => !segment || segment === '.' || segment === '..' || /^[A-Za-z]:/.test(segment))) {
     return null;
@@ -107,8 +107,8 @@ export function skillMetaFromPath(resolved: string, rootDir: string = harnessDir
 }
 
 export function skillIdToPath(skillId: string, rootDir: string = harnessDir()): string | null {
-  const cleaned = skillId.trim().replace(/['"]+$/g, '').replace(/\\/g, '/');
-  if (!cleaned || cleaned.startsWith('--') || cleaned.startsWith('/') || path.isAbsolute(skillId)) return null;
+  const cleaned = skillId.trim().replace(/^['"]+|['"]+$/g, '').replace(/\\/g, '/');
+  if (!cleaned || cleaned.startsWith('--') || cleaned.startsWith('/') || path.isAbsolute(skillId) || path.isAbsolute(cleaned)) return null;
   const parts = cleaned.split('/');
   if (parts.some((part) => !part)) return null;
   if (parts.length < 2) return null;

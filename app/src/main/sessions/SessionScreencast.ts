@@ -93,6 +93,11 @@ export class SessionScreencast {
       }
     }
 
+    if (this.previews.has(sessionId)) {
+      if (parking.parkedByUs && previewWindow) this.pool.releasePreviewParking(sessionId, previewWindow);
+      return { ok: true };
+    }
+
     const options = { ...DEFAULT_OPTIONS, ...opts };
     const preview: ActivePreview = {
       wc,

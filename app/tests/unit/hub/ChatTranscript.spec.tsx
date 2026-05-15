@@ -83,6 +83,7 @@ describe('ChatTranscript prompt fallback', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     useSessionsStore.getState().hydrate([]);
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
@@ -174,6 +175,41 @@ describe('ChatTranscript scroll behavior', () => {
     expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(transcript!.scrollTop).toBe(1000);
 
+    act(() => root.unmount());
+  });
+
+  it('resets the working elapsed timer when switching between empty running sessions', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const first = session({
+      id: '11111111-1111-4111-8111-111111111111',
+      prompt: '',
+      status: 'running',
+      createdAt: 900_000,
+      output: [],
+    });
+    const second = session({
+      id: '22222222-2222-4222-8222-222222222222',
+      prompt: '',
+      status: 'running',
+      createdAt: 900_000,
+      output: [],
+    });
+    useSessionsStore.getState().hydrate([first, second]);
+
+    const { container, root } = renderTranscript(first.id);
+    expect(container.querySelector('.chat-elapsed')?.textContent).toBe('0s');
+
+    act(() => {
+      vi.advanceTimersByTime(45_000);
+    });
+    expect(container.querySelector('.chat-elapsed')?.textContent).toBe('45s');
+
+    act(() => {
+      root.render(<ChatTranscript sessionId={second.id} />);
+    });
+
+    expect(container.querySelector('.chat-elapsed')?.textContent).toBe('0s');
     act(() => root.unmount());
   });
 });

@@ -80,6 +80,8 @@ describe('bootstrapHarness browser-harness-js materialization', () => {
 
     expect(skillIdToPath('domain/github/repo', root)).toBe(path.join(root, 'domain-skills', 'github/repo.md'));
     expect(skillIdToPath('interaction/screenshots.md', root)).toBe(path.join(root, 'interaction-skills', 'screenshots.md'));
+    expect(skillIdToPath("'domain/github/repo'", root)).toBe(path.join(root, 'domain-skills', 'github/repo.md'));
+    expect(skillIdToPath('"interaction/screenshots.md"', root)).toBe(path.join(root, 'interaction-skills', 'screenshots.md'));
     expect(skillIdToPath('domain/../secret', root)).toBeNull();
     expect(skillIdToPath('domain/./github', root)).toBeNull();
     expect(skillIdToPath('domain//github', root)).toBeNull();

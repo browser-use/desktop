@@ -6,6 +6,7 @@ import {
   getToolType,
   getToolLabel,
   getToolDisplayValue,
+  getToolBashCommand,
   summarizeBashCommand,
 } from './toolLabels';
 
@@ -25,7 +26,8 @@ function describeEntry(entry: OutputEntry, status: 'running' | 'completed'): Phr
   // command, not the JSON wrapper.
   const display = getToolDisplayValue(entry.tool, entry.content || '');
   if (getToolType(entry.tool) === 'bash') {
-    const s = summarizeBashCommand(display || entry.content || '');
+    const fullCommand = getToolBashCommand(entry.tool, entry.content || '');
+    const s = summarizeBashCommand(fullCommand || display || entry.content || '');
     if (s) return { label: status === 'running' ? s.active : s.completed, value: s.value };
   }
   return {

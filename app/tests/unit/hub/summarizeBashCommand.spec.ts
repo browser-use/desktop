@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getToolBashCommand, parseBashResult, summarizeBashCommand } from '../../../src/renderer/hub/chat/toolLabels';
+import { getToolBashCommand, getToolLabel, parseBashResult, summarizeBashCommand } from '../../../src/renderer/hub/chat/toolLabels';
 
 describe('summarizeBashCommand', () => {
   it('returns null for unknown commands', () => {
@@ -240,5 +240,12 @@ describe('getToolBashCommand', () => {
   it('returns the full structured bash command without display truncation', () => {
     const command = `printf '${'x'.repeat(120)}'`;
     expect(getToolBashCommand('bash', JSON.stringify({ command }))).toBe(command);
+  });
+});
+
+describe('getToolLabel', () => {
+  it('uses canonical labels for aliases without explicit label entries', () => {
+    expect(getToolLabel('browser_evaluate', 'completed')).toBe('Ran JavaScript');
+    expect(getToolLabel('browser_select_dropdown', 'running')).toBe('Selecting option');
   });
 });

@@ -242,7 +242,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
   // is a new agent entry appearing OR a tool_call's result landing. We do NOT
   // key on streamed content length — otherwise every token would reset the
   // marker and the timer would stick at 0s during long streams.
-  let activityKey = `turn:${lastTurn?.id ?? ''}|user:${lastTurn?.userEntry?.id ?? ''}`;
+  let activityKey = `session:${sessionId}|turn:${lastTurn?.id ?? ''}|user:${lastTurn?.userEntry?.id ?? ''}`;
   if (lastTurn && lastTurn.agentEntries.length > 0) {
     const last = lastTurn.agentEntries[lastTurn.agentEntries.length - 1];
     activityKey += `|n:${lastTurn.agentEntries.length}|id:${last.id}|r:${last.result ? '1' : '0'}`;

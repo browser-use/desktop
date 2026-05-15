@@ -6,8 +6,8 @@
  *
  * - getToolType: normalizes raw tool names (bash, execute_command, shell, …)
  *   to a small canonical set used for icon/renderer dispatch.
- * - getToolLabel(name, status): returns "Running command" while in-flight,
- *   "Ran command" once finished. Falls back to Title Case of raw name.
+ * - getToolLabel(name, status): returns canonical friendly labels for raw
+ *   tool names and aliases. Falls back to Title Case of raw name.
  * - getToolDisplayValue(name, args): one-line primary parameter for the
  *   collapsed pill.
  */
@@ -125,9 +125,36 @@ const TOOL_LABELS: Record<string, { active: string; completed: string }> = {
   wait: { active: 'Waiting', completed: 'Waited' },
 };
 
+const CANONICAL_TOOL_LABELS: Partial<Record<ToolCallType, { active: string; completed: string }>> = {
+  bash: { active: 'Running command', completed: 'Ran command' },
+  read_file: { active: 'Reading file', completed: 'Read file' },
+  create_file: { active: 'Creating file', completed: 'Created file' },
+  edit_file: { active: 'Editing file', completed: 'Edited file' },
+  glob: { active: 'Finding files', completed: 'Found files' },
+  grep: { active: 'Searching files', completed: 'Searched files' },
+  python: { active: 'Running Python', completed: 'Ran Python' },
+  browse: { active: 'Opening page', completed: 'Opened page' },
+  click: { active: 'Clicking', completed: 'Clicked' },
+  scroll: { active: 'Scrolling', completed: 'Scrolled' },
+  search: { active: 'Searching', completed: 'Searched' },
+  type: { active: 'Typing', completed: 'Typed' },
+  js: { active: 'Running JavaScript', completed: 'Ran JavaScript' },
+  send_keys: { active: 'Pressing keys', completed: 'Pressed keys' },
+  go_back: { active: 'Going back', completed: 'Went back' },
+  wait: { active: 'Waiting', completed: 'Waited' },
+  switch_tab: { active: 'Switching tab', completed: 'Switched tab' },
+  close_tab: { active: 'Closing tab', completed: 'Closed tab' },
+  upload: { active: 'Uploading file', completed: 'Uploaded file' },
+  dropdown: { active: 'Selecting option', completed: 'Selected option' },
+  move: { active: 'Moving pointer', completed: 'Moved pointer' },
+  todo: { active: 'Updating todos', completed: 'Updated todos' },
+  integration_search: { active: 'Searching integrations', completed: 'Searched integrations' },
+  integration: { active: 'Using integration', completed: 'Used integration' },
+};
+
 export function getToolLabel(toolName: string | undefined, status: ToolStatus = 'pending'): string {
   if (!toolName) return 'Unknown action';
-  const labels = TOOL_LABELS[toolName.toLowerCase()];
+  const labels = TOOL_LABELS[toolName.toLowerCase()] ?? CANONICAL_TOOL_LABELS[getToolType(toolName)];
   if (!labels) {
     return toolName
       .split(/[_\s]+/)
