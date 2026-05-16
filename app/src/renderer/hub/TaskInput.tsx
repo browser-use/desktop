@@ -8,7 +8,13 @@ import React, {
   useState,
 } from 'react';
 import { INPUT_PLACEHOLDER } from './constants';
-import { EnginePicker } from './EnginePicker';
+import { EnginePicker, EngineLogo } from './EnginePicker';
+
+const ENGINE_DISPLAY_NAMES: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  browsercode: 'BrowserCode',
+};
 import {
   classifyAttachmentMime,
   maxBytesForAttachmentMime,
@@ -31,6 +37,16 @@ export interface TaskInputSubmission {
 
 interface TaskInputProps {
   onSubmit: (input: TaskInputSubmission) => void;
+  /** Optional content rendered inside the input box, above the textarea
+   *  and below the chips row. Used by the chat composer to host the quoted-
+   *  text preview so it visually extends the box rather than floating
+   *  awkwardly above it. */
+  topSlot?: React.ReactNode;
+  /** When supplied, the engine picker is hidden and submissions report this
+   *  engine id. Used by the chat composer on existing sessions because the
+   *  backend's resume path is hard-locked to `getSessionEngine(id)` — showing
+   *  a picker would imply you could switch mid-session, which you cannot. */
+  lockedEngine?: string;
 }
 
 const ENGINE_STORAGE_KEY = 'hub.selectedEngine';
@@ -48,6 +64,7 @@ function loadStoredEngine(): string {
 export interface TaskInputHandle {
   addFiles: (files: FileList | File[]) => Promise<void>;
   focus: () => void;
+  setText: (text: string) => void;
 }
 
 function ArrowUpIcon(): React.ReactElement {
@@ -79,7 +96,7 @@ async function readFileBytes(file: File): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit }, ref) {
+export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit, topSlot, lockedEngine }, ref) {
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
   const [attachments, setAttachments] = useState<TaskInputAttachment[]>([]);
@@ -153,12 +170,12 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const trimmed = value.trim();
     if (!trimmed && attachments.length === 0) return;
     console.log('[TaskInput] submit', { promptLength: trimmed.length, attachmentCount: attachments.length });
-    onSubmit({ prompt: trimmed, attachments, engine });
+    onSubmit({ prompt: trimmed, attachments, engine: lockedEngine ?? engine });
     setValue('');
     setAttachments([]);
     setErrorMsg(null);
     textareaRef.current?.focus();
-  }, [value, attachments, engine, onSubmit]);
+  }, [value, attachments, engine, lockedEngine, onSubmit]);
 
   const onEngineChange = useCallback((id: string) => {
     setEngine(id);
@@ -201,6 +218,18 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
   useImperativeHandle(ref, () => ({
     addFiles: (files) => addFiles(files),
     focus: () => textareaRef.current?.focus(),
+    setText: (text: string) => {
+      setValue(text);
+      // Focus and move caret to end on the next frame so the height resize
+      // (driven by the value-dep effect) has run before we measure.
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus();
+        const end = text.length;
+        ta.setSelectionRange(end, end);
+      });
+    },
   }), [addFiles]);
 
   const focusTextareaOnBoxClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -236,6 +265,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             ))}
           </div>
         )}
+        {topSlot}
         {errorMsg && <div className="task-input__error">{errorMsg}</div>}
         <textarea
           ref={textareaRef}
@@ -259,7 +289,20 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
           >
             <PaperclipIcon />
           </button>
-          <EnginePicker value={engine} onChange={onEngineChange} />
+          {lockedEngine
+            ? (
+              <span
+                className="engine-picker engine-picker--locked has-tooltip"
+                data-tooltip={`Engine can't be changed mid-run - locked to ${ENGINE_DISPLAY_NAMES[lockedEngine] ?? lockedEngine} for this session`}
+              >
+                <span className="engine-picker__toggle engine-picker__toggle--readonly">
+                  <EngineLogo id={lockedEngine} />
+                  <span className="engine-picker__name">{ENGINE_DISPLAY_NAMES[lockedEngine] ?? lockedEngine}</span>
+                </span>
+              </span>
+            )
+            : <EnginePicker value={engine} onChange={onEngineChange} />
+          }
           <input
             ref={fileInputRef}
             type="file"

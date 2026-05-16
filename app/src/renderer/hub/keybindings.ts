@@ -35,7 +35,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { id: 'meta.escape', label: 'Close overlay', keys: ['Escape'], category: 'Meta' },
 ];
 
-export type ScreenId = 'dashboard' | 'grid' | 'settings';
+export type ScreenId = 'dashboard' | 'grid' | 'chat' | 'settings';
 
 export const SCREEN_COMMANDS: Record<ScreenId, ActionId[]> = {
   dashboard: [
@@ -50,6 +50,12 @@ export const SCREEN_COMMANDS: Record<ScreenId, ActionId[]> = {
     'action.followUp',
     'action.dismiss',
     'goto.dashboard',
+    'goto.settings',
+  ],
+  chat: [
+    'action.followUp',
+    'goto.dashboard',
+    'goto.agents',
     'goto.settings',
   ],
   settings: [

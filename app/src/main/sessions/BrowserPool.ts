@@ -11,6 +11,7 @@ const IDLE_FRAME_RATE = 1;
 const ACTIVE_FRAME_RATE = 60;
 const DEFAULT_IDLE_FREEZE_DELAY_MS = 15_000;
 const CDP_PROTOCOL_VERSION = '1.3';
+const PREVIEW_PARK_VISIBLE_PX = 1;
 // Edge-to-edge fill. View rect = slot rect, no gutters ever. Page sees
 // a viewport sized purely by setZoomFactor: window.innerWidth = slot.width
 // / zoom, window.innerHeight = slot.height / zoom. zoom is pinned so the
@@ -19,11 +20,15 @@ const CDP_PROTOCOL_VERSION = '1.3';
 // ambiguity about where Chromium positions the rendered page.
 const EMULATED_VIEWPORT_HEIGHT = 900;
 
+type ViewBounds = { x: number; y: number; width: number; height: number };
+
 interface PoolEntry {
   sessionId: string;
   view: WebContentsView;
   createdAt: number;
   attached: boolean;
+  parked: boolean;
+  lastVisibleBounds: ViewBounds | null;
   idleFreezeEligible: boolean;
   frozen: boolean;
   freezeTimer: ReturnType<typeof setTimeout> | null;
@@ -42,6 +47,7 @@ export class BrowserPool {
   private maxConcurrent: number;
   private queue: string[] = [];
   private onGone?: (sessionId: string) => void;
+  private onCreate?: (sessionId: string) => void;
   private onNavigate?: (sessionId: string, url: string) => void;
   private onInterruptShortcut?: (sessionId: string) => boolean | void;
   private idleFreezeDelayMs: number;
@@ -69,6 +75,14 @@ export class BrowserPool {
    *  notification to the renderer so the UI can stop showing "Browser starting…". */
   setOnGone(listener: (sessionId: string) => void): void {
     this.onGone = listener;
+  }
+
+  /** Register a listener that fires whenever a new WebContentsView is created
+   *  for a session — used by main to push `sessions:browser-attached` IPC so
+   *  the renderer flips `hasBrowser` to true mid-session without waiting for
+   *  the next listAll. */
+  setOnCreate(listener: (sessionId: string) => void): void {
+    this.onCreate = listener;
   }
 
   /** Register a listener that fires on every top-frame navigation (including
@@ -234,12 +248,21 @@ export class BrowserPool {
       view,
       createdAt: startupStartedAt,
       attached: false,
+      parked: false,
+      lastVisibleBounds: null,
       idleFreezeEligible: false,
       frozen: false,
       freezeTimer: null,
     };
 
     this.entries.set(sessionId, entry);
+
+    // Notify subscribers (main wires this to a `sessions:browser-attached`
+    // IPC so the renderer flips `hasBrowser` to true the moment the view
+    // appears, without waiting for the next listAll snapshot).
+    try { this.onCreate?.(sessionId); } catch (err) {
+      browserLogger.warn('BrowserPool.onCreate.error', { sessionId, error: (err as Error).message });
+    }
 
     // Fire onGone if the renderer process crashes, closes, or otherwise dies
     // out-of-band so the UI can react (stop showing "Browser starting…").
@@ -563,7 +586,7 @@ export class BrowserPool {
    *  wide). zoom alone is enough — no device emulation. The page renders
    *  at exactly bounds.width x bounds.height physical pixels. */
   private fitBoundsToView(
-    bounds: { x: number; y: number; width: number; height: number },
+    bounds: ViewBounds,
   ): { x: number; y: number; width: number; height: number; zoom: number } {
     const zoom = Math.max(0.25, bounds.height / EMULATED_VIEWPORT_HEIGHT);
     return {
@@ -575,20 +598,49 @@ export class BrowserPool {
     };
   }
 
+  private rememberVisibleBounds(entry: PoolEntry, bounds: ViewBounds): void {
+    if (entry.parked) return;
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    entry.lastVisibleBounds = { ...bounds };
+  }
+
+  private ensureChildView(window: BrowserWindow, view: WebContentsView): void {
+    if (!window.contentView.children.includes(view)) {
+      window.contentView.addChildView(view);
+    }
+  }
+
+  private getPreviewParkBounds(window: BrowserWindow, width: number, height: number): ViewBounds {
+    const fallback = { width: DEFAULT_BROWSER_WIDTH, height: DEFAULT_BROWSER_HEIGHT };
+    const contentBounds = typeof window.getContentBounds === 'function'
+      ? window.getContentBounds()
+      : fallback;
+    const contentWidth = Math.max(PREVIEW_PARK_VISIBLE_PX, contentBounds.width || fallback.width);
+    const contentHeight = Math.max(PREVIEW_PARK_VISIBLE_PX, contentBounds.height || fallback.height);
+    return {
+      x: contentWidth - PREVIEW_PARK_VISIBLE_PX,
+      y: contentHeight - PREVIEW_PARK_VISIBLE_PX,
+      width,
+      height,
+    };
+  }
+
   /** Public helper for the resize fast path: applies the same fit logic as
    *  attach so the rendered page stays edge-to-edge as the hub layout
    *  changes. Returns the fitted rect, or null if the view doesn't exist. */
-  setViewBoundsFitted(sessionId: string, bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } | null {
+  setViewBoundsFitted(sessionId: string, bounds: ViewBounds): { x: number; y: number; width: number; height: number } | null {
     const entry = this.entries.get(sessionId);
     if (!entry) return null;
     if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) || bounds.width <= 0 || bounds.height <= 0) return null;
     const fitted = this.fitBoundsToView(bounds);
     entry.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
     try { entry.view.webContents.setZoomFactor(fitted.zoom); } catch { /* ignore */ }
+    entry.parked = false;
+    this.rememberVisibleBounds(entry, { x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
     return { x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height };
   }
 
-  attachToWindow(sessionId: string, window: BrowserWindow, bounds: { x: number; y: number; width: number; height: number }): boolean {
+  attachToWindow(sessionId: string, window: BrowserWindow, bounds: ViewBounds): boolean {
     const entry = this.entries.get(sessionId);
     if (!entry) {
       browserLogger.warn('BrowserPool.attach.notFound', { sessionId });
@@ -615,14 +667,21 @@ export class BrowserPool {
 
     if (entry.attached) {
       browserLogger.debug('BrowserPool.attach.alreadyAttached', { sessionId });
+      this.ensureChildView(window, entry.view);
       entry.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
       try { entry.view.webContents.setZoomFactor(fitted.zoom); } catch { /* ignore */ }
+      entry.parked = false;
+      this.rememberVisibleBounds(entry, { x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
+      void this.wakeForVisibility(entry, 'attach');
+      this.applyFrameRate(entry);
       return true;
     }
 
     entry.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
-    window.contentView.addChildView(entry.view);
+    this.ensureChildView(window, entry.view);
     entry.attached = true;
+    entry.parked = false;
+    this.rememberVisibleBounds(entry, { x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height });
     void this.wakeForVisibility(entry, 'attach');
 
     this.applyFrameRate(entry);
@@ -660,6 +719,7 @@ export class BrowserPool {
 
     window.contentView.removeChildView(entry.view);
     entry.attached = false;
+    entry.parked = false;
 
     this.applyFrameRate(entry);
     this.scheduleIdleFreeze(entry, 'detached');
@@ -682,9 +742,18 @@ export class BrowserPool {
   }
 
   temporarilyDetachAll(window: BrowserWindow): void {
+    let parked = 0;
     for (const entry of this.entries.values()) {
       if (entry.attached) {
-        window.contentView.removeChildView(entry.view);
+        this.ensureChildView(window, entry.view);
+        const current = entry.view.getBounds();
+        this.rememberVisibleBounds(entry, current);
+        const stableBounds = entry.lastVisibleBounds ?? current;
+        const width = Math.max(1, stableBounds.width || DEFAULT_BROWSER_WIDTH);
+        const height = Math.max(1, stableBounds.height || DEFAULT_BROWSER_HEIGHT);
+        entry.view.setBounds(this.getPreviewParkBounds(window, width, height));
+        entry.parked = true;
+        parked += 1;
         try {
           entry.view.webContents.setFrameRate(entry.idleFreezeEligible ? IDLE_FRAME_RATE : THROTTLED_FRAME_RATE);
         } catch (err) {
@@ -695,18 +764,84 @@ export class BrowserPool {
         }
       }
     }
-    browserLogger.info('BrowserPool.temporarilyDetachAll');
+    browserLogger.info('BrowserPool.temporarilyDetachAll', { parked });
+  }
+
+  async parkForPreview(sessionId: string, window: BrowserWindow): Promise<{ ok: boolean; parkedByUs: boolean; reason?: string }> {
+    const entry = this.entries.get(sessionId);
+    if (!entry) {
+      browserLogger.warn('BrowserPool.parkForPreview.notFound', { sessionId });
+      return { ok: false, parkedByUs: false, reason: 'not_found' };
+    }
+    if (entry.view.webContents.isDestroyed()) {
+      browserLogger.warn('BrowserPool.parkForPreview.destroyed', { sessionId });
+      return { ok: false, parkedByUs: false, reason: 'destroyed' };
+    }
+
+    const parkedByUs = !entry.attached;
+    this.ensureChildView(window, entry.view);
+    const current = entry.view.getBounds();
+    this.rememberVisibleBounds(entry, current);
+    const stableBounds = entry.lastVisibleBounds ?? current;
+    const width = Math.max(1, stableBounds.width || DEFAULT_BROWSER_WIDTH);
+    const height = Math.max(1, stableBounds.height || DEFAULT_BROWSER_HEIGHT);
+    entry.view.setBounds(this.getPreviewParkBounds(window, width, height));
+    entry.attached = true;
+    entry.parked = true;
+    this.clearIdleFreezeTimer(entry);
+    await this.wakeForVisibility(entry, 'preview');
+    try {
+      entry.view.webContents.setFrameRate(entry.idleFreezeEligible ? IDLE_FRAME_RATE : THROTTLED_FRAME_RATE);
+    } catch (err) {
+      browserLogger.warn('BrowserPool.parkForPreview.frameRate.error', {
+        sessionId,
+        error: (err as Error).message,
+      });
+    }
+    browserLogger.info('BrowserPool.parkForPreview', { sessionId, parkedByUs, width, height, bounds: entry.view.getBounds() });
+    return { ok: true, parkedByUs };
+  }
+
+  releasePreviewParking(sessionId: string, window: BrowserWindow | null): void {
+    const entry = this.entries.get(sessionId);
+    if (!entry || !entry.attached || !entry.parked) return;
+
+    if (window && !window.isDestroyed()) {
+      try {
+        window.contentView.removeChildView(entry.view);
+      } catch (err) {
+        browserLogger.warn('BrowserPool.releasePreviewParking.removeError', {
+          sessionId,
+          error: (err as Error).message,
+        });
+      }
+    }
+    entry.attached = false;
+    entry.parked = false;
+    this.applyFrameRate(entry);
+    this.scheduleIdleFreeze(entry, 'preview-stopped');
+    browserLogger.info('BrowserPool.releasePreviewParking', {
+      sessionId,
+      frameRate: this.frameRateFor(entry),
+      idleFreezeEligible: entry.idleFreezeEligible,
+    });
   }
 
   reattachAll(window: BrowserWindow): void {
+    let reattached = 0;
     for (const entry of this.entries.values()) {
       if (entry.attached) {
-        window.contentView.addChildView(entry.view);
+        this.ensureChildView(window, entry.view);
+        if (entry.parked && entry.lastVisibleBounds) {
+          entry.view.setBounds(entry.lastVisibleBounds);
+        }
+        entry.parked = false;
         void this.wakeForVisibility(entry, 'reattach');
         this.applyFrameRate(entry);
+        reattached += 1;
       }
     }
-    browserLogger.info('BrowserPool.reattachAll');
+    browserLogger.info('BrowserPool.reattachAll', { reattached });
   }
 
   async getTabs(sessionId: string): Promise<TabInfo[]> {

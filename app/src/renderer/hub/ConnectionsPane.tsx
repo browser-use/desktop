@@ -14,6 +14,7 @@ import minimaxLogo from './minimax-color.svg';
 import { useThemedAsset } from '../design/useThemedAsset';
 import { CookieBrowser, type CookieBrowserApi } from '../shared/CookieBrowser';
 import { pollInstalledStatus } from '../shared/installStatus';
+import { useToast } from '@/renderer/components/base/Toast';
 
 type WaStatus = 'disconnected' | 'connecting' | 'qr_ready' | 'connected' | 'error';
 type AuthType = 'oauth' | 'apiKey' | 'none';
@@ -103,6 +104,7 @@ export function ConnectionsPane({
   browserSyncSectionId,
   focusBrowserCodeProvider,
 }: ConnectionsPaneProps): React.ReactElement {
+  const toast = useToast();
   const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
   const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
   const codexLogo = useThemedAsset(codexLogoDark, codexLogoLight);
@@ -444,7 +446,8 @@ export function ConnectionsPane({
     setOpenaiDraft('');
     setOpenaiEditing(false);
     await refreshOpenai();
-  }, [codexStatus.installed, openaiDraft, refreshOpenai]);
+    toast.show({ variant: 'success', title: 'OpenAI API key saved' });
+  }, [codexStatus.installed, openaiDraft, refreshOpenai, toast]);
 
   const handleDeleteOpenai = useCallback(async () => {
     const api = window.electronAPI;
@@ -453,7 +456,8 @@ export function ConnectionsPane({
     setOpenaiKeyStatus('idle');
     setOpenaiError(null);
     await refreshOpenai();
-  }, [refreshOpenai]);
+    toast.show({ variant: 'success', title: 'OpenAI API key removed' });
+  }, [refreshOpenai, toast]);
 
   const handleStartEditBrowserCode = useCallback((providerId: string) => {
     setEditingProviderId(providerId);
@@ -497,7 +501,8 @@ export function ConnectionsPane({
     setBrowserCodeKeyDraft('');
     setEditingProviderId(null);
     await refreshBrowserCode();
-  }, [browserCodeKeyDraft, browserCodeStatus.installed?.installed, refreshBrowserCode]);
+    toast.show({ variant: 'success', title: 'Provider key saved', message: providerId });
+  }, [browserCodeKeyDraft, browserCodeStatus.installed?.installed, refreshBrowserCode, toast]);
 
   const handleRemoveBrowserCodeKey = useCallback(async (providerId: string) => {
     const api = window.electronAPI;
@@ -509,7 +514,8 @@ export function ConnectionsPane({
     setBrowserCodeErrorProviderId(null);
     if (editingProviderId === providerId) setEditingProviderId(null);
     await refreshBrowserCode();
-  }, [editingProviderId, refreshBrowserCode]);
+    toast.show({ variant: 'success', title: 'Provider key removed', message: providerId });
+  }, [editingProviderId, refreshBrowserCode, toast]);
 
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
   const [testResultByProvider, setTestResultByProvider] = useState<Record<string, { ok: boolean; message: string } | undefined>>({});

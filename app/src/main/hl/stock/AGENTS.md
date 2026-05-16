@@ -185,13 +185,35 @@ Verify after every meaningful browser action:
 For screenshots:
 
 ```bash
+# Internal screenshot (for your own vision — not shown to the user):
 browser-harness-js <<'EOF'
 await connectToAssignedTarget()
 const { data } = await session.Page.captureScreenshot({ format: 'png' })
-await Bun.write('/tmp/browser-use-shot.png', Buffer.from(data, 'base64'))
-return '/tmp/browser-use-shot.png'
+// inspect `data` (base64 PNG) however you need; do NOT save unless the user
+// explicitly asked to see the screenshot.
+EOF
+
+# User-facing screenshot (renders inline in the chat):
+browser-harness-js <<'EOF'
+await connectToAssignedTarget()
+const { data } = await session.Page.captureScreenshot({ format: 'png' })
+await Bun.write(`${process.env.BU_OUTPUTS_DIR}/screenshot-${Date.now()}.png`, Buffer.from(data, 'base64'))
 EOF
 ```
+
+**When a screenshot is worth showing the user:** save to `$BU_OUTPUTS_DIR` when
+the user genuinely benefits from seeing the page. Use your own judgment — these
+are guideposts, not rules:
+- Confirming a delegated task finished (a post went up, a message sent, a form
+  submitted, a checkout completed).
+- Mid-progress check-in on a long task, so the user knows you haven't stalled.
+- Something unexpected or interesting showed up that's worth flagging visually.
+- You're stuck on a captcha, login wall, or page state you can't resolve, and
+  showing it helps the user see what you see.
+
+Don't save screenshots you took purely to look at the page yourself (finding
+a selector, checking element state, verifying navigation) — those clutter the
+chat without giving the user new information.
 
 ## Uploads And Outputs
 

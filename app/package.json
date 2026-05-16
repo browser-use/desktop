@@ -123,9 +123,11 @@
     "dotenv": "^17.4.2",
     "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.8.3",
+    "immer": "^11.1.8",
     "keytar": "^7.9.0",
     "node-cache": "^5.1.2",
     "node-pty": "^1.1.0",
+    "prism-react-renderer": "^2.4.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -133,6 +135,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "ws": "^8.20.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "zustand": "^5.0.13"
   }
 }

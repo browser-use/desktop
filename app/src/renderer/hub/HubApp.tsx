@@ -13,19 +13,17 @@ import type { AgentSession, HlEvent } from './types';
 import type { ActionId } from './keybindings';
 import type { SettingsOpenIntent, SettingsSectionId } from './SettingsPane';
 import { orderSessionsForSidebar } from './sessionOrdering';
+import { ChatPane } from './chat/ChatPane';
+import { useUIStore } from './state/uiStore';
+import { useSessionsBridge } from './state/useSessionsBridge';
 
-type ViewMode = 'dashboard' | 'grid' | 'settings';
+type ViewMode = 'dashboard' | 'grid' | 'chat' | 'settings';
 type SettingsOpenPayload = {
   sectionId?: SettingsSectionId;
   focusBrowserCodeProvider?: string;
 };
 
 let sessionCounter = MOCK_SESSIONS.length + 1;
-let entryCounter = 1000;
-
-function uid(prefix: string): string {
-  return `${prefix}-${++entryCounter}`;
-}
 
 function PlusIcon(): React.ReactElement {
   return (
@@ -35,78 +33,6 @@ function PlusIcon(): React.ReactElement {
   );
 }
 
-function GridIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function DashboardIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="1.5" width="11" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="1.5" y="8.5" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8.5" y="8.5" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function SettingsIcon(): React.ReactElement {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M5.73 1.68a1.25 1.25 0 0 1 2.54 0l.1.44a1.25 1.25 0 0 0 1.63.8l.42-.16a1.25 1.25 0 0 1 1.58 1.73l-.2.4a1.25 1.25 0 0 0 .37 1.55l.35.27a1.25 1.25 0 0 1-.44 2.2l-.43.13a1.25 1.25 0 0 0-.86 1.46l.08.44a1.25 1.25 0 0 1-1.97 1.27l-.33-.3a1.25 1.25 0 0 0-1.6-.06l-.36.27a1.25 1.25 0 0 1-2.03-1.17l.05-.44a1.25 1.25 0 0 0-.92-1.42l-.43-.12a1.25 1.25 0 0 1-.33-2.22l.37-.26a1.25 1.25 0 0 0 .44-1.53l-.18-.41A1.25 1.25 0 0 1 4.7 2.93l.42.17a1.25 1.25 0 0 0 1.6-.86l.11-.44Z" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  );
-}
-
-interface HubViewToggleProps {
-  viewMode: ViewMode;
-  setViewMode: (mode: ViewMode) => void;
-  onOpenSettings: () => void;
-  tipDashboard: string;
-  tipGrid: string;
-  tipSettings: string;
-}
-
-const HubViewToggle = React.memo(function HubViewToggle({
-  viewMode, setViewMode, onOpenSettings, tipDashboard, tipGrid, tipSettings,
-}: HubViewToggleProps): React.ReactElement {
-  return (
-    <div className="hub-toolbar__view-toggle" role="radiogroup" aria-label="View mode">
-      <button
-        className={`hub-toolbar__view-btn${viewMode === 'dashboard' ? ' hub-toolbar__view-btn--active' : ''}`}
-        onClick={() => setViewMode('dashboard')}
-        aria-label="Dashboard"
-        data-tip={tipDashboard}
-      >
-        <DashboardIcon />
-      </button>
-      <button
-        className={`hub-toolbar__view-btn${viewMode === 'grid' ? ' hub-toolbar__view-btn--active' : ''}`}
-        onClick={() => setViewMode('grid')}
-        aria-label="Grid view"
-        data-tip={tipGrid}
-      >
-        <GridIcon />
-      </button>
-      <button
-        className={`hub-toolbar__view-btn${viewMode === 'settings' ? ' hub-toolbar__view-btn--active' : ''}`}
-        onClick={onOpenSettings}
-        aria-label="Settings"
-        data-tip={tipSettings}
-      >
-        <SettingsIcon />
-      </button>
-    </div>
-  );
-});
-
 export function HubApp(): React.ReactElement {
   const isMock = import.meta.env.VITE_MOCK_MODE === '1';
   const [mockSessions, setMockSessions] = useState<AgentSession[]>(isMock ? MOCK_SESSIONS : []);
@@ -114,6 +40,21 @@ export function HubApp(): React.ReactElement {
   const updateSession = useUpdateSession();
   const sessions = isMock ? mockSessions : (sessionsQuery.data ?? []);
   const setSessions = isMock ? setMockSessions : () => {};
+
+  // Mirror sessions into Zustand for the chat view + future fine-grained
+  // subscribers. Uses the same per-event `session-output` IPC stream that the
+  // logs pane uses (not the heavier `session-updated` snapshot channel), so
+  // chat updates are true push events. Old consumers (Sidebar, AgentPane,
+  // Dashboard) keep reading from useSessionsQuery — no behavior change for
+  // grid mode.
+  useSessionsBridge();
+
+  // Chat target lives in useUIStore so the selection persists across reloads.
+  // viewMode itself remains HubApp-local for now (avoids a full migration of
+  // every other view-mode consumer); we just extend it with 'chat'.
+  const chatSessionId = useUIStore((s) => s.chatSessionId);
+  const setChatSession = useUIStore((s) => s.setChatSession);
+  const keepBrowserParkedForChatRef = useRef(false);
 
   useEffect(() => {
     console.log('[HubApp] sessions changed', { count: sessions.length, ts: Date.now(), ids: sessions.map((s) => s.id.slice(0, 8)) });
@@ -132,12 +73,27 @@ export function HubApp(): React.ReactElement {
     return 'dashboard';
   });
   const setViewMode = useCallback((mode: ViewMode) => {
+    const shouldShowBrowserViews = mode === 'grid';
+    keepBrowserParkedForChatRef.current = mode === 'chat';
+    if (!shouldShowBrowserViews) {
+      window.electronAPI?.sessions?.viewsSetVisible?.(false)?.catch(() => {});
+    }
     setViewModeRaw(mode);
-    window.electronAPI?.sessions?.viewsSetVisible?.(mode !== 'settings')?.catch(() => {});
+    // Browser views are only used by AgentPane (grid mode). Hide everywhere else
+    // so they don't bleed through the chat/dashboard/settings UI.
+    if (shouldShowBrowserViews) {
+      window.electronAPI?.sessions?.viewsSetVisible?.(true)?.catch(() => {});
+    }
     if (mode === 'dashboard' || mode === 'grid') {
       try { window.localStorage.setItem('hub-view-mode', mode); } catch { /* ignore */ }
     }
   }, []);
+  const shouldDetachBrowserOnPaneUnmount = useCallback(() => !keepBrowserParkedForChatRef.current, []);
+  const enterChat = useCallback((id: string) => {
+    console.log('[HubApp] enterChat', { id });
+    setChatSession(id);
+    setViewMode('chat');
+  }, [setChatSession, setViewMode]);
   const openPill = useCallback(() => { window.electronAPI?.pill.toggle(); }, []);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsIntent, setSettingsIntent] = useState<SettingsOpenIntent | null>(null);
@@ -159,10 +115,6 @@ export function HubApp(): React.ReactElement {
       return saved === 'top' ? 'top' : 'side';
     } catch { return 'side'; }
   });
-  const setTabsPosition = useCallback((pos: 'side' | 'top') => {
-    setTabsPositionRaw(pos);
-    try { window.localStorage.setItem('hub-tabs-position', pos); } catch { /* ignore */ }
-  }, []);
   useEffect(() => {
     const onChange = (e: Event): void => {
       const next = (e as CustomEvent<{ position: 'side' | 'top' }>).detail?.position;
@@ -187,9 +139,9 @@ export function HubApp(): React.ReactElement {
     try { window.localStorage.setItem('hub-cmdbar-visible', '0'); } catch { /* ignore */ }
   }, []);
 
-  const showBrowserViews = useCallback(() => {
-    window.electronAPI?.sessions?.viewsSetVisible?.(true)?.catch(() => {});
-  }, []);
+  const restoreBrowserViewsForCurrentMode = useCallback(() => {
+    window.electronAPI?.sessions?.viewsSetVisible?.(viewMode === 'grid')?.catch(() => {});
+  }, [viewMode]);
 
   const openSettingsPage = useCallback((payload?: SettingsOpenPayload) => {
     window.electronAPI?.pill.hide();
@@ -285,12 +237,12 @@ export function HubApp(): React.ReactElement {
     'meta.escape': () => {
       if (helpOpen) {
         setHelpOpen(false);
-        if (viewMode !== 'settings') showBrowserViews();
+        restoreBrowserViewsForCurrentMode();
         return;
       }
       setFocusIndex(-1);
     },
-  }), [sessions, orderedSessions, focusIndex, helpOpen, viewMode, setViewMode, openSettingsPage, showBrowserViews]);
+  }), [sessions, orderedSessions, focusIndex, helpOpen, setViewMode, openSettingsPage, restoreBrowserViewsForCurrentMode]);
 
   const vim = useVimKeys(vimHandlers);
 
@@ -315,10 +267,10 @@ export function HubApp(): React.ReactElement {
   useEffect(() => {
     const unsub = window.electronAPI?.on?.pillToggled?.(() => {
       setHelpOpen(false);
-      if (viewMode !== 'settings') showBrowserViews();
+      restoreBrowserViewsForCurrentMode();
     });
     return unsub;
-  }, [showBrowserViews, viewMode]);
+  }, [restoreBrowserViewsForCurrentMode]);
 
   // Main-process signal (e.g. fired by onboarding:complete after Skip) telling
   // the hub to switch to a specific view regardless of the saved preference.
@@ -345,14 +297,6 @@ export function HubApp(): React.ReactElement {
   }, []);
 
   // Grid density auto-clamp removed — grid is always 1x1.
-
-  useEffect(() => {
-    const api = window.electronAPI;
-    if (!api || isMock) return;
-    sessions.forEach((s) => {
-      api.sessions.viewDetach(s.id).catch(() => {});
-    });
-  }, [viewMode, gridColumns, gridPage]);
 
   // Logs overlay is anchored to the AgentPane, which only renders in 'grid'
   // view. Hide it whenever the user switches away so it doesn't float over
@@ -386,10 +330,10 @@ export function HubApp(): React.ReactElement {
     knownIdsRef.current = new Set(sessions.map((s) => s.id));
     if (!newSession) return;
     const globalIdx = sessions.findIndex((s) => s.id === newSession.id);
-    console.log('[HubApp] new session detected -> focus', { id: newSession.id, globalIdx });
-    setViewMode('grid');
+    console.log('[HubApp] new session detected -> chat', { id: newSession.id, globalIdx });
+    enterChat(newSession.id);
     setFocusIndex(globalIdx);
-  }, [sessions, setViewMode]);
+  }, [sessions, enterChat]);
 
   useEffect(() => {
     const visible = sessions;
@@ -419,7 +363,7 @@ export function HubApp(): React.ReactElement {
       };
       console.log('[HubApp] createSession (mock)', { id, prompt });
       pendingFocusIdRef.current = id;
-      setViewMode('grid');
+      enterChat(id);
       setSessions((prev) => [...prev, newSession]);
 
       const pushEvent = (event: HlEvent, statusOverride?: AgentSession['status']) => {
@@ -453,13 +397,13 @@ export function HubApp(): React.ReactElement {
       );
       console.log('[HubApp] session created', { id });
       pendingFocusIdRef.current = id;
-      setViewMode('grid');
+      enterChat(id);
       await api.sessions.start(id);
       console.log('[HubApp] session started', { id });
     } catch (err) {
       console.error('[HubApp] createSession failed', err);
     }
-  }, [isMock, setViewMode]);
+  }, [isMock, setViewMode, enterChat]);
 
 
   const handleFollowUp = useCallback(async (
@@ -520,21 +464,6 @@ export function HubApp(): React.ReactElement {
     console.log('[HubApp] selectSession', { id });
   }, [sessions]);
 
-  const visibleCount = sessions.length;
-  const gridPageSize = Math.max(1, gridColumns);
-  const gridTotalPages = Math.max(1, Math.ceil(visibleCount / gridPageSize));
-  const gridSafePage = Math.min(gridPage, gridTotalPages - 1);
-  const goToPage = useCallback((target: number) => {
-    const clamped = Math.max(0, Math.min(target, gridTotalPages - 1));
-    const visible = sessions;
-    const firstOnPage = visible[clamped * gridPageSize];
-    if (firstOnPage) {
-      const globalIdx = sessions.findIndex((s) => s.id === firstOnPage.id);
-      if (globalIdx >= 0) setFocusIndex(globalIdx);
-    }
-    setGridPage(clamped);
-  }, [gridTotalPages, gridPageSize, sessions]);
-
   const selectedSessionId = sessions[focusIndex]?.id ?? null;
 
   return (
@@ -547,16 +476,7 @@ export function HubApp(): React.ReactElement {
             settingsShortcut={shortcutFor('goto.settings')}
           />
         </div>
-        <div className="hub-toolbar__center">
-          <HubViewToggle
-            viewMode={viewMode}
-            setViewMode={setViewMode}
-            onOpenSettings={() => openSettingsPage()}
-            tipDashboard={tip('Dashboard', 'goto.dashboard')}
-            tipGrid={tip('Grid view', 'goto.agents')}
-            tipSettings={tip('Settings', 'goto.settings')}
-          />
-        </div>
+        <div className="hub-toolbar__center" />
         <div className="hub-toolbar__right">
           {/* Grid density + pager removed — single-pane (1x1) layout. */}
           {viewMode !== 'dashboard' && (
@@ -574,7 +494,6 @@ export function HubApp(): React.ReactElement {
             <button
               className="hub-toolbar__zoom"
               onClick={() => {
-                const api = (window as unknown as { electronAPI?: { on?: { zoomChanged?: (cb: (f: number) => void) => () => void } } }).electronAPI;
                 setZoomFactor(1.0);
                 localStorage.setItem('hub-zoom-factor', '1');
               }}
@@ -590,10 +509,10 @@ export function HubApp(): React.ReactElement {
       <Sidebar
         mode={tabsPosition}
         sessions={sessions}
-        selectedId={viewMode === 'grid' ? selectedSessionId : null}
+        selectedId={viewMode === 'grid' ? selectedSessionId : viewMode === 'chat' ? chatSessionId : null}
         onSelect={(id) => {
           handleSelectSession(id);
-          if (viewMode !== 'grid') setViewMode('grid');
+          enterChat(id);
         }}
         onNewAgent={() => openPill()}
         onRowAction={(id, action) => {
@@ -625,6 +544,17 @@ export function HubApp(): React.ReactElement {
           onResetAll={vim.resetAll}
           formatShortcut={vim.formatShortcut}
         />
+      ) : viewMode === 'chat' ? (
+        chatSessionId
+          ? <ChatPane
+              sessionId={chatSessionId}
+              onExit={() => setViewMode('dashboard')}
+              onSwitchToBrowser={() => {
+                handleSelectSession(chatSessionId);
+                setViewMode('grid');
+              }}
+            />
+          : <div className="chat-empty">No session selected. <button className="chat-pane__back" onClick={() => setViewMode('dashboard')}>Back to dashboard</button></div>
       ) : viewMode === 'dashboard' ? (
         <Dashboard
           sessions={sessions}
@@ -687,6 +617,8 @@ export function HubApp(): React.ReactElement {
                       onOpenSettings={() => {
                         openSettingsPage();
                       }}
+                      onOpenChat={enterChat}
+                      shouldDetachBrowserOnUnmount={shouldDetachBrowserOnPaneUnmount}
                       followUpShortcut={shortcutFor('action.followUp')}
                     />
                   );
@@ -721,7 +653,7 @@ export function HubApp(): React.ReactElement {
         open={helpOpen}
         onClose={() => {
           setHelpOpen(false);
-          if (viewMode !== 'settings') showBrowserViews();
+          restoreBrowserViewsForCurrentMode();
         }}
         keybindings={vim.keybindings}
         onOpenSettings={() => {

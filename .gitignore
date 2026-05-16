@@ -1,6 +1,7 @@
 # Personal planning docs (reagan_ prefix per CLAUDE.md) — never committed
 reagan_*
 app/reagan_*
+app/docs/PRODUCT_*.md
 
 # Dependencies
 node_modules/
