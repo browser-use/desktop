@@ -2,6 +2,7 @@ import { WebContentsView, nativeTheme, type BrowserWindow, type WebContents } fr
 import { browserLogger } from '../logger';
 import { getWindowBackgroundColor } from '../themeMode';
 import type { TabInfo } from './types';
+import { buildBrowserIdentity, type BrowserIdentity } from './browserIdentity';
 
 const DEFAULT_BROWSER_WIDTH = 1280;
 const DEFAULT_BROWSER_HEIGHT = 800;
@@ -18,6 +19,8 @@ const CDP_PROTOCOL_VERSION = '1.3';
 // desktop-class viewport. No enableDeviceEmulation — one knob only, no
 // ambiguity about where Chromium positions the rendered page.
 const EMULATED_VIEWPORT_HEIGHT = 900;
+
+type RuntimeBrowserIdentity = Pick<BrowserIdentity, 'userAgent' | 'acceptLanguageOverride' | 'jsPlatform'>;
 
 interface PoolEntry {
   sessionId: string;
@@ -175,36 +178,25 @@ export class BrowserPool {
       height: DEFAULT_BROWSER_HEIGHT,
     });
 
-    // Anti-detection: replace the Electron default UA with a vanilla Chrome UA.
-    // The default contains TWO bot tells — the app name token (`app/x.y.z`)
-    // injected by Electron between `Gecko)` and `Chrome/`, and the Electron
-    // token (`Electron/x.y.z`) before `Safari/`. Strip both. We keep the real
-    // bundled Chromium version (process.versions.chrome) so feature-detection,
-    // Sec-CH-UA hints, and TLS fingerprint stay coherent with the engine.
-    try {
-      const defaultUa = view.webContents.getUserAgent();
-      const cleanedUa = defaultUa
-        .replace(/\sElectron\/\S+/, '')
-        .replace(/\s[A-Za-z][\w-]*\/\d+\.\d+\.\d+(?=\sChrome\/)/, '');
-      if (cleanedUa !== defaultUa) {
-        view.webContents.setUserAgent(cleanedUa);
-        browserLogger.info('BrowserPool.userAgent.stripped', { sessionId, before: defaultUa, after: cleanedUa });
-      }
-    } catch (err) {
-      browserLogger.warn('BrowserPool.userAgent.error', { sessionId, error: (err as Error).message });
-    }
+    const browserIdentity = buildBrowserIdentity();
+    let activeUserAgent: string | null = null;
 
-    // Anti-detection: hide `navigator.webdriver` on every frame load. Runs in
-    // the page's isolated world via executeJavaScript — does not touch the
-    // CDP session the agent uses, so driving behavior is unaffected.
-    const hideWebdriver = (): void => {
-      if (view.webContents.isDestroyed()) return;
-      view.webContents.executeJavaScript(
-        "try{Object.defineProperty(Navigator.prototype,'webdriver',{get:()=>undefined,configurable:true})}catch(e){}",
-        true,
-      ).catch(() => { /* frame may have navigated away */ });
+    const applyWebContentsUserAgent = (
+      identity: RuntimeBrowserIdentity,
+      reason: string,
+    ): void => {
+      if (activeUserAgent === identity.userAgent) return;
+      try {
+        view.webContents.setUserAgent(identity.userAgent);
+        activeUserAgent = identity.userAgent;
+        browserLogger.info('BrowserPool.userAgent.applied', { sessionId, reason, userAgent: identity.userAgent });
+      } catch (err) {
+        browserLogger.warn('BrowserPool.userAgent.error', { sessionId, reason, error: (err as Error).message });
+      }
     };
-    view.webContents.on('dom-ready', hideWebdriver);
+
+    applyWebContentsUserAgent(browserIdentity, 'startup');
+
     view.webContents.on('before-input-event', (event, input) => {
       if (
         input.type === 'keyDown' &&
