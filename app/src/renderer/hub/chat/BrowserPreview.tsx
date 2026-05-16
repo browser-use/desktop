@@ -18,6 +18,21 @@ function hostFromUrl(url: string | null): string | null {
   }
 }
 
+function createPreviewOwnerToken(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function ownerHint(ownerToken: string): string {
+  return ownerToken.slice(-8);
+}
+
+function previewLog(event: string, payload: Record<string, unknown>): void {
+  console.info(`[BrowserPreview] ${event} ${JSON.stringify(payload)}`);
+}
+
 export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): React.ReactElement | null {
   const sessionInfo = useSessionsStore(
     useShallow((s) => {
@@ -34,6 +49,8 @@ export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): Re
   const frameCountRef = useRef(0);
   const lastFrameLogAtRef = useRef(0);
   const hostLabel = hostFromUrl(sessionInfo.lastUrl);
+  const hasPreviewUrl = hostLabel !== null;
+  const showFrame = frame !== null && hasPreviewUrl;
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -44,7 +61,7 @@ export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): Re
       const now = Date.now();
       if (frameCountRef.current === 1 || now - lastFrameLogAtRef.current >= 5000) {
         lastFrameLogAtRef.current = now;
-        console.info('[BrowserPreview] frame', {
+        previewLog('frame', {
           sessionId,
           frames: frameCountRef.current,
           bytes: dataB64.length,
@@ -65,26 +82,42 @@ export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): Re
     setFrame(null);
     frameCountRef.current = 0;
     lastFrameLogAtRef.current = 0;
-    api.sessions.previewStart(sessionId)
+    const ownerToken = createPreviewOwnerToken();
+    previewLog('start.request', {
+      sessionId,
+      owner: ownerHint(ownerToken),
+      hasBrowser: sessionInfo.hasBrowser,
+    });
+    api.sessions.previewStart(sessionId, ownerToken)
       .then((res) => {
-        console.info('[BrowserPreview] previewStart', { sessionId, ...res });
+        previewLog('start.result', { sessionId, owner: ownerHint(ownerToken), ...res });
         if (active && !res.ok) setFrame(null);
       })
       .catch((err) => {
-        console.warn('[BrowserPreview] previewStart.failed', { sessionId, error: err instanceof Error ? err.message : String(err) });
+        console.warn(`[BrowserPreview] start.failed ${JSON.stringify({
+          sessionId,
+          owner: ownerHint(ownerToken),
+          error: err instanceof Error ? err.message : String(err),
+        })}`);
         if (active) setFrame(null);
       });
 
     return () => {
       active = false;
-      api.sessions.previewStop(sessionId).catch(() => {});
+      previewLog('stop.request', {
+        sessionId,
+        owner: ownerHint(ownerToken),
+        frames: frameCountRef.current,
+      });
+      api.sessions.previewStop(sessionId, ownerToken).catch(() => {});
     };
   }, [sessionId, sessionInfo.hasBrowser]);
 
   const onClick = useCallback(() => {
+    previewLog('expand.click', { sessionId, frames: frameCountRef.current });
     setExpanding(true);
     setTimeout(() => onExpand(), 220);
-  }, [onExpand]);
+  }, [onExpand, sessionId]);
 
   if (!sessionInfo.hasBrowser) return null;
 
@@ -102,7 +135,7 @@ export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): Re
         title="Open browser view"
         aria-label="Open browser view"
       >
-        {frame ? (
+        {showFrame ? (
           <img
             className="browser-preview__img"
             src={`data:image/jpeg;base64,${frame}`}

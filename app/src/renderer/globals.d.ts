@@ -78,8 +78,8 @@ interface ElectronSessionAPI {
   ) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
   rerun: (id: string) => Promise<{ rerun?: boolean; error?: string }>;
   editAndRerun: (id: string, prompt: string) => Promise<{ rerun?: boolean; error?: string }>;
-  previewStart: (id: string) => Promise<{ ok: boolean; reason?: string }>;
-  previewStop: (id: string) => Promise<void>;
+  previewStart: (id: string, ownerToken: string) => Promise<{ ok: boolean; reason?: string }>;
+  previewStop: (id: string, ownerToken: string) => Promise<void>;
   list: () => Promise<import('./hub/types').AgentSession[]>;
   listAll: () => Promise<import('./hub/types').AgentSession[]>;
   get: (id: string) => Promise<import('./hub/types').AgentSession | null>;

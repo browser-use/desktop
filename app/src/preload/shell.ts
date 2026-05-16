@@ -269,10 +269,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:rerun', id),
     editAndRerun: (id: string, prompt: string): Promise<{ rerun?: boolean; error?: string }> =>
       ipcRenderer.invoke('sessions:rerun', { id, prompt }),
-    previewStart: (id: string): Promise<{ ok: boolean; reason?: string }> =>
-      ipcRenderer.invoke('sessions:preview-start', { id }),
-    previewStop: (id: string): Promise<void> =>
-      ipcRenderer.invoke('sessions:preview-stop', id),
+    previewStart: (id: string, ownerToken: string): Promise<{ ok: boolean; reason?: string }> =>
+      ipcRenderer.invoke('sessions:preview-start', { id, ownerToken }),
+    previewStop: (id: string, ownerToken: string): Promise<void> =>
+      ipcRenderer.invoke('sessions:preview-stop', { id, ownerToken }),
     list: async (): Promise<AgentSession[]> => {
       const raw = await ipcRenderer.invoke('sessions:list');
       return validateSessionList(raw);

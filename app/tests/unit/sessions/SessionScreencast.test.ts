@@ -92,6 +92,63 @@ describe('SessionScreencast', () => {
     await screencast.stop('s1');
   });
 
+  it('ignores a stale stop after a newer preview takes ownership', async () => {
+    vi.useFakeTimers();
+    const wc = mockWebContents({ attached: true });
+    const { screencast } = makeScreencast(wc);
+
+    await expect(screencast.start('s1', 'preview-old')).resolves.toEqual({ ok: true });
+    await vi.waitFor(() => expect(wc.debugger.sendCommand).toHaveBeenCalledTimes(1));
+    await expect(screencast.start('s1', 'preview-new')).resolves.toEqual({ ok: true });
+
+    await screencast.stop('s1', 'preview-old');
+    expect(screencast.isActive('s1')).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await screencast.stop('s1', 'preview-new');
+    expect(screencast.isActive('s1')).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels a preview start when its owner stopped during async setup', async () => {
+    vi.useFakeTimers();
+    const wc = mockWebContents({ attached: true });
+    const { screencast, pool } = makeScreencast(wc);
+    const gate = deferred<{ ok: boolean; parkedByUs: boolean }>();
+    vi.mocked(pool.parkForPreview).mockImplementation(async () => {
+      await gate.promise;
+      return { ok: true, parkedByUs: true };
+    });
+
+    const start = screencast.start('s1', 'preview-old');
+    await screencast.stop('s1', 'preview-old');
+    gate.resolve({ ok: true, parkedByUs: true });
+
+    await expect(start).resolves.toEqual({ ok: false, reason: 'stopped' });
+    expect(screencast.isActive('s1')).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(pool.releasePreviewParking).toHaveBeenCalledWith('s1', expect.anything());
+  });
+
+  it('does not let stale in-flight cleanup detach a newer preview', async () => {
+    vi.useFakeTimers();
+    const wc = mockWebContents({ delayCapture: true });
+    const { screencast, sent } = makeScreencast(wc);
+
+    await expect(screencast.start('s1', 'preview-old')).resolves.toEqual({ ok: true });
+    await screencast.stop('s1', 'preview-old');
+    await expect(screencast.start('s1', 'preview-new')).resolves.toEqual({ ok: true });
+
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(wc.debugger.detach).not.toHaveBeenCalled();
+    expect(screencast.isActive('s1')).toBe(true);
+    expect(sent).toHaveBeenCalledTimes(1);
+
+    await screencast.stop('s1', 'preview-new');
+    expect(wc.debugger.detach).toHaveBeenCalledTimes(1);
+  });
+
   it('does not leave an orphan capture interval after concurrent duplicate starts', async () => {
     vi.useFakeTimers();
     const wc = mockWebContents({ attached: true });

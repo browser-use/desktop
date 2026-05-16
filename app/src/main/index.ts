@@ -1214,10 +1214,23 @@ app.whenReady().then(async () => {
   // Chat-side browser preview via CDP screencast. Renderer starts/stops per
   // mount; we never auto-start so a session without a chat-view consumer
   // costs zero CPU.
-  ipcMain.handle('sessions:preview-start', async (_evt, payload: { id: unknown }) => {
-    const id = typeof payload?.id === 'string' ? payload.id : '';
-    if (!id) return { ok: false, reason: 'bad_id' };
-    return sessionScreencast.start(id);
+  ipcMain.handle('sessions:preview-start', async (_evt, payload: unknown) => {
+    const data = payload && typeof payload === 'object' ? payload as { id?: unknown; ownerToken?: unknown } : null;
+    const id = typeof data?.id === 'string' ? data.id : '';
+    const ownerToken = typeof data?.ownerToken === 'string' ? data.ownerToken : '';
+    mainLogger.info('main.sessions:preview-start.request', {
+      id,
+      owner: ownerToken ? ownerToken.slice(-8) : undefined,
+      hasOwnerToken: !!ownerToken,
+    });
+    if (!id || !ownerToken) return { ok: false, reason: 'bad_id' };
+    const result = await sessionScreencast.start(id, ownerToken);
+    mainLogger.info('main.sessions:preview-start.result', {
+      id,
+      owner: ownerToken.slice(-8),
+      ...result,
+    });
+    return result;
   });
   ipcMain.handle('sessions:preview-stop', async (_evt, payload: unknown) => {
     const id = typeof payload === 'string'
@@ -1225,8 +1238,16 @@ app.whenReady().then(async () => {
       : (payload && typeof payload === 'object' && typeof (payload as { id?: unknown }).id === 'string'
           ? (payload as { id: string }).id
           : '');
+    const ownerToken = payload && typeof payload === 'object' && typeof (payload as { ownerToken?: unknown }).ownerToken === 'string'
+      ? (payload as { ownerToken: string }).ownerToken
+      : undefined;
     if (typeof id !== 'string' || !id) return;
-    await sessionScreencast.stop(id);
+    mainLogger.info('main.sessions:preview-stop.request', {
+      id,
+      owner: ownerToken ? ownerToken.slice(-8) : undefined,
+      hasOwnerToken: !!ownerToken,
+    });
+    await sessionScreencast.stop(id, ownerToken);
   });
 
   ipcMain.handle('sessions:create', (_event, payload: unknown) => {

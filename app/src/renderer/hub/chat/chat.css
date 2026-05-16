@@ -1283,7 +1283,7 @@
 .chat-preview-rail > * {
   pointer-events: auto;
 }
-/* When BrowserPreview returns null (no real URL yet), collapse the rail so
+/* When BrowserPreview returns null (no browser view yet), collapse the rail so
    we don't leave a 10px gap above the composer. */
 .chat-preview-rail:empty {
   display: none;
