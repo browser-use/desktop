@@ -45,6 +45,10 @@ interface ElectronSessionAPI {
   delete: (id: string) => Promise<void>;
   downloadOutput: (filePath: string) => Promise<{ opened: boolean }>;
   revealOutput: (filePath: string) => Promise<{ revealed: boolean }>;
+  readSkill: (payload: { domainTopic?: string; absPath?: string }) => Promise<
+    | { ok: true; path: string; filename: string; sizeBytes: number; mtimeMs: number; lineCount: number; title: string; description: string; body: string; truncated: boolean }
+    | { ok: false; error: string }
+  >;
   listEditors: () => Promise<Array<{ id: string; name: string }>>;
   openInEditor: (editorId: string, filePath: string) => Promise<{ opened: boolean }>;
   listEngines: () => Promise<Array<{ id: string; displayName: string; binaryName: string }>>;
@@ -73,6 +77,9 @@ interface ElectronSessionAPI {
     attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>,
   ) => Promise<{ resumed?: boolean; queued?: boolean; error?: string }>;
   rerun: (id: string) => Promise<{ rerun?: boolean; error?: string }>;
+  editAndRerun: (id: string, prompt: string) => Promise<{ rerun?: boolean; error?: string }>;
+  previewStart: (id: string, ownerToken: string) => Promise<{ ok: boolean; reason?: string }>;
+  previewStop: (id: string, ownerToken: string) => Promise<void>;
   list: () => Promise<import('./hub/types').AgentSession[]>;
   listAll: () => Promise<import('./hub/types').AgentSession[]>;
   get: (id: string) => Promise<import('./hub/types').AgentSession | null>;
@@ -171,8 +178,10 @@ interface ElectronChromeImportAPI {
 interface ElectronOnAPI {
   sessionUpdated: (cb: (session: import('./hub/types').AgentSession) => void) => () => void;
   sessionBrowserGone: (cb: (id: string) => void) => () => void;
+  sessionBrowserAttached: (cb: (id: string) => void) => () => void;
   sessionOutput: (cb: (id: string, event: import('./hub/types').HlEvent) => void) => () => void;
   sessionOutputTerm: (cb: (id: string, bytes: string) => void) => () => void;
+  sessionPreviewFrame: (cb: (id: string, dataB64: string) => void) => () => void;
   openSettings?: (cb: (payload?: { focusBrowserCodeProvider?: string }) => void) => () => void;
   zoomChanged?: (cb: (factor: number) => void) => () => void;
   whatsappQr?: (cb: (dataUrl: string) => void) => () => void;

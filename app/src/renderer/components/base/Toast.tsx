@@ -3,6 +3,13 @@
  * Variants: info | success | warning | error | agent
  * Renders a stack of toasts via ToastProvider + useToast hook.
  * No !important, no Inter references.
+ *
+ * Usage:
+ *   const toast = useToast();
+ *   toast.show({ variant: 'success', title: 'Copied to clipboard' });
+ *   toast.show({ variant: 'error', title: 'Save failed', message: 'Try again.' });
+ *   const id = toast.show({ variant: 'info', title: 'Uploading...', persistent: true });
+ *   toast.update(id, { variant: 'success', title: 'Upload complete', persistent: false });
  */
 
 import React, {

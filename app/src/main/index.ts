@@ -18,10 +18,14 @@ loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, session, shell } from 'electron';
 import { mergeChromiumFeature } from './startup/chromiumFeatures';
+import { registerChatfilePrivileges, registerChatfileHandler } from './protocols/chatfile';
 import {
   buildBrowserIdentity,
   withBrowserIdentityHeaders,
 } from './sessions/browserIdentity';
+
+// Must run before app.whenReady — Electron caches scheme privileges at startup.
+registerChatfilePrivileges();
 
 const appBrowserIdentity = buildBrowserIdentity();
 const FIREFOX_COMPAT_DISABLED_CHROMIUM_FEATURES = [
@@ -126,7 +130,7 @@ import {
 import { assertString, assertAttachments, type ValidatedAttachment } from './ipc-validators';
 // Agent loop: CLI subprocess driving the browser harness. Engine is
 // pluggable (claude-code, codex, …) — see src/main/hl/engines/.
-import { bootstrapHarness, harnessDir } from './hl/harness';
+import { bootstrapHarness, harnessDir, skillIdToPath, skillMetaFromPath } from './hl/harness';
 import { runEngine, DEFAULT_ENGINE_ID } from './hl/engines';
 import type { EngineRunControl } from './hl/engines/types';
 import { getEngine, setEngine, type EngineId } from './hl/engine';
@@ -134,6 +138,7 @@ import { forwardAgentEvent } from './pill';
 // Session management
 import { SessionManager } from './sessions/SessionManager';
 import { BrowserPool } from './sessions/BrowserPool';
+import { SessionScreencast } from './sessions/SessionScreencast';
 import {
   snapshotResourceUsage,
   startResourceMonitor,
@@ -205,6 +210,7 @@ const sessionManager = new SessionManager(path.join(app.getPath('userData'), 'se
 // to <userData>/harness/ on first run, preserves user edits on subsequent runs.
 bootstrapHarness();
 const browserPool = new BrowserPool();
+const sessionScreencast = new SessionScreencast(browserPool);
 let interruptBrowserSessionFromShortcut: ((sessionId: string) => boolean) | null = null;
 const resourceMonitorContext: ResourceMonitorContext = {
   browserSessions: () => browserPool.getStats().sessions,
@@ -212,6 +218,12 @@ const resourceMonitorContext: ResourceMonitorContext = {
 };
 // Push browser-gone notifications to the shell renderer so the UI can stop
 // showing "Browser starting…" when a WebContents is destroyed or crashes.
+browserPool.setOnCreate((sessionId) => {
+  mainLogger.info('main.sessions.browserAttached', { sessionId });
+  if (shellWindow && !shellWindow.isDestroyed()) {
+    shellWindow.webContents.send('sessions:browser-attached', sessionId);
+  }
+});
 browserPool.setOnGone((sessionId) => {
   if (shellWindow && !shellWindow.isDestroyed()) {
     shellWindow.webContents.send('sessions:browser-gone', sessionId);
@@ -327,6 +339,8 @@ function openShellAndWire(): BrowserWindow {
   mainLogger.info('main.openShellAndWire', { msg: 'Creating shell window' });
 
   shellWindow = createShellWindow();
+  sessionScreencast.setWindow(shellWindow);
+  shellWindow.on('closed', () => { void sessionScreencast.stopAll(); });
 
   // Create pill window (hidden) and register global hotkey
   createPillWindow();
@@ -421,6 +435,7 @@ function openShellAndWire(): BrowserWindow {
 app.whenReady().then(async () => {
   mainLogger.info('main.appReady', { msg: 'Electron app ready — initializing Browser Use' });
   registerBrowserIdentityHeaders();
+  registerChatfileHandler();
   startResourceMonitor(resourceMonitorContext);
 
   // Verify the CDP endpoint at our announced port is actually OUR app
@@ -556,7 +571,8 @@ app.whenReady().then(async () => {
 
     hidePill();
 
-    const id = sessionManager.createSession(validatedPrompt);
+    const initialAttachmentTurnIndex = attachments.length > 0 ? 0 : undefined;
+    const id = sessionManager.createSession(validatedPrompt, { attachmentTurnIndex: initialAttachmentTurnIndex });
     // Stamp the engine so the hub card shows the provider icon. Respect
     // an explicit engine from the pill payload, else default to the
     // canonical per-session default. getEngine() returns the legacy
@@ -569,7 +585,7 @@ app.whenReady().then(async () => {
       : DEFAULT_ENGINE_ID;
     sessionManager.setSessionEngine(id, pillEngineId);
     if (attachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(id);
+      const turnIndex = initialAttachmentTurnIndex ?? sessionManager.getNextAttachmentTurnIndex(id);
       for (const a of attachments) {
         sessionManager.saveAttachment(id, a, turnIndex);
       }
@@ -998,12 +1014,13 @@ app.whenReady().then(async () => {
     }
     await browserPool.markSessionActive(validatedId);
 
+    let attachmentTurnIndex: number | undefined;
     if (resumeAttachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
+      attachmentTurnIndex = sessionManager.getNextAttachmentTurnIndex(validatedId);
       for (const a of resumeAttachments) {
-        sessionManager.saveAttachment(validatedId, a, turnIndex);
+        sessionManager.saveAttachment(validatedId, a, attachmentTurnIndex);
       }
-      mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex, count: resumeAttachments.length, source });
+      mainLogger.info('main.sessions:resume.persistedAttachments', { id: validatedId, turnIndex: attachmentTurnIndex, count: resumeAttachments.length, source });
     }
 
     let webContents = browserPool.getWebContents(validatedId);
@@ -1041,7 +1058,7 @@ app.whenReady().then(async () => {
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
     await stampConfiguredSessionModel(validatedId, engineId, source);
-    const abortController = sessionManager.resumeSession(validatedId, validatedPrompt);
+    const abortController = sessionManager.resumeSession(validatedId, validatedPrompt, { attachmentTurnIndex });
     if (resumeAttachments.length > 0) {
       mainLogger.info('main.sessions:resume.attachments', { id: validatedId, count: resumeAttachments.length, source });
     }
@@ -1166,7 +1183,7 @@ app.whenReady().then(async () => {
         engineId,
         harnessDir: harnessDir(),
         sessionId: id,
-        prompt: sessionManager.getSession(id)!.prompt,
+        prompt: sessionManager.getInitialPrompt(id) ?? sessionManager.getSession(id)!.prompt,
         attachments: attachmentsForRun.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
         webContents: view.webContents,
         cdpPort: resolvedCdp.port,
@@ -1234,6 +1251,45 @@ app.whenReady().then(async () => {
     });
   });
 
+  // Chat-side browser preview via CDP screencast. Renderer starts/stops per
+  // mount; we never auto-start so a session without a chat-view consumer
+  // costs zero CPU.
+  ipcMain.handle('sessions:preview-start', async (_evt, payload: unknown) => {
+    const data = payload && typeof payload === 'object' ? payload as { id?: unknown; ownerToken?: unknown } : null;
+    const id = typeof data?.id === 'string' ? data.id : '';
+    const ownerToken = typeof data?.ownerToken === 'string' ? data.ownerToken : '';
+    mainLogger.info('main.sessions:preview-start.request', {
+      id,
+      owner: ownerToken ? ownerToken.slice(-8) : undefined,
+      hasOwnerToken: !!ownerToken,
+    });
+    if (!id || !ownerToken) return { ok: false, reason: 'bad_id' };
+    const result = await sessionScreencast.start(id, ownerToken);
+    mainLogger.info('main.sessions:preview-start.result', {
+      id,
+      owner: ownerToken.slice(-8),
+      ...result,
+    });
+    return result;
+  });
+  ipcMain.handle('sessions:preview-stop', async (_evt, payload: unknown) => {
+    const id = typeof payload === 'string'
+      ? payload
+      : (payload && typeof payload === 'object' && typeof (payload as { id?: unknown }).id === 'string'
+          ? (payload as { id: string }).id
+          : '');
+    const ownerToken = payload && typeof payload === 'object' && typeof (payload as { ownerToken?: unknown }).ownerToken === 'string'
+      ? (payload as { ownerToken: string }).ownerToken
+      : undefined;
+    if (typeof id !== 'string' || !id) return;
+    mainLogger.info('main.sessions:preview-stop.request', {
+      id,
+      owner: ownerToken ? ownerToken.slice(-8) : undefined,
+      hasOwnerToken: !!ownerToken,
+    });
+    await sessionScreencast.stop(id, ownerToken);
+  });
+
   ipcMain.handle('sessions:create', (_event, payload: unknown) => {
     let promptRaw: unknown;
     let attachmentsRaw: unknown;
@@ -1256,10 +1312,11 @@ app.whenReady().then(async () => {
       engineId,
       attachmentMeta: attachments.map((a) => ({ name: a.name, mime: a.mime, size: a.bytes.byteLength })),
     });
-    const id = sessionManager.createSession(validatedPrompt);
+    const initialAttachmentTurnIndex = attachments.length > 0 ? 0 : undefined;
+    const id = sessionManager.createSession(validatedPrompt, { attachmentTurnIndex: initialAttachmentTurnIndex });
     sessionManager.setSessionEngine(id, engineId);
     if (attachments.length > 0) {
-      const turnIndex = sessionManager.getNextAttachmentTurnIndex(id);
+      const turnIndex = initialAttachmentTurnIndex ?? sessionManager.getNextAttachmentTurnIndex(id);
       for (const a of attachments) {
         sessionManager.saveAttachment(id, a, turnIndex);
       }
@@ -1311,10 +1368,13 @@ app.whenReady().then(async () => {
     return resumeSessionWithAgent(validatedId, validatedPrompt, resumeAttachments, 'resume');
   });
 
-  ipcMain.handle('sessions:rerun', async (_event, id: string) => {
-    const validatedId = assertString(id, 'id', 100);
+  ipcMain.handle('sessions:rerun', async (_event, payload: string | { id?: unknown; prompt?: unknown }) => {
+    const idRaw = typeof payload === 'string' ? payload : payload?.id;
+    const promptRaw = typeof payload === 'string' ? undefined : payload?.prompt;
+    const validatedId = assertString(idRaw, 'id', 100);
+    const kickoffOverride = promptRaw == null ? undefined : assertString(promptRaw, 'prompt', 10000);
     const t0 = Date.now();
-    mainLogger.info('main.sessions:rerun', { id: validatedId });
+    mainLogger.info('main.sessions:rerun', { id: validatedId, edited: kickoffOverride !== undefined });
 
     const session = sessionManager.getSession(validatedId);
     if (!session) return { error: 'Session not found' };
@@ -1324,7 +1384,8 @@ app.whenReady().then(async () => {
 
     const engineId = sessionManager.getSessionEngine(validatedId) ?? DEFAULT_ENGINE_ID;
     await stampConfiguredSessionModel(validatedId, engineId, 'rerun');
-    const abortController = sessionManager.rerunSession(validatedId);
+    const abortController = sessionManager.rerunSession(validatedId, kickoffOverride);
+    const kickoffPrompt = sessionManager.getInitialPrompt(validatedId) ?? session.prompt;
     captureEvent('session_rerun', {
       engine: engineId,
     });
@@ -1358,7 +1419,7 @@ app.whenReady().then(async () => {
       engineId,
       harnessDir: harnessDir(),
       sessionId: validatedId,
-      prompt: session.prompt,
+      prompt: kickoffPrompt,
       attachments: rerunAttachments.map((a) => ({ name: a.name, mime: a.mime, bytes: a.bytes })),
       webContents: view.webContents,
       cdpPort: resolvedCdp.port,
@@ -1529,14 +1590,123 @@ app.whenReady().then(async () => {
     return { ...result, installed };
   });
 
+  // Read a skill file by domain/topic (e.g. "user/fun/page-word-count") OR by
+  // absolute path under the harness dir. Returns light metadata (title from the
+  // first H1 or frontmatter `name`, description from frontmatter `description`)
+  // plus the raw body capped at 64 KB so the renderer can
+  // expand a SkillCard inline without a full file viewer.
+  ipcMain.handle('sessions:read-skill', async (_event, payload: { domainTopic?: string; absPath?: string }) => {
+    const MAX_BYTES = 64 * 1024;
+    const domainTopic = typeof payload?.domainTopic === 'string' ? payload.domainTopic.trim() : '';
+    const absPathIn = typeof payload?.absPath === 'string' ? payload.absPath.trim() : '';
+
+    // Resolution delegates to the shared `skillIdToPath` in harness.ts - that
+    // helper knows the on-disk layout (user skills are dirs containing SKILL.md;
+    // domain/interaction skills are flat .md files). When the caller already
+    // has an absolute path we trust it as a second candidate.
+    const candidates: string[] = [];
+    if (domainTopic) {
+      const resolved = skillIdToPath(domainTopic);
+      if (resolved) candidates.push(resolved);
+    }
+    if (absPathIn && path.isAbsolute(absPathIn) && absPathIn.endsWith('.md')) {
+      candidates.push(path.resolve(absPathIn));
+    }
+
+    const root = path.resolve(harnessDir());
+    let resolved: string | null = null;
+    for (const c of candidates) {
+      const r = path.resolve(c);
+      if (!r.startsWith(root + path.sep)) continue;
+      try {
+        const stat = fs.statSync(r);
+        if (stat.isFile()) { resolved = r; break; }
+      } catch {
+        // try next
+      }
+    }
+    if (!resolved) {
+      mainLogger.info('main.sessions:read-skill.notFound', { domainTopic, absPath: absPathIn, tried: candidates.length });
+      return { ok: false, error: 'skill not found' };
+    }
+
+    let body: string;
+    let truncated: boolean;
+    let sizeBytes: number;
+    let mtimeMs: number;
+    try {
+      const stat = fs.statSync(resolved);
+      sizeBytes = stat.size;
+      mtimeMs = stat.mtimeMs;
+      const fd = fs.openSync(resolved, 'r');
+      try {
+        const buf = Buffer.alloc(Math.min(MAX_BYTES, sizeBytes));
+        const n = fs.readSync(fd, buf, 0, buf.length, 0);
+        body = buf.slice(0, n).toString('utf-8');
+        truncated = sizeBytes > buf.length;
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (err) {
+      mainLogger.warn('main.sessions:read-skill.readFailed', { path: resolved, error: (err as Error).message });
+      return { ok: false, error: 'read failed' };
+    }
+
+    // Parse optional YAML frontmatter (first --- block). Only `name` and
+    // `description` are extracted; we intentionally don't pull in a full YAML
+    // parser for this - skills follow a flat single-line `key: value` convention.
+    let title = '';
+    let description = '';
+    let stripped = body;
+    const fmMatch = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (fmMatch) {
+      const fm = fmMatch[1];
+      for (const line of fm.split(/\r?\n/)) {
+        const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$/);
+        if (!m) continue;
+        const key = m[1].toLowerCase();
+        const value = m[2].replace(/^["']|["']$/g, '');
+        if (key === 'name' && !title) title = value;
+        if (key === 'description' && !description) description = value;
+      }
+      stripped = body.slice(fmMatch[0].length);
+    }
+    if (!title) {
+      const h1 = stripped.match(/^#\s+(.+?)\s*$/m);
+      if (h1) title = h1[1].trim();
+    }
+    // Description comes from frontmatter ONLY. The agent-skill validator now
+    // enforces that every skill ships with a real `description:` line, so
+    // there's no longer a body-paragraph fallback - that fallback used to
+    // surface raw markdown (H2 hooks, code fences) as the skill summary.
+
+    const lineCount = body.split('\n').length;
+    mainLogger.info('main.sessions:read-skill.ok', { path: resolved, sizeBytes, truncated });
+    return {
+      ok: true,
+      path: resolved,
+      filename: path.basename(resolved),
+      sizeBytes,
+      mtimeMs,
+      lineCount,
+      title,
+      description,
+      body,
+      truncated,
+    };
+  });
+
   ipcMain.handle('sessions:reveal-output', async (_event, filePath: string) => {
     const validated = assertString(filePath, 'filePath', 2000);
     const resolvedPath = path.isAbsolute(validated)
       ? path.resolve(validated)
       : path.resolve(harnessDir(), validated);
-    const outputsRoot = path.resolve(harnessDir(), 'outputs');
-    if (!resolvedPath.startsWith(outputsRoot + path.sep)) {
-      throw new Error('refused: path outside outputs dir');
+    const harnessRoot = path.resolve(harnessDir());
+    const outputsRoot = path.resolve(harnessRoot, 'outputs');
+    const isOutputFile = resolvedPath.startsWith(outputsRoot + path.sep);
+    const isSkillFile = skillMetaFromPath(resolvedPath, harnessRoot) !== null;
+    if (!isOutputFile && !isSkillFile) {
+      throw new Error('refused: path outside outputs or skills dir');
     }
     shell.showItemInFolder(resolvedPath);
     mainLogger.info('main.sessions:reveal-output', { path: resolvedPath });
@@ -1663,15 +1833,12 @@ app.whenReady().then(async () => {
     if (!shellWindow) return;
     const view = browserPool.getView(id);
     if (!view) return;
-    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
-    // (Intentionally no setZoomFactor here — previously we recomputed zoom
-    // on every resize to fit the emulated viewport, but that clobbered any
-    // manual zoom the user set via Cmd+=/Cmd+- and felt like the browser
-    // was "resetting itself" on layout changes.)
     const children = shellWindow.contentView.children;
-    if (!children.includes(view)) {
-      shellWindow.contentView.addChildView(view);
+    if (!browserPool.isAttached(id) || !children.includes(view)) {
+      const ok = browserPool.attachToWindow(id, shellWindow, bounds);
+      if (!ok) return;
     }
+    const fitted = browserPool.setViewBoundsFitted(id, bounds) ?? bounds;
     // Keep takeover overlay tracking the browser rect and sitting above it.
     // Use the fitted (centered) rect so the overlay aligns with the visible
     // view, not the wider hub box.

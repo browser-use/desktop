@@ -251,10 +251,15 @@ export function getAnnouncedCdpPort(): number {
  * to catch port collisions that would otherwise silently hand the agent the
  * wrong CDP endpoint.
  *
- * Returns { ok: true } when Browser starts with 'Electron/', { ok: false }
- * otherwise. Caller is responsible for logging + surfacing errors.
+ * Returns { ok: true } when the endpoint reports the expected app-level UA,
+ * or when it falls back to the Electron/BrowserUse ownership heuristic.
+ * Caller is responsible for logging + surfacing errors.
  */
-export async function verifyCdpOwnership(port: number, timeoutMs = 2000): Promise<{ ok: boolean; browser?: string; userAgent?: string; error?: string }> {
+export async function verifyCdpOwnership(
+  port: number,
+  timeoutMs = 2000,
+  expectedUserAgent?: string,
+): Promise<{ ok: boolean; browser?: string; userAgent?: string; error?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const http = require('node:http') as typeof import('node:http');
   return new Promise((resolve) => {
@@ -274,7 +279,9 @@ export async function verifyCdpOwnership(port: number, timeoutMs = 2000): Promis
             // only visible in User-Agent (".../Electron/41.2.1 ..."). Also
             // accept our productName so a renamed/rebranded build is
             // recognised when Electron/ slips.
-            const ok = /\bElectron\//.test(userAgent) || /\bBrowserUse\//.test(userAgent);
+            const ok = expectedUserAgent
+              ? userAgent === expectedUserAgent
+              : /\bElectron\//.test(userAgent) || /\bBrowserUse\//.test(userAgent);
             resolve({ ok, browser, userAgent });
           } catch (err) {
             resolve({ ok: false, error: `parse failed: ${(err as Error).message}` });

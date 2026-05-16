@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionsPane } from '../../../src/renderer/hub/ConnectionsPane';
+import { ToastProvider } from '../../../src/renderer/components/base/Toast';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,7 +108,11 @@ function renderConnectionsPane(): { container: HTMLDivElement; root: Root } {
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(<ConnectionsPane embedded />);
+    root.render(
+      <ToastProvider>
+        <ConnectionsPane embedded />
+      </ToastProvider>,
+    );
   });
   return { container, root };
 }

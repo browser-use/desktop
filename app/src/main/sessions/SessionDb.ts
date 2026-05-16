@@ -55,12 +55,14 @@ export class SessionDb {
     getEvents: Database.Statement;
     getEventsAfter: Database.Statement;
     getEventCount: Database.Statement;
+    getFirstUserInput: Database.Statement;
     recoverCrashed: Database.Statement;
     recoverIdle: Database.Statement;
     insertAttachment: Database.Statement;
     getAttachmentsMeta: Database.Statement;
     getAttachmentBytes: Database.Statement;
     getLatestTurnAttachments: Database.Statement;
+    getAttachmentsByTurnIndex: Database.Statement;
     getAttachmentTotalSize: Database.Statement;
     getNextTurnIndex: Database.Statement;
     getAttachmentCount: Database.Statement;
@@ -145,6 +147,9 @@ export class SessionDb {
         'SELECT payload FROM session_events WHERE session_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?'
       ),
       getEventCount: this.db.prepare('SELECT COUNT(*) as cnt FROM session_events WHERE session_id = ?'),
+      getFirstUserInput: this.db.prepare(
+        "SELECT payload FROM session_events WHERE session_id = ? AND type = 'user_input' ORDER BY seq ASC LIMIT 1"
+      ),
       recoverCrashed: this.db.prepare(
         "UPDATE sessions SET status = 'stopped', error = ?, updated_at = ? WHERE status IN ('running', 'stuck')"
       ),
@@ -165,6 +170,9 @@ export class SessionDb {
          WHERE session_id = ? AND turn_index = (
            SELECT COALESCE(MAX(turn_index), 0) FROM session_attachments WHERE session_id = ?
          ) ORDER BY id ASC`
+      ),
+      getAttachmentsByTurnIndex: this.db.prepare(
+        'SELECT id, name, mime, bytes, size, turn_index FROM session_attachments WHERE session_id = ? AND turn_index = ? ORDER BY id ASC'
       ),
       getAttachmentTotalSize: this.db.prepare(
         'SELECT COALESCE(SUM(size), 0) AS total FROM session_attachments WHERE session_id = ?'
@@ -643,6 +651,22 @@ export class SessionDb {
     return row.cnt;
   }
 
+  getFirstUserInputText(sessionId: string): string | null {
+    const row = this.stmts.getFirstUserInput.get(sessionId) as { payload: string } | undefined;
+    if (!row) return null;
+    try {
+      const event = JSON.parse(row.payload) as Partial<HlEvent>;
+      return event.type === 'user_input' && typeof event.text === 'string' ? event.text : null;
+    } catch (err) {
+      mainLogger.error('SessionDb.getFirstUserInputText.parseFailed', {
+        sessionId,
+        payload: row.payload.slice(0, 100),
+        error: (err as Error).message,
+      });
+      return null;
+    }
+  }
+
   // -- Attachments ----------------------------------------------------------
 
   getNextTurnIndex(sessionId: string): number {
@@ -691,6 +715,17 @@ export class SessionDb {
       sessionId,
       count: rows.length,
       turnIndex: rows[0]?.turn_index ?? null,
+      totalBytes: rows.reduce((a, r) => a + r.size, 0),
+    });
+    return rows;
+  }
+
+  getAttachmentsByTurnIndex(sessionId: string, turnIndex: number): Array<{ id: number; name: string; mime: string; bytes: Buffer; size: number; turn_index: number }> {
+    const rows = this.stmts.getAttachmentsByTurnIndex.all(sessionId, turnIndex) as Array<{ id: number; name: string; mime: string; bytes: Buffer; size: number; turn_index: number }>;
+    mainLogger.info('SessionDb.getAttachmentsByTurnIndex', {
+      sessionId,
+      count: rows.length,
+      turnIndex,
       totalBytes: rows.reduce((a, r) => a + r.size, 0),
     });
     return rows;

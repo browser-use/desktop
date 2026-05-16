@@ -4,6 +4,14 @@ import type { ActionId, KeyBinding } from './keybindings';
 import { fallbackShortcutPlatform, keyboardEventToShortcut } from '../../shared/hotkeys';
 import { useThemeMode } from '../design/useThemeMode';
 import type { ThemeMode } from '../design/themeMode';
+import { useToast } from '@/renderer/components/base/Toast';
+import {
+  PRESETS as SPINNER_VERB_PRESETS,
+  useSpinnerVerbsStore,
+  MIN_CYCLE_MS,
+  MAX_CYCLE_MS,
+  type SpinnerPresetId,
+} from './chat/spinnerVerbs';
 
 /**
  * Generic settings primitives. Add a new option type and every section that
@@ -85,6 +93,107 @@ function AppearanceSection(): React.ReactElement {
           options={APPEARANCE_OPTIONS}
           onChange={setMode}
           ariaLabel="Theme"
+        />
+      </SettingsRow>
+    </div>
+  );
+}
+
+function SpinnerVerbsSection(): React.ReactElement {
+  const presetId = useSpinnerVerbsStore((s) => s.presetId);
+  const customVerbs = useSpinnerVerbsStore((s) => s.customVerbs);
+  const cycleMs = useSpinnerVerbsStore((s) => s.cycleMs);
+  const setPreset = useSpinnerVerbsStore((s) => s.setPreset);
+  const setCustomVerbs = useSpinnerVerbsStore((s) => s.setCustomVerbs);
+  const setCycleMs = useSpinnerVerbsStore((s) => s.setCycleMs);
+
+  const [draft, setDraft] = useState(customVerbs.join('\n'));
+  // Keep the local textarea in sync when something else mutates the store
+  // (e.g. preset reset), but don't fight the user mid-edit.
+  const lastSyncedRef = useRef(customVerbs.join('\n'));
+  useEffect(() => {
+    const next = customVerbs.join('\n');
+    if (next !== lastSyncedRef.current && next !== draft) {
+      setDraft(next);
+      lastSyncedRef.current = next;
+    }
+  }, [customVerbs, draft]);
+
+  const presetOptions = [
+    ...(Object.entries(SPINNER_VERB_PRESETS) as Array<[Exclude<SpinnerPresetId, 'custom'>, typeof SPINNER_VERB_PRESETS[keyof typeof SPINNER_VERB_PRESETS]]>),
+  ];
+
+  const activePreview = presetId === 'custom'
+    ? (customVerbs.length > 0 ? customVerbs : ['Working'])
+    : SPINNER_VERB_PRESETS[presetId].verbs;
+
+  const commitDraft = (): void => {
+    const next = draft.split('\n').map((v) => v.trim()).filter(Boolean);
+    setCustomVerbs(next);
+    lastSyncedRef.current = next.join('\n');
+  };
+
+  return (
+    <div className="settings-card">
+      <SettingsRow
+        label="Spinner verb"
+        sublabel="The word shown next to the busy spinner. Cycles through the list while the agent runs."
+      >
+        <select
+          className="settings-pane__select"
+          value={presetId}
+          onChange={(e) => setPreset(e.target.value as SpinnerPresetId)}
+          aria-label="Spinner verb preset"
+        >
+          {presetOptions.map(([id, preset]) => (
+            <option key={id} value={id}>{preset.label}</option>
+          ))}
+          <option value="custom">Custom</option>
+        </select>
+      </SettingsRow>
+
+      <SettingsRow
+        label="Preview"
+        sublabel={presetId === 'custom'
+          ? `${activePreview.length} custom verb${activePreview.length === 1 ? '' : 's'}.`
+          : SPINNER_VERB_PRESETS[presetId].description}
+      >
+        <div className="settings-pane__value" style={{ maxWidth: 320, textAlign: 'right' }}>
+          {activePreview.slice(0, 6).join(' / ')}{activePreview.length > 6 ? ' ...' : ''}
+        </div>
+      </SettingsRow>
+
+      {presetId === 'custom' && (
+        <SettingsRow
+          label="Custom verbs"
+          sublabel={'One verb per line. Blank lines are ignored. Falls back to "Working" if empty.'}
+        >
+          <textarea
+            className="settings-pane__textarea"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
+            placeholder={'Brewing\nCooking\nThinking'}
+            rows={6}
+            spellCheck={false}
+            style={{ minWidth: 260, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}
+          />
+        </SettingsRow>
+      )}
+
+      <SettingsRow
+        label="Cycle interval"
+        sublabel={`How long each verb stays visible (${(cycleMs / 1000).toFixed(1)}s).`}
+      >
+        <input
+          type="range"
+          min={MIN_CYCLE_MS}
+          max={MAX_CYCLE_MS}
+          step={100}
+          value={cycleMs}
+          onChange={(e) => setCycleMs(Number(e.target.value))}
+          aria-label="Spinner verb cycle interval"
+          style={{ width: 200 }}
         />
       </SettingsRow>
     </div>
@@ -362,6 +471,7 @@ function PrivacySection(): React.ReactElement {
   const [telemetry, setTelemetry] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const api = (window as unknown as { electronAPI: { settings: { privacy: ElectronPrivacyAPI } } }).electronAPI.settings.privacy;
+  const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -379,12 +489,21 @@ function PrivacySection(): React.ReactElement {
     try {
       const res = await api.setTelemetry(next);
       setTelemetry(res.telemetry);
+      toast.show({
+        variant: 'success',
+        title: res.telemetry ? 'Telemetry enabled' : 'Telemetry disabled',
+      });
     } catch {
       setTelemetry(!next); // revert
+      toast.show({
+        variant: 'error',
+        title: 'Could not save setting',
+        message: 'Telemetry change could not be saved. Please try again.',
+      });
     } finally {
       setSaving(false);
     }
-  }, [telemetry, saving, api]);
+  }, [telemetry, saving, api, toast]);
 
   return (
     <div className="settings-card">
@@ -663,6 +782,7 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
               <h2 className="settings-section-header__title">Appearance</h2>
             </div>
             <AppearanceSection />
+            <SpinnerVerbsSection />
           </section>
 
           <ConnectionsPane

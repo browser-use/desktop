@@ -55,6 +55,15 @@ const runNpm = (args: string[], cwd: string): void => {
   execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { cwd, stdio: 'inherit' });
 };
 
+function isViteOutputPath(file: string): boolean {
+  const normalized = file.split(path.sep).join('/');
+  if (normalized === '/.vite' || normalized.startsWith('/.vite/')) return true;
+  if (normalized === '.vite' || normalized.startsWith('.vite/')) return true;
+  if (!path.isAbsolute(file)) return false;
+  const rel = path.relative(__dirname, file).split(path.sep).join('/');
+  return rel === '.vite' || rel.startsWith('.vite/');
+}
+
 // ---------------------------------------------------------------------------
 // Forge configuration
 // ---------------------------------------------------------------------------
@@ -68,32 +77,13 @@ const config: ForgeConfig = {
     name: 'Browser Use',
     executableName: 'browser-use-desktop',
 
-    // Exclude dev-only files from the packaged app.asar. Without this,
-    // Forge ships src/, tests/, personal planning .md files, Vite
-    // source configs, CI configs, README, etc. — the DMG balloons and
-    // users get dev notes. Paths arrive with a leading slash.
-    ignore: [
-      /^\/src($|\/)/,                             // TS source; compiled output is in .vite/build
-      /^\/tests($|\/)/,
-      /^\/scripts($|\/)/,
-      /^\/python($|\/)/,                          // daemon removed; defensive
-      /^\/harnessless($|\/)/,
-      /^\/\.github($|\/)/,
-      /^\/\.claude($|\/)/,
-      /^\/\.vscode($|\/)/,
-      /^\/coverage($|\/)/,
-      /^\/reagan_.*$/,                            // personal planning docs
-      /^\/.*\.md$/,                               // all markdown (README, docs, etc.)
-      /^\/tsconfig.*\.json$/,
-      /^\/eslint\.config\.(ts|mts|js|mjs|cjs)$/,
-      /^\/vite\..*\.(ts|mts)$/,                   // dev-time vite configs
-      /^\/forge\.config\.(ts|js)$/,
-      /^\/playwright\.config\.(ts|js)$/,
-      /^\/knip\.json$/,
-      /^\/\.env(\..+)?$/,                         // never ship .env to users
-      /^\/Taskfile\.ya?ml$/,
-      /^\/.+\.map$/,                              // sourcemaps
-    ],
+    // The Vite plugin expects packaged app contents to come only from .vite.
+    // Production externals are installed back into the build path in the
+    // packageAfterPrune hook below, and app-update.yml is copied as a resource.
+    ignore: (file) => {
+      if (!file) return false;
+      return !isViteOutputPath(file);
+    },
 
     // macOS bundle identity — only set when credentials are available.
     // Real Developer ID signing only runs via @electron/osx-sign when

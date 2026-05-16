@@ -46,11 +46,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[ErrorBoundary] Caught error:', {
-      message: error.message,
-      stack: error.stack,
-      componentStack: info.componentStack,
-    });
+    // Inline the message/stack into the first arg so Electron's
+    // `console-message` forwarder (window.ts) captures everything in
+    // renderer.log — passing structured args yields "[object Object]" because
+    // only the first formatted string survives the IPC.
+    const stack = error.stack ?? '(no stack)';
+    const componentStack = info.componentStack ?? '(no component stack)';
+    console.error(`[ErrorBoundary] ${error.name}: ${error.message}\nstack: ${stack}\ncomponentStack: ${componentStack}`);
   }
 
   private handleReload = (): void => {

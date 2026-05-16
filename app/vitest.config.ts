@@ -30,6 +30,7 @@ export default defineConfig({
     globals: false,
     // Mock electron module so tests run outside Electron
     alias: {
+      '@': path.resolve(__dirname, 'src'),
       electron: path.resolve(__dirname, 'tests/fixtures/electron-mock.ts'),
     },
     coverage: {
@@ -57,6 +58,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@': path.resolve(__dirname, 'src'),
       electron: path.resolve(__dirname, 'tests/fixtures/electron-mock.ts'),
     },
   },
