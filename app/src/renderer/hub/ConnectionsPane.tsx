@@ -132,6 +132,7 @@ export function ConnectionsPane({
   // for the user to complete the OAuth in their browser. Drives the card's
   // 'Waiting for login…' subtitle + button-disabled state.
   const [claudeWaiting, setClaudeWaiting] = useState(false);
+  const [claudeCodeModel, setClaudeCodeModel] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draftKey, setDraftKey] = useState('');
   const [keyStatus, setKeyStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
@@ -173,6 +174,8 @@ export function ConnectionsPane({
       setAuthStatus(status);
       const cc = await api.settings.claudeCode?.available();
       if (cc) setClaudeCodeAvailable(cc);
+      const modelResult = await api.settings.claudeCode?.getModel?.();
+      if (modelResult !== undefined) setClaudeCodeModel(modelResult.model);
     } catch (err) {
       console.error('[connections] refreshKey failed', err);
     } finally {
@@ -807,6 +810,29 @@ export function ConnectionsPane({
         {!editing && keyError && (
           <div className="conn-card__api-key-edit">
             <span className="conn-card__api-key-error">{keyError}</span>
+          </div>
+        )}
+        {!editing && authStatus.type !== 'none' && claudeStatus.installed && (
+          <div className="conn-card__api-key-edit" style={{ alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontSize: '12px', color: 'var(--text-secondary, #888)', whiteSpace: 'nowrap' }}>
+              Model
+            </label>
+            <select
+              style={{ flex: 1, fontSize: '12px', background: 'var(--input-bg, #1a1a1a)', color: 'var(--text-primary, #fff)', border: '1px solid var(--border, #333)', borderRadius: '4px', padding: '4px 6px' }}
+              value={claudeCodeModel ?? ''}
+              onChange={async (e) => {
+                const val = e.target.value || null;
+                setClaudeCodeModel(val);
+                await window.electronAPI?.settings?.claudeCode?.setModel?.(val);
+              }}
+            >
+              <option value="">Default (claude-sonnet-4-6)</option>
+              <option value="claude-haiku-4-5-20251001">Haiku 4.5 — fastest</option>
+              <option value="claude-sonnet-4-5">Sonnet 4.5</option>
+              <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+              <option value="claude-opus-4-5">Opus 4.5</option>
+              <option value="claude-opus-4-7">Opus 4.7 — most powerful</option>
+            </select>
           </div>
         )}
       </div>

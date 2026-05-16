@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { engineLogger } from '../../logger';
-import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType, loadBrowserCodeConfig } from '../../identity/authStore';
+import { resolveAuth, loadOpenAIKey, loadClaudeSubscriptionType, loadBrowserCodeConfig, loadClaudeCodeModel } from '../../identity/authStore';
 import { helpersPath, skillPath } from '../harness';
 import { get as getAdapter } from './registry';
 import { spawnCli } from './cliSpawn';
@@ -151,6 +151,10 @@ export async function runEngine(opts: RunEngineOptions): Promise<void> {
       const auth = await resolveAuth();
       if (auth?.type === 'apiKey') savedApiKey = auth.value;
       cliAuthed = (await adapter.probeAuthed()).authed;
+      if (adapter.id === 'claude-code') {
+        const savedModel = await loadClaudeCodeModel();
+        if (savedModel) model = savedModel;
+      }
     }
   } catch (err) {
     engineLogger.warn('engines.run.auth.resolveFailed', { error: (err as Error).message });
