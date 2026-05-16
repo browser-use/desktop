@@ -192,6 +192,7 @@ export class SessionScreencast {
       return { ok: true };
     } finally {
       this.forgetStartingOwner(sessionId, ownerToken);
+      this.forgetCancelledOwner(sessionId, ownerToken);
     }
   }
 
@@ -363,6 +364,13 @@ export class SessionScreencast {
     if (!owners?.delete(ownerToken)) return false;
     if (owners.size === 0) this.cancelledOwners.delete(sessionId);
     return true;
+  }
+
+  private forgetCancelledOwner(sessionId: string, ownerToken: string): void {
+    const owners = this.cancelledOwners.get(sessionId);
+    if (!owners) return;
+    owners.delete(ownerToken);
+    if (owners.size === 0) this.cancelledOwners.delete(sessionId);
   }
 
   private detachIfOwned(preview: ActivePreview): void {

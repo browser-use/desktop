@@ -130,6 +130,28 @@ describe('SessionScreencast', () => {
     expect(pool.releasePreviewParking).toHaveBeenCalledWith('s1', expect.anything());
   });
 
+  it('does not let a cancelled failed start block a later retry with the same owner', async () => {
+    const wc = mockWebContents({ attached: true });
+    const { screencast, pool } = makeScreencast(wc);
+    const gate = deferred<{ ok: boolean; parkedByUs: boolean; reason?: string }>();
+    vi.mocked(pool.parkForPreview)
+      .mockImplementationOnce(async () => {
+        await gate.promise;
+        return { ok: false, parkedByUs: false, reason: 'not_found' };
+      })
+      .mockResolvedValue({ ok: true, parkedByUs: false });
+
+    const start = screencast.start('s1', 'preview-retry');
+    await screencast.stop('s1', 'preview-retry');
+    gate.resolve({ ok: false, parkedByUs: false, reason: 'not_found' });
+
+    await expect(start).resolves.toEqual({ ok: false, reason: 'not_found' });
+    await expect(screencast.start('s1', 'preview-retry')).resolves.toEqual({ ok: true });
+    expect(screencast.isActive('s1')).toBe(true);
+
+    await screencast.stop('s1', 'preview-retry');
+  });
+
   it('does not let stale in-flight cleanup detach a newer preview', async () => {
     vi.useFakeTimers();
     const wc = mockWebContents({ delayCapture: true });
