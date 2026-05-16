@@ -63,10 +63,11 @@ interface Credentials {
   anthropicApiKey: string | null;
   openaiApiKey: string | null;
   browserCode: BrowserCodeStore | null;
+  claudeCodeModel: string | null;
 }
 
 function emptyCredentials(): Credentials {
-  return { authMode: null, anthropicApiKey: null, openaiApiKey: null, browserCode: null };
+  return { authMode: null, anthropicApiKey: null, openaiApiKey: null, browserCode: null, claudeCodeModel: null };
 }
 
 export interface BrowserCodeKeyEntry {
@@ -123,6 +124,7 @@ async function getAll(): Promise<Credentials> {
             anthropicApiKey: parsed.anthropicApiKey ?? null,
             openaiApiKey: parsed.openaiApiKey ?? null,
             browserCode: normalizeBrowserCodeStore((parsed as Partial<Credentials>).browserCode),
+            claudeCodeModel: typeof parsed.claudeCodeModel === 'string' ? parsed.claudeCodeModel : null,
           };
           return cached;
         } catch (err) {
@@ -143,6 +145,7 @@ async function getAll(): Promise<Credentials> {
         anthropicApiKey: apiKeyRaw ?? null,
         openaiApiKey: openaiRaw ?? null,
         browserCode: null,
+        claudeCodeModel: null,
       };
       const hasLegacyData =
         cached.authMode !== null ||
@@ -456,4 +459,15 @@ export async function resolveAuth(): Promise<ResolvedAuth> {
   if (envKey) return { type: 'apiKey', value: envKey };
 
   return null;
+}
+
+export async function loadClaudeCodeModel(): Promise<string | null> {
+  return (await getAll()).claudeCodeModel;
+}
+
+export async function saveClaudeCodeModel(model: string | null): Promise<void> {
+  const c = await getAll();
+  c.claudeCodeModel = model;
+  await persistCache();
+  mainLogger.info('authStore.saveClaudeCodeModel', { model });
 }

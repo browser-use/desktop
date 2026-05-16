@@ -141,7 +141,7 @@ const claudeCodeAdapter: EngineAdapter = {
     return lines.join('\n');
   },
 
-  buildSpawnArgs(_ctx: SpawnContext, wrappedPrompt: string): string[] {
+  buildSpawnArgs(ctx: SpawnContext, wrappedPrompt: string): string[] {
     const args: string[] = [
       '-p',
       '--output-format', 'stream-json',
@@ -149,7 +149,8 @@ const claudeCodeAdapter: EngineAdapter = {
       '--verbose',
       '--dangerously-skip-permissions',
     ];
-    if (_ctx.resumeSessionId) args.push('--resume', _ctx.resumeSessionId);
+    if (ctx.model) args.push('--model', ctx.model);
+    if (ctx.resumeSessionId) args.push('--resume', ctx.resumeSessionId);
     args.push(wrappedPrompt);
     return args;
   },

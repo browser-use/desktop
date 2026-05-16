@@ -250,6 +250,8 @@ interface ElectronSettingsClaudeCodeAPI {
   use: () => Promise<{ subscriptionType: string | null }>;
   login: () => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<{ opened: boolean; error?: string }>;
+  getModel: () => Promise<{ model: string | null }>;
+  setModel: (model: string | null) => Promise<void>;
 }
 
 interface ElectronSettingsOpenAiKeyAPI {

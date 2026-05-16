@@ -20,6 +20,8 @@ import {
   deleteBrowserCodeConfig,
   loadBrowserCodeStore,
   setActiveBrowserCodeProvider,
+  loadClaudeCodeModel,
+  saveClaudeCodeModel,
 } from '../identity/authStore';
 import { probeClaudeAuthStatus } from '../identity/claudeCodeAuth';
 import { spawnCli } from '../hl/engines/cliSpawn';
@@ -37,6 +39,8 @@ const CH_TEST = 'settings:api-key:test';
 const CH_DELETE = 'settings:api-key:delete';
 const CH_CC_AVAILABLE = 'settings:claude-code:available';
 const CH_CC_USE = 'settings:claude-code:use';
+const CH_CC_MODEL_GET = 'settings:claude-code:model:get';
+const CH_CC_MODEL_SET = 'settings:claude-code:model:set';
 const CH_OAI_GET_STATUS = 'settings:openai-key:get-status';
 const CH_OAI_SAVE = 'settings:openai-key:save';
 const CH_OAI_TEST = 'settings:openai-key:test';
@@ -570,6 +574,19 @@ async function handleClaudeCodeLogout(): Promise<{ opened: boolean; error?: stri
   return runLogoutCommand('claude', ['auth', 'logout']);
 }
 
+async function handleClaudeCodeModelGet(): Promise<{ model: string | null }> {
+  const model = await loadClaudeCodeModel();
+  return { model };
+}
+
+async function handleClaudeCodeModelSet(
+  _e: Electron.IpcMainInvokeEvent,
+  model: string | null,
+): Promise<void> {
+  mainLogger.info('apiKeyIpc.claudeCode.model.set', { model });
+  await saveClaudeCodeModel(model);
+}
+
 export function registerApiKeyHandlers(): void {
   ipcMain.handle(CH_GET_STATUS, handleGetStatus);
   ipcMain.handle(CH_GET_MASKED, handleGetMasked);
@@ -585,6 +602,8 @@ export function registerApiKeyHandlers(): void {
   ipcMain.handle(CH_CODEX_LOGOUT, handleCodexLogout);
   ipcMain.handle(CH_CC_LOGIN, handleClaudeCodeLogin);
   ipcMain.handle(CH_CC_LOGOUT, handleClaudeCodeLogout);
+  ipcMain.handle(CH_CC_MODEL_GET, handleClaudeCodeModelGet);
+  ipcMain.handle(CH_CC_MODEL_SET, handleClaudeCodeModelSet);
   ipcMain.handle(CH_BCODE_GET_STATUS, handleBrowserCodeGetStatus);
   ipcMain.handle(CH_BCODE_SAVE, handleBrowserCodeSave);
   ipcMain.handle(CH_BCODE_TEST, handleBrowserCodeTest);

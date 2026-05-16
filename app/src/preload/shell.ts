@@ -83,6 +83,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('settings:claude-code:login'),
       logout: (): Promise<{ opened: boolean; error?: string }> =>
         ipcRenderer.invoke('settings:claude-code:logout'),
+      getModel: (): Promise<{ model: string | null }> =>
+        ipcRenderer.invoke('settings:claude-code:model:get'),
+      setModel: (model: string | null): Promise<void> =>
+        ipcRenderer.invoke('settings:claude-code:model:set', model),
     },
     openaiKey: {
       getStatus: (): Promise<{ present: boolean; masked?: string }> =>
