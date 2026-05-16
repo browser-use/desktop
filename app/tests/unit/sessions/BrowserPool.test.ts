@@ -96,6 +96,18 @@ describe('BrowserPool — creation', () => {
     expect(pool.getView('nonexistent')).toBeNull();
   });
 
+  it('sets session views to a Firefox-compatible user agent', () => {
+    const view = pool.create('s1');
+    const ua = (view!.webContents as unknown as { getUserAgent: () => string }).getUserAgent();
+
+    expect(ua).toContain('Firefox/');
+    expect(ua).toContain('Gecko/20100101');
+    expect(ua).not.toContain('Chrome/');
+    expect(ua).not.toContain('Safari/');
+    expect(ua).not.toContain('Electron');
+    expect(ua).not.toContain('BrowserUse');
+  });
+
   it('notifies when Ctrl+C is pressed inside a browser view and prevents the page keypress when handled', () => {
     const view = pool.create('s1');
     const onInterruptShortcut = vi.fn(() => true);
@@ -362,7 +374,8 @@ describe('BrowserPool — idle CPU throttling', () => {
     expect(setFrameRate).toHaveBeenLastCalledWith(1);
 
     await vi.advanceTimersByTimeAsync(100);
-    expect(sendCommand).toHaveBeenCalledWith('Page.setWebLifecycleState', { state: 'frozen' });
+    const lifecycleCalls = sendCommand.mock.calls.filter(([method]) => method === 'Page.setWebLifecycleState');
+    expect(lifecycleCalls).toEqual([['Page.setWebLifecycleState', { state: 'frozen' }]]);
   });
 
   it('does not freeze an idle session while it is visible', async () => {
@@ -376,7 +389,8 @@ describe('BrowserPool — idle CPU throttling', () => {
     pool.markSessionIdle('s1');
 
     await vi.advanceTimersByTimeAsync(100);
-    expect(sendCommand).not.toHaveBeenCalled();
+    const lifecycleCalls = sendCommand.mock.calls.filter(([method]) => method === 'Page.setWebLifecycleState');
+    expect(lifecycleCalls).toEqual([]);
     expect(setFrameRate).toHaveBeenLastCalledWith(60);
   });
 
@@ -390,8 +404,11 @@ describe('BrowserPool — idle CPU throttling', () => {
     await vi.advanceTimersByTimeAsync(100);
     await pool.markSessionActive('s1');
 
-    expect(sendCommand).toHaveBeenNthCalledWith(1, 'Page.setWebLifecycleState', { state: 'frozen' });
-    expect(sendCommand).toHaveBeenNthCalledWith(2, 'Page.setWebLifecycleState', { state: 'active' });
+    const lifecycleCalls = sendCommand.mock.calls.filter(([method]) => method === 'Page.setWebLifecycleState');
+    expect(lifecycleCalls).toEqual([
+      ['Page.setWebLifecycleState', { state: 'frozen' }],
+      ['Page.setWebLifecycleState', { state: 'active' }],
+    ]);
     expect(setFrameRate).toHaveBeenLastCalledWith(4);
   });
 });
