@@ -16,18 +16,40 @@ import path from 'node:path';
 // dev-time fallback.
 loadDotEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
-import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, crashReporter, globalShortcut, ipcMain, Menu, MenuItemConstructorOptions, nativeImage, session, shell } from 'electron';
 import { mergeChromiumFeature } from './startup/chromiumFeatures';
 import { registerChatfilePrivileges, registerChatfileHandler } from './protocols/chatfile';
+import {
+  buildBrowserIdentity,
+  withBrowserIdentityHeaders,
+} from './sessions/browserIdentity';
 
 // Must run before app.whenReady — Electron caches scheme privileges at startup.
 registerChatfilePrivileges();
 
-if (process.platform === 'linux') {
-  app.commandLine.appendSwitch(
-    'enable-features',
-    mergeChromiumFeature(app.commandLine.getSwitchValue('enable-features'), 'GlobalShortcutsPortal'),
+const appBrowserIdentity = buildBrowserIdentity();
+const FIREFOX_COMPAT_DISABLED_CHROMIUM_FEATURES = [
+  'UserAgentClientHint',
+] as const;
+const BROWSER_COMPAT_ENABLED_CHROMIUM_FEATURES = [
+  'WebShare',
+] as const;
+
+function appendChromiumFeatures(switchName: string, features: readonly string[]): void {
+  const next = features.reduce(
+    (current, feature) => mergeChromiumFeature(current, feature),
+    app.commandLine.getSwitchValue(switchName),
   );
+  app.commandLine.appendSwitch(switchName, next);
+}
+
+app.userAgentFallback = appBrowserIdentity.userAgent;
+appendChromiumFeatures('disable-blink-features', ['AutomationControlled']);
+appendChromiumFeatures('disable-features', FIREFOX_COMPAT_DISABLED_CHROMIUM_FEATURES);
+appendChromiumFeatures('enable-features', BROWSER_COMPAT_ENABLED_CHROMIUM_FEATURES);
+
+if (process.platform === 'linux') {
+  appendChromiumFeatures('enable-features', ['GlobalShortcutsPortal']);
 }
 
 app.setName('Browser Use');
@@ -257,6 +279,23 @@ function restorableResumeUrl(lastUrl: string | null | undefined): string {
   return 'about:blank';
 }
 
+function registerBrowserIdentityHeaders(): void {
+  const identity = appBrowserIdentity;
+  session.defaultSession.setUserAgent(identity.userAgent, identity.acceptLanguageOverride);
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['http://*/*', 'https://*/*'] },
+    (details, callback) => {
+      const requestHeaders = withBrowserIdentityHeaders(details.requestHeaders, identity);
+      callback({ requestHeaders });
+    },
+  );
+  mainLogger.info('main.browserIdentity.headersRegistered', {
+    userAgent: identity.userAgent,
+    browser: 'Firefox',
+    platform: identity.platformLabel,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Single-instance focus
 // ---------------------------------------------------------------------------
@@ -395,16 +434,17 @@ function openShellAndWire(): BrowserWindow {
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
   mainLogger.info('main.appReady', { msg: 'Electron app ready — initializing Browser Use' });
+  registerBrowserIdentityHeaders();
   registerChatfileHandler();
   startResourceMonitor(resourceMonitorContext);
 
-  // Verify the CDP endpoint at our announced port is actually OUR Electron
+  // Verify the CDP endpoint at our announced port is actually OUR app
   // instance and not, e.g., the user's own Chrome that happened to already
-  // bind 9222. Without this, BU_CDP_PORT handed to the agent would point at
+  // bind the chosen port. Without this, BU_CDP_PORT handed to the agent would point at
   // a stranger's browser — `/json/list` returns targets the agent has no
   // access to, and `/devtools/page/<id>` gives 404/403. Log loudly on
   // mismatch so users hit a clear error instead of mysterious CDP failures.
-  verifyCdpOwnership(resolvedCdp.port).then((v) => {
+  verifyCdpOwnership(resolvedCdp.port, 2000, appBrowserIdentity.userAgent).then((v) => {
     if (v.ok) {
       mainLogger.info('main.cdp.verified', { port: resolvedCdp.port, browser: v.browser, userAgent: v.userAgent });
     } else {
@@ -415,7 +455,7 @@ app.whenReady().then(async () => {
         userAgent: v.userAgent ?? null,
         error: v.error ?? null,
         hint: v.userAgent
-          ? `CDP on :${resolvedCdp.port} responded but User-Agent does not contain Electron/ or BrowserUse/ — another Chromium-based process likely owns this port. Close it (or pass --remote-debugging-port=<free port>) and restart.`
+          ? `CDP on :${resolvedCdp.port} responded with an unexpected User-Agent — another Chromium-based process likely owns this port. Close it (or pass --remote-debugging-port=<free port>) and restart.`
           : `Could not reach CDP on :${resolvedCdp.port}; Electron may not have bound it (another process likely holds it).`,
       });
     }

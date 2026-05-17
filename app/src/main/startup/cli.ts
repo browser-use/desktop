@@ -9,8 +9,8 @@
  * Precedence (highest → lowest):
  *   1. CLI flag (`--user-data-dir=…`, `--remote-debugging-port=…`)
  *   2. Env var (`AGB_USER_DATA_DIR`)
- *   3. Default (userData: Electron's platform default; CDP port: 9222 so
- *      the Docker agent containers can reach `host.docker.internal:9222`)
+ *   3. Default (userData: Electron's platform default; CDP port: random
+ *      high localhost port; set AGB_CDP_PORT when a fixed port is required)
  *
  * Kept as a standalone module so it can be unit-tested without booting Electron.
  */
@@ -76,13 +76,13 @@ export function resolveUserDataDir(
 // --remote-debugging-port
 // ---------------------------------------------------------------------------
 
-/** Start walking from the Chrome-convention port. If it's free, use it.
- *  If the user's Chrome is already there (the bug that prompted this fix),
- *  step up one port at a time until we find an unused slot. Predictable for
- *  firewall rules and docs, resilient against Chrome-on-9222 collision. */
-const DEFAULT_START_PORT = 9222;
+/** Pick from the private/dynamic range by default. 9222 is the Chrome
+ *  remote-debugging convention and the first place anti-automation scripts
+ *  probe, so only use it when explicitly requested via CLI/env. */
+const DEFAULT_MIN_PORT = 49_152;
+const DEFAULT_MAX_PORT = 65_535;
 /** Sanity cap so a broken port-probe doesn't spin forever; in practice
- *  the first attempt almost always succeeds. */
+ *  the first random high-port attempt almost always succeeds. */
 const MAX_PORT_WALK = 500;
 
 export interface ResolvedCdpPort {
@@ -95,13 +95,13 @@ export interface ResolvedCdpPort {
   /** Provenance of the port.
    *   - 'cli'      → --remote-debugging-port=<N> on argv
    *   - 'env'      → AGB_CDP_PORT env var
-   *   - 'walk'     → started at DEFAULT_START_PORT, first free port wins
+   *   - 'random'   → started at a random high port, first free port wins
    *   - 'fallback' → the walk hit MAX_PORT_WALK; we returned the start port
    *                  as a last resort and verifyCdpOwnership will surface
    *                  any collision. */
-  source: 'cli' | 'env' | 'walk' | 'fallback';
-  /** When source === 'walk', how many ports we skipped before finding one.
-   *  0 means DEFAULT_START_PORT was free on first try. Used in startup logs
+  source: 'cli' | 'env' | 'random' | 'fallback';
+  /** When source === 'random', how many ports we skipped before finding one.
+   *  0 means the random start port was free on first try. Used in startup logs
    *  to spot chronic collisions without needing a separate metric. */
   walkedFrom?: number;
 }
@@ -111,9 +111,9 @@ export interface ResolvedCdpPort {
  *
  * - `--remote-debugging-port=<N>` on argv wins (dev / power-user override).
  * - `AGB_CDP_PORT=<N>` env var second (CI / Docker pinning).
- * - Otherwise walk up from DEFAULT_START_PORT (9222) until we find a free
- *   port. Keeps the port predictable for firewall configs while avoiding
- *   collision with a user's own Chrome that already bound 9222.
+ * - Otherwise choose a random high port and walk until we find a free port.
+ *   This avoids advertising a browser automation endpoint on the conventional
+ *   Chrome debugging port unless a developer explicitly asks for that.
  */
 export function resolveCdpPort(argv: readonly string[]): ResolvedCdpPort {
   const raw = extractFlagValue(argv, 'remote-debugging-port');
@@ -122,7 +122,7 @@ export function resolveCdpPort(argv: readonly string[]): ResolvedCdpPort {
     if (Number.isFinite(n) && n >= 0 && n <= 65535 && String(n) === raw) {
       return { port: n, source: 'cli' };
     }
-    // Fall through to env / walk on a bogus value rather than crashing.
+    // Fall through to env / random high-port selection on a bogus value rather than crashing.
   }
   const envVal = process.env.AGB_CDP_PORT;
   if (envVal) {
@@ -131,14 +131,20 @@ export function resolveCdpPort(argv: readonly string[]): ResolvedCdpPort {
       return { port: n, source: 'env' };
     }
   }
+  const startPort = randomDefaultCdpPort();
   for (let i = 0; i < MAX_PORT_WALK; i++) {
-    const p = DEFAULT_START_PORT + i;
-    if (p > 65535) break;
+    const p = DEFAULT_MIN_PORT + ((startPort - DEFAULT_MIN_PORT + i) % (DEFAULT_MAX_PORT - DEFAULT_MIN_PORT + 1));
     if (isPortFreeSync(p)) {
-      return { port: p, source: 'walk', walkedFrom: i };
+      return { port: p, source: 'random', walkedFrom: i };
     }
   }
-  return { port: DEFAULT_START_PORT, source: 'fallback' };
+  return { port: startPort, source: 'fallback' };
+}
+
+function randomDefaultCdpPort(): number {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { randomInt } = require('node:crypto') as typeof import('node:crypto');
+  return randomInt(DEFAULT_MIN_PORT, DEFAULT_MAX_PORT + 1);
 }
 
 /**
@@ -147,7 +153,7 @@ export function resolveCdpPort(argv: readonly string[]): ResolvedCdpPort {
  * Uses the OS's native listing command because Node's `net.createServer`
  * is async and we need a blocking answer before `app.commandLine.appendSwitch`
  * runs. `lsof` on POSIX and `netstat` on Windows are installed by default
- * and resolve in ~20ms, so walking a handful of ports is barely perceptible
+ * and resolve in ~20ms, so probing a handful of ports is barely perceptible
  * at startup.
  *
  * On any error we return `true` (= port is free). Being optimistic on probe
@@ -251,10 +257,15 @@ export function getAnnouncedCdpPort(): number {
  * to catch port collisions that would otherwise silently hand the agent the
  * wrong CDP endpoint.
  *
- * Returns { ok: true } when Browser starts with 'Electron/', { ok: false }
- * otherwise. Caller is responsible for logging + surfacing errors.
+ * Returns { ok: true } when the endpoint reports the expected app-level UA,
+ * or when it falls back to the Electron/BrowserUse ownership heuristic.
+ * Caller is responsible for logging + surfacing errors.
  */
-export async function verifyCdpOwnership(port: number, timeoutMs = 2000): Promise<{ ok: boolean; browser?: string; userAgent?: string; error?: string }> {
+export async function verifyCdpOwnership(
+  port: number,
+  timeoutMs = 2000,
+  expectedUserAgent?: string,
+): Promise<{ ok: boolean; browser?: string; userAgent?: string; error?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const http = require('node:http') as typeof import('node:http');
   return new Promise((resolve) => {
@@ -274,7 +285,9 @@ export async function verifyCdpOwnership(port: number, timeoutMs = 2000): Promis
             // only visible in User-Agent (".../Electron/41.2.1 ..."). Also
             // accept our productName so a renamed/rebranded build is
             // recognised when Electron/ slips.
-            const ok = /\bElectron\//.test(userAgent) || /\bBrowserUse\//.test(userAgent);
+            const ok = expectedUserAgent
+              ? userAgent === expectedUserAgent
+              : /\bElectron\//.test(userAgent) || /\bBrowserUse\//.test(userAgent);
             resolve({ ok, browser, userAgent });
           } catch (err) {
             resolve({ ok: false, error: `parse failed: ${(err as Error).message}` });

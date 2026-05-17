@@ -158,7 +158,7 @@ const sessionStub = {
   // web request interception (DeclarativeNetRequestEngine)
   webRequest: {
     onBeforeRequest: (_listener: unknown): void => undefined,
-    onBeforeSendHeaders: (_listener: unknown): void => undefined,
+    onBeforeSendHeaders: (_filterOrListener: unknown, _listener?: unknown): void => undefined,
     onSendHeaders: (_listener: unknown): void => undefined,
     onHeadersReceived: (_listener: unknown): void => undefined,
     onResponseStarted: (_listener: unknown): void => undefined,
@@ -251,6 +251,8 @@ let webContentsIdCounter = 1;
 
 function createMockWebContents() {
   const id = webContentsIdCounter++;
+  let userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) BrowserUse/0.0.30 Chrome/146.0.0.0 Electron/41.0.0 Safari/537.36';
+  let zoomFactor = 1;
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   const on = (event: string, handler: (...args: unknown[]) => void): void => {
     const set = listeners.get(event) ?? new Set<(...args: unknown[]) => void>();
@@ -281,6 +283,13 @@ function createMockWebContents() {
     isCurrentlyAudible: (): boolean => false,
     setFrameRate: (_fps: number): void => undefined,
     setBackgroundThrottling: (_throttle: boolean): void => undefined,
+    enableDeviceEmulation: (_params: unknown): void => undefined,
+    disableDeviceEmulation: (): void => undefined,
+    getZoomFactor: (): number => zoomFactor,
+    setZoomFactor: (nextZoomFactor: number): void => { zoomFactor = nextZoomFactor; },
+    getUserAgent: (): string => userAgent,
+    setUserAgent: (nextUserAgent: string): void => { userAgent = nextUserAgent; },
+    executeJavaScript: (_code: string, _userGesture?: boolean): Promise<unknown> => Promise.resolve(undefined),
     loadURL: (_url: string): Promise<void> => Promise.resolve(),
     close: (): void => undefined,
     on,

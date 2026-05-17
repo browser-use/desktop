@@ -133,7 +133,7 @@ export interface CookieImportResult {
   updatedDomains: string[];
 }
 
-interface CdpCookie {
+export interface CdpCookie {
   name: string;
   value: string;
   domain: string;
@@ -153,6 +153,41 @@ function cdpSameSiteToElectron(value?: string): 'unspecified' | 'no_restriction'
     case 'None': return 'no_restriction';
     default: return 'unspecified';
   }
+}
+
+function normalizedCookieDomain(domain: string): string {
+  return domain.startsWith('.') ? domain.substring(1) : domain;
+}
+
+function cookiePath(pathValue: string): string {
+  if (!pathValue) return '/';
+  return pathValue.startsWith('/') ? pathValue : `/${pathValue}`;
+}
+
+export function electronCookieDetailsForImport(cookie: CdpCookie): Electron.CookiesSetDetails | null {
+  if (!cookie.name) return null;
+
+  const domain = normalizedCookieDomain(cookie.domain);
+  if (!domain) return null;
+
+  const pathValue = cookiePath(cookie.path);
+  const scheme = cookie.secure ? 'https' : 'http';
+  const details: Electron.CookiesSetDetails = {
+    url: `${scheme}://${domain}${pathValue}`,
+    name: cookie.name,
+    value: cookie.value,
+    path: pathValue,
+    secure: cookie.secure,
+    httpOnly: cookie.httpOnly,
+    sameSite: cdpSameSiteToElectron(cookie.sameSite),
+    ...(cookie.session ? {} : { expirationDate: cookie.expires }),
+  };
+
+  if (cookie.domain.startsWith('.')) {
+    details.domain = cookie.domain;
+  }
+
+  return details;
 }
 
 async function copyProfileToTemp(profilePath: string, userDataDir: string): Promise<string> {
@@ -362,7 +397,7 @@ export async function importChromeProfileCookies(profileId: string): Promise<Coo
   // itself during a session) are preserved.
   const targetDomains = new Set<string>();
   for (const c of cookies) {
-    const d = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
+    const d = normalizedCookieDomain(c.domain);
     if (d) targetDomains.add(d);
   }
 
@@ -416,27 +451,16 @@ export async function importChromeProfileCookies(profileId: string): Promise<Coo
   let unchangedCookies = 0;
 
   for (const cookie of cookies) {
-    if (!cookie.value || !cookie.name) {
+    const details = electronCookieDetailsForImport(cookie);
+    if (!details) {
       skipped++;
       continue;
     }
 
-    const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-    const scheme = cookie.secure ? 'https' : 'http';
-    const url = `${scheme}://${domain}${cookie.path}`;
+    const domain = normalizedCookieDomain(cookie.domain);
 
     try {
-      await electronSession.cookies.set({
-        url,
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        secure: cookie.secure,
-        httpOnly: cookie.httpOnly,
-        sameSite: cdpSameSiteToElectron(cookie.sameSite),
-        ...(cookie.session ? {} : { expirationDate: cookie.expires }),
-      });
+      await electronSession.cookies.set(details);
       imported++;
       importedDomains.add(domain);
 
