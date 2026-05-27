@@ -16,6 +16,7 @@ import { orderSessionsForSidebar } from './sessionOrdering';
 import { ChatPane } from './chat/ChatPane';
 import { useUIStore } from './state/uiStore';
 import { useSessionsBridge } from './state/useSessionsBridge';
+import { useTranslation } from 'react-i18next';
 
 type ViewMode = 'dashboard' | 'grid' | 'chat' | 'settings';
 type SettingsOpenPayload = {
@@ -26,6 +27,7 @@ type SettingsOpenPayload = {
 let sessionCounter = MOCK_SESSIONS.length + 1;
 
 export function HubApp(): React.ReactElement {
+  const { t } = useTranslation();
   const isMock = import.meta.env.VITE_MOCK_MODE === '1';
   const [mockSessions, setMockSessions] = useState<AgentSession[]>(isMock ? MOCK_SESSIONS : []);
   const sessionsQuery = useSessionsQuery();
@@ -524,7 +526,7 @@ export function HubApp(): React.ReactElement {
                 setViewMode('grid');
               }}
             />
-          : <div className="chat-empty">No session selected. <button className="chat-pane__back" onClick={() => setViewMode('dashboard')}>Back to dashboard</button></div>
+          : <div className="chat-empty">{t('No session selected.')} <button className="chat-pane__back" onClick={() => setViewMode('dashboard')}>{t('Back to dashboard')}</button></div>
       ) : viewMode === 'dashboard' ? (
         <Dashboard
           sessions={sessions}
@@ -547,7 +549,7 @@ export function HubApp(): React.ReactElement {
                   className="hub-grid__empty"
                   onClick={() => window.electronAPI?.pill.toggle()}
                 >
-                  press {shortcut ? <kbd className="hub-grid__empty-kbd">{shortcut}</kbd> : 'the global command'} to start a new task
+                  {t('press')} {shortcut ? <kbd className="hub-grid__empty-kbd">{shortcut}</kbd> : t('the global command')} {t('to start a new task')}
                 </button>
               </div>
             );

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Markdown } from '../Markdown';
 import type { OutputEntry } from '../types';
 import type { Turn } from './groupIntoTurns';
@@ -52,6 +53,7 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
   sessionId?: string;
   attachmentTurnIndex?: number;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const { quote, message } = parseUserMessage(content);
   const body = message || ''; // message can be empty if user sent quote-only
   const lines = body.split('\n').length;
@@ -112,9 +114,9 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(content);
-      toast.show({ variant: 'success', title: 'Copied to clipboard' });
+      toast.show({ variant: 'success', title: t('Copied to clipboard') });
     } catch {
-      toast.show({ variant: 'error', title: 'Copy failed' });
+      toast.show({ variant: 'error', title: t('Copy failed') });
     }
   };
 
@@ -154,17 +156,17 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
                 cancelEdit();
               }
             }}
-            placeholder="Edit your message..."
+            placeholder={t('Edit your message...')}
           />
         </div>
         <div className="chat-bubble__edit-actions">
-          <button type="button" className="chat-bubble__edit-cancel" onClick={cancelEdit}>Cancel</button>
+          <button type="button" className="chat-bubble__edit-cancel" onClick={cancelEdit}>{t('Cancel')}</button>
           <button
             type="button"
             className="chat-bubble__edit-send"
             onClick={submitEdit}
             disabled={draft.trim().length === 0 || draft.trim() === body.trim()}
-          >Send</button>
+          >{t('Send')}</button>
         </div>
       </div>
     );
@@ -188,15 +190,15 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
             className="chat-bubble__show-more"
             onClick={() => setExpanded((v) => !v)}
           >
-            {expanded ? 'Show less' : 'Show more'} <span aria-hidden>▾</span>
+            {expanded ? t('Show less') : t('Show more')} <span aria-hidden>▾</span>
           </button>
         )}
       </div>
       <div className="chat-bubble__actions">
         <button
           type="button"
-          aria-label="Copy message"
-          title="Copy"
+          aria-label={t('Copy message')}
+          title={t('Copy')}
           onClick={() => { void handleCopy(); }}
         >
           <CopyIcon />
@@ -204,8 +206,8 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
         {onShare && (
           <button
             type="button"
-            aria-label="Share conversation"
-            title="Share"
+            aria-label={t('Share conversation')}
+            title={t('Share')}
             onClick={onShare}
           >
             <ShareIcon />
@@ -214,8 +216,8 @@ function UserBubble({ content, onEdit, onShare, sessionId, attachmentTurnIndex }
         {onEdit && (
           <button
             type="button"
-            aria-label="Edit message"
-            title="Edit message"
+            aria-label={t('Edit message')}
+            title={t('Edit message')}
             onClick={startEdit}
           >
             <EditIcon />
@@ -248,13 +250,14 @@ function AssistantActions({
   content: string;
   onShare?: () => void;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   const toast = useToast();
   const handleCopy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(content);
-      toast.show({ variant: 'success', title: 'Copied to clipboard' });
+      toast.show({ variant: 'success', title: t('Copied to clipboard') });
     } catch {
-      toast.show({ variant: 'error', title: 'Copy failed' });
+      toast.show({ variant: 'error', title: t('Copy failed') });
     }
   };
   if (!content) return null;
@@ -262,8 +265,8 @@ function AssistantActions({
     <div className="chat-assistant-actions">
       <button
         type="button"
-        aria-label="Copy response"
-        title="Copy"
+        aria-label={t('Copy response')}
+        title={t('Copy')}
         onClick={() => { void handleCopy(); }}
       >
         <CopyIcon />
@@ -271,8 +274,8 @@ function AssistantActions({
       {onShare && (
         <button
           type="button"
-          aria-label="Share conversation"
-          title="Share"
+          aria-label={t('Share conversation')}
+          title={t('Share')}
           onClick={onShare}
         >
           <ShareIcon />
@@ -419,6 +422,7 @@ function StreamingProse({
   sessionId?: string;
   nextUserText?: string | null;
 }): React.ReactElement {
+  const { t } = useTranslation();
   // Run the block extractor over the full target. Recognizes `html`,
   // `htmlview`, and `options` fences and emits structured events for
   // each. Cheap to run (regex-based, pure) — re-execute on every render.
@@ -435,7 +439,7 @@ function StreamingProse({
     const stillStreaming = !done || !caughtUp;
     return (
       <div className={`chat-step__assistant${stillStreaming ? ' chat-step__assistant--streaming' : ''}`}>
-        <Markdown source={stableMarkdown(shown) || (done ? '(done)' : '')} />
+        <Markdown source={stableMarkdown(shown) || (done ? t('(done)') : '')} />
       </div>
     );
   }
@@ -501,6 +505,7 @@ function formatBytes(n?: number): string {
 }
 
 function FileCard({ entry }: { entry: OutputEntry }): React.ReactElement {
+  const { t } = useTranslation();
   const absPath = entry.tool ?? '';
   const name = entry.content || absPath.split('/').pop() || 'file';
   const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : '';
@@ -525,13 +530,13 @@ function FileCard({ entry }: { entry: OutputEntry }): React.ReactElement {
       tabIndex={0}
       onClick={reveal}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reveal(); } }}
-      title={`Reveal ${name} in file manager`}
+      title={t('Reveal {{name}} in file manager', { name })}
     >
       <div className="chat-file-card__thumb">
         {isImage && absPath ? (
           <img src={`chatfile://files${encodeURI(absPath)}`} alt="" loading="lazy" />
         ) : (
-          <span className="chat-file-card__ext">{ext || 'FILE'}</span>
+          <span className="chat-file-card__ext">{ext || t('FILE')}</span>
         )}
       </div>
       <div className="chat-file-card__body">
@@ -544,8 +549,8 @@ function FileCard({ entry }: { entry: OutputEntry }): React.ReactElement {
         type="button"
         className="chat-file-card__download"
         onClick={download}
-        aria-label={`Open ${name}`}
-        title="Open file"
+        aria-label={t('Open {{name}}', { name })}
+        title={t('Open file')}
       >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
           <path d="M8 2v8m0 0l-3-3m3 3l3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -561,6 +566,7 @@ type SkillMeta =
   | { ok: false; error: string };
 
 function SkillCard({ entry, variant }: { entry: OutputEntry; variant: 'used' | 'written' }): React.ReactElement {
+  const { t } = useTranslation();
   // `content` is shaped "domain/topic" (e.g. "user/fun/page-word-count").
   // For skill_used domain may be omitted; in that case the whole string is the topic.
   const raw = entry.content || '';
@@ -570,8 +576,8 @@ function SkillCard({ entry, variant }: { entry: OutputEntry; variant: 'used' | '
     : (raw ? `user/${raw}` : undefined);
   const action = entry.harnessAction;
   const label = variant === 'written'
-    ? (action === 'delete' ? 'Skill deleted' : action === 'patch' ? 'Skill updated' : 'Skill written')
-    : 'Skill used';
+    ? (action === 'delete' ? t('Skill deleted') : action === 'patch' ? t('Skill updated') : t('Skill written'))
+    : t('Skill used');
 
   const [expanded, setExpanded] = useState(false);
   const [meta, setMeta] = useState<SkillMeta | null>(null);
@@ -609,8 +615,8 @@ function SkillCard({ entry, variant }: { entry: OutputEntry; variant: 'used' | '
   }, []);
 
   const displayTitle = meta?.ok
-    ? (meta.title || meta.filename.replace(/\.md$/i, '') || 'Untitled skill')
-    : (meta == null || loading ? 'Loading skill...' : 'Skill unavailable');
+    ? (meta.title || meta.filename.replace(/\.md$/i, '') || t('Untitled skill'))
+    : (meta == null || loading ? t('Loading skill...') : t('Skill unavailable'));
 
   return (
     <div
@@ -622,7 +628,7 @@ function SkillCard({ entry, variant }: { entry: OutputEntry; variant: 'used' | '
         onClick={toggle}
         aria-expanded={expanded}
         aria-controls={`skill-body-${entry.id}`}
-        title={expanded ? 'Collapse' : 'Show details'}
+        title={expanded ? t('Collapse') : t('Show details')}
       >
         <span className="chat-skill-card__label">{label}</span>
         <span className="chat-skill-card__title">{displayTitle}</span>
@@ -630,28 +636,28 @@ function SkillCard({ entry, variant }: { entry: OutputEntry; variant: 'used' | '
       </button>
       {expanded && (
         <div id={`skill-body-${entry.id}`} className="chat-skill-card__body">
-          {loading && <div className="chat-skill-card__loading">Loading...</div>}
+          {loading && <div className="chat-skill-card__loading">{t('Loading...')}</div>}
           {meta?.ok === false && (
-            <div className="chat-skill-card__error">Could not read this skill: {meta.error}</div>
+            <div className="chat-skill-card__error">{t('Could not read this skill:')} {meta.error}</div>
           )}
           {meta?.ok === true && (
             <>
               <div className="chat-skill-card__desc">
-                {meta.description || <span className="chat-skill-card__desc-empty">No description.</span>}
+                {meta.description || <span className="chat-skill-card__desc-empty">{t('No description.')}</span>}
               </div>
               <div className="chat-skill-card__actions">
                 <button
                   type="button"
                   className="chat-skill-card__btn chat-skill-card__btn--finder"
-                  aria-label={`Reveal ${displayTitle} in Finder`}
-                  title="Reveal in Finder"
+                  aria-label={t('Reveal {{title}} in Finder', { title: displayTitle })}
+                  title={t('Reveal in Finder')}
                   onClick={() => {
                     void window.electronAPI?.sessions?.revealOutput?.(meta.path)
                       .catch((err) => console.error('[SkillCard] revealOutput failed', err));
                   }}
                 >
                   <FinderIcon />
-                  <span>Reveal in Finder</span>
+                  <span>{t('Reveal in Finder')}</span>
                 </button>
               </div>
             </>
@@ -667,6 +673,7 @@ function AgentEntry({
 }: {
   entry: OutputEntry;
 }): React.ReactElement | null {
+  const { t } = useTranslation();
   switch (entry.type) {
     case 'thinking':
       // Intermediate thinking (between tool calls). The trailing live thinking
@@ -698,7 +705,7 @@ function AgentEntry({
       // case a `done` arrives without being marked as the trailing prose.
       return (
         <div className="chat-step__assistant">
-          <Markdown source={entry.content || '(done)'} />
+          <Markdown source={entry.content || t('(done)')} />
         </div>
       );
 
@@ -712,7 +719,7 @@ function AgentEntry({
       return <SkillCard entry={entry} variant="written" />;
 
     case 'harness_edited':
-      return <span className="chat-step__chip">edited {entry.content}</span>;
+      return <span className="chat-step__chip">{t('edited')} {entry.content}</span>;
 
     case 'file_output': {
       const isImage = entry.fileMime?.startsWith('image/');

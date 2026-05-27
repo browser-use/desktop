@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import anthropicLogo from './anthropic-logo.svg';
 import claudeCodeLogo from './claude-code-logo.svg';
 import openaiLogoDark from './openai-logo.svg';
@@ -65,22 +66,22 @@ function ConnectionActionSkeleton(): React.ReactElement {
   );
 }
 
-function friendlyKeyError(raw?: string): string {
-  if (!raw) return 'Key rejected by provider';
+function friendlyKeyError(t: (key: string) => string, raw?: string): string {
+  if (!raw) return t('Key rejected by provider');
   const s = raw.toLowerCase();
   if (s.includes('credit') || s.includes('quota') || s.includes('insufficient') || s.includes('balance')) {
-    return 'Out of credits — top up your provider account.';
+    return t('Out of credits — top up your provider account.');
   }
   if (s.includes('invalid') || s.includes('401') || s.includes('unauthorized') || s.includes('authentication')) {
-    return 'Invalid API key — double-check it in your provider dashboard.';
+    return t('Invalid API key — double-check it in your provider dashboard.');
   }
   if (s.includes('rate') || s.includes('429')) {
-    return 'Rate limit exceeded — try again in a moment.';
+    return t('Rate limit exceeded — try again in a moment.');
   }
   if (s.includes('network') || s.includes('fetch') || s.includes('econnrefused') || s.includes('timeout') || s.includes('aborted')) {
-    return 'Network error — check your connection and retry.';
+    return t('Network error — check your connection and retry.');
   }
-  if (s.includes('no api key saved')) return 'No saved key to test for this provider.';
+  if (s.includes('no api key saved')) return t('No saved key to test for this provider.');
   return raw;
 }
 
@@ -104,6 +105,7 @@ export function ConnectionsPane({
   browserSyncSectionId,
   focusBrowserCodeProvider,
 }: ConnectionsPaneProps): React.ReactElement {
+  const { t } = useTranslation();
   const toast = useToast();
   const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
   const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
@@ -293,7 +295,7 @@ export function ConnectionsPane({
         ? await pollInstalledStatus(refreshInstalledStatus, { initialInstalled: result.installed })
         : await refreshInstalledStatus();
       if (!status?.installed) {
-        const msg = result.error ?? result.installed?.error ?? `Installer finished but ${engineId} was not detected.`;
+        const msg = result.error ?? result.installed?.error ?? t('Installer finished but $1 was not detected.', { '1': engineId });
         if (engineId === 'claude-code') setKeyError(msg);
         else if (engineId === 'codex') setOpenaiError(msg);
         else if (engineId === 'browsercode') setBrowserCodeError(msg);
@@ -313,7 +315,7 @@ export function ConnectionsPane({
     if (!api?.settings?.claudeCode) return;
     setKeyError(null);
     if (!claudeStatus.installed) {
-      setKeyError('Install Claude Code before signing in.');
+      setKeyError(t('Install Claude Code before signing in.'));
       return;
     }
     // Two cases: (a) Claude CLI is already authed → just record the
@@ -327,14 +329,14 @@ export function ConnectionsPane({
         return;
       }
       if (!api.settings.claudeCode.login) {
-        setKeyError('Login flow not available — run `claude auth login` in a terminal first.');
+        setKeyError(t('Login flow not available — run `claude auth login` in a terminal first.'));
         return;
       }
       setClaudeWaiting(true);
       const res = await api.settings.claudeCode.login();
       if (!res.ok) {
         setClaudeWaiting(false);
-        setKeyError(res.error ?? 'Failed to start Claude login');
+        setKeyError(res.error ?? t('Failed to start Claude login'));
       }
       // Browser is now open with the OAuth flow. Polling effect below
       // detects completion and flips claudeWaiting off.
@@ -428,7 +430,7 @@ export function ConnectionsPane({
     if (!api?.settings?.openaiKey) return;
     if (!codexStatus.installed) {
       setOpenaiKeyStatus('error');
-      setOpenaiError('Install Codex before adding an OpenAI API key.');
+      setOpenaiError(t('Install Codex before adding an OpenAI API key.'));
       return;
     }
     const trimmed = openaiDraft.trim();
@@ -438,7 +440,7 @@ export function ConnectionsPane({
     const test = await api.settings.openaiKey.test(trimmed);
     if (!test.success) {
       setOpenaiKeyStatus('error');
-      setOpenaiError(test.error ?? 'Key rejected by OpenAI');
+      setOpenaiError(test.error ?? t('Key rejected by OpenAI'));
       return;
     }
     await api.settings.openaiKey.save(trimmed);
@@ -446,7 +448,7 @@ export function ConnectionsPane({
     setOpenaiDraft('');
     setOpenaiEditing(false);
     await refreshOpenai();
-    toast.show({ variant: 'success', title: 'OpenAI API key saved' });
+    toast.show({ variant: 'success', title: t('OpenAI API key saved') });
   }, [codexStatus.installed, openaiDraft, refreshOpenai, toast]);
 
   const handleDeleteOpenai = useCallback(async () => {
@@ -456,7 +458,7 @@ export function ConnectionsPane({
     setOpenaiKeyStatus('idle');
     setOpenaiError(null);
     await refreshOpenai();
-    toast.show({ variant: 'success', title: 'OpenAI API key removed' });
+    toast.show({ variant: 'success', title: t('OpenAI API key removed') });
   }, [refreshOpenai, toast]);
 
   const handleStartEditBrowserCode = useCallback((providerId: string) => {
@@ -480,7 +482,7 @@ export function ConnectionsPane({
     if (!api?.settings?.browserCode) return;
     if (browserCodeStatus.installed?.installed === false) {
       setBrowserCodeKeyStatus('error');
-      setBrowserCodeError('Install BrowserCode before adding a provider API key.');
+      setBrowserCodeError(t('Install BrowserCode before adding a provider API key.'));
       setBrowserCodeErrorProviderId(providerId);
       return;
     }
@@ -492,7 +494,7 @@ export function ConnectionsPane({
     const test = await api.settings.browserCode.test({ providerId, apiKey });
     if (!test.success) {
       setBrowserCodeKeyStatus('error');
-      setBrowserCodeError(friendlyKeyError(test.error));
+      setBrowserCodeError(friendlyKeyError(t, test.error));
       setBrowserCodeErrorProviderId(providerId);
       return;
     }
@@ -501,7 +503,7 @@ export function ConnectionsPane({
     setBrowserCodeKeyDraft('');
     setEditingProviderId(null);
     await refreshBrowserCode();
-    toast.show({ variant: 'success', title: 'Provider key saved', message: providerId });
+    toast.show({ variant: 'success', title: t('Provider key saved'), message: providerId });
   }, [browserCodeKeyDraft, browserCodeStatus.installed?.installed, refreshBrowserCode, toast]);
 
   const handleRemoveBrowserCodeKey = useCallback(async (providerId: string) => {
@@ -514,7 +516,7 @@ export function ConnectionsPane({
     setBrowserCodeErrorProviderId(null);
     if (editingProviderId === providerId) setEditingProviderId(null);
     await refreshBrowserCode();
-    toast.show({ variant: 'success', title: 'Provider key removed', message: providerId });
+    toast.show({ variant: 'success', title: t('Provider key removed'), message: providerId });
   }, [editingProviderId, refreshBrowserCode, toast]);
 
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
@@ -528,11 +530,11 @@ export function ConnectionsPane({
     try {
       const result = await api.settings.browserCode.test({ providerId, apiKey: '' });
       const message = result.success
-        ? 'Key works'
-        : friendlyKeyError(result.error);
+        ? t('Key works')
+        : friendlyKeyError(t, result.error);
       setTestResultByProvider((prev) => ({ ...prev, [providerId]: { ok: result.success, message } }));
     } catch (err) {
-      setTestResultByProvider((prev) => ({ ...prev, [providerId]: { ok: false, message: friendlyKeyError((err as Error).message) } }));
+      setTestResultByProvider((prev) => ({ ...prev, [providerId]: { ok: false, message: friendlyKeyError(t, (err as Error).message) } }));
     } finally {
       setTestingProviderId(null);
     }
@@ -586,7 +588,7 @@ export function ConnectionsPane({
     if (!api?.settings?.apiKey) return;
     if (!claudeStatus.installed) {
       setKeyStatus('error');
-      setKeyError('Install Claude Code before adding an Anthropic API key.');
+      setKeyError(t('Install Claude Code before adding an Anthropic API key.'));
       return;
     }
     const trimmed = draftKey.trim();
@@ -596,7 +598,7 @@ export function ConnectionsPane({
     const test = await api.settings.apiKey.test(trimmed);
     if (!test.success) {
       setKeyStatus('error');
-      setKeyError(test.error ?? 'Key rejected by Anthropic');
+      setKeyError(test.error ?? t('Key rejected by Anthropic'));
       return;
     }
     await api.settings.apiKey.save(trimmed);
@@ -684,24 +686,24 @@ export function ConnectionsPane({
     'conn-card__dot--disconnected';
 
   const statusText =
-    waStatus === 'connected' ? `Connected as ${waIdentity ?? 'unknown'}` :
-    waStatus === 'connecting' ? 'Connecting...' :
-    waStatus === 'qr_ready' ? 'Waiting for scan...' :
-    waStatus === 'error' ? (waDetail ?? 'Connection error') :
-    'Not connected';
+    waStatus === 'connected' ? t('Connected as $1', { '1': waIdentity ?? t('unknown') }) :
+    waStatus === 'connecting' ? t('Connecting...') :
+    waStatus === 'qr_ready' ? t('Waiting for scan...') :
+    waStatus === 'error' ? (waDetail ?? t('Connection error')) :
+    t('Not connected');
   const anthropicLoading = !editing && (!authStatusLoaded || !claudeStatusLoaded);
   const openaiLoading = !openaiEditing && (!openaiStatusLoaded || !codexStatusLoaded);
 
   return (
     <div className={embedded ? 'conn-section' : 'conn-pane'}>
-      {!embedded && <span className="conn-pane__title">Connections</span>}
+      {!embedded && <span className="conn-pane__title">{t('Connections')}</span>}
 
       <section
         id={providerSectionId}
         className={embedded ? 'settings-page__section' : 'conn-pane__group'}
       >
       <div className="settings-section-header">
-        <h2 className="settings-section-header__title">Model providers</h2>
+        <h2 className="settings-section-header__title">{t('Model providers')}</h2>
       </div>
 
       <div className="conn-card" aria-busy={anthropicLoading}>
@@ -713,7 +715,7 @@ export function ConnectionsPane({
           />
           <div className="conn-card__info">
             <div className="conn-card__title-row">
-              <span className="conn-card__name">Anthropic</span>
+              <span className="conn-card__name">{t('Anthropic')}</span>
               <span className={`conn-card__dot ${anthropicLoading ? 'conn-card__dot--connecting' : authStatus.type !== 'none' && claudeStatus.installed ? 'conn-card__dot--connected' : installingEngine === 'claude-code' ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
             </div>
             {anthropicLoading ? (
@@ -721,18 +723,22 @@ export function ConnectionsPane({
             ) : (
               <span className="conn-card__subtitle">
                 {editing
-                  ? 'Enter a new key — it will be tested before saving'
+                  ? t('Enter a new key — it will be tested before saving')
                   : !claudeStatus.installed && authStatus.type !== 'none'
-                  ? 'Credentials saved · Claude Code CLI not installed'
+                  ? t('Credentials saved · Claude Code CLI not installed')
                   : !claudeStatus.installed
-                  ? 'Claude Code CLI not installed'
+                  ? t('Claude Code CLI not installed')
                   : claudeWaiting
-                  ? 'Finish the OAuth flow in your browser…'
+                  ? t('Finish the OAuth flow in your browser…')
                   : authStatus.type === 'oauth'
-                  ? `Signed in with Claude ${authStatus.subscriptionType === 'max' ? 'Max' : authStatus.subscriptionType === 'pro' ? 'Pro' : 'subscription'}`
+                  ? authStatus.subscriptionType === 'max'
+                    ? t('Signed in with Claude Max')
+                    : authStatus.subscriptionType === 'pro'
+                    ? t('Signed in with Claude Pro')
+                    : t('Signed in with Claude subscription')
                   : authStatus.type === 'apiKey' && authStatus.masked
-                  ? `API key · ${authStatus.masked}`
-                  : 'Not connected'}
+                  ? t('API key · $1', { '1': authStatus.masked })
+                  : t('Not connected')}
               </span>
             )}
           </div>
@@ -744,7 +750,7 @@ export function ConnectionsPane({
                 onClick={() => handleInstallEngine('claude-code')}
                 disabled={installingEngine === 'claude-code'}
               >
-                {installingEngine === 'claude-code' ? 'Installing…' : 'Install Claude Code'}
+                {installingEngine === 'claude-code' ? t('Installing…') : t('Install Claude Code')}
               </button>
             )}
             {!anthropicLoading && !editing && claudeStatus.installed && authStatus.type === 'none' && (
@@ -753,7 +759,7 @@ export function ConnectionsPane({
                 onClick={handleUseClaudeCode}
                 disabled={claudeWaiting}
               >
-                {claudeWaiting ? 'Waiting…' : 'Sign in with Claude'}
+                {claudeWaiting ? t('Waiting…') : t('Sign in with Claude')}
               </button>
             )}
             {!anthropicLoading && !editing && claudeStatus.installed && authStatus.type === 'none' && (
@@ -761,7 +767,7 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setEditing(true); setDraftKey(''); setKeyStatus('idle'); setKeyError(null); }}
               >
-                Add API key
+                {t('Add API key')}
               </button>
             )}
             {!anthropicLoading && !editing && claudeStatus.installed && authStatus.type === 'apiKey' && (
@@ -769,12 +775,12 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--primary"
                 onClick={() => { setEditing(true); setDraftKey(''); setKeyStatus('idle'); setKeyError(null); }}
               >
-                Change
+                {t('Change')}
               </button>
             )}
             {!anthropicLoading && !editing && authStatus.type !== 'none' && (
               <button className="conn-card__btn conn-card__btn--secondary" onClick={handleDeleteKey}>
-                Sign out
+                {t('Sign out')}
               </button>
             )}
             {!anthropicLoading && editing && (
@@ -782,7 +788,7 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setEditing(false); setDraftKey(''); setKeyError(null); setKeyStatus('idle'); }}
               >
-                Cancel
+                {t('Cancel')}
               </button>
             )}
           </div>
@@ -803,7 +809,7 @@ export function ConnectionsPane({
               onClick={handleSaveKey}
               disabled={!draftKey.trim() || keyStatus === 'testing'}
             >
-              {keyStatus === 'testing' ? 'Testing...' : 'Save'}
+              {keyStatus === 'testing' ? t('Testing...') : t('Save')}
             </button>
             {keyStatus === 'error' && keyError && (
               <span className="conn-card__api-key-error">{keyError}</span>
@@ -822,7 +828,7 @@ export function ConnectionsPane({
           <img className="conn-card__icon conn-card__icon--contain" src={opencodeLogo} alt="" />
           <div className="conn-card__info">
             <div className="conn-card__title-row">
-              <span className="conn-card__name">BrowserCode</span>
+              <span className="conn-card__name">{t('BrowserCode')}</span>
               <span className={`conn-card__dot ${!browserCodeLoaded && browserCodeStatus.providers.length === 0 ? 'conn-card__dot--connecting' : Object.keys(browserCodeStatus.keys).length > 0 && browserCodeStatus.installed?.installed !== false ? 'conn-card__dot--connected' : installingEngine === 'browsercode' ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
             </div>
             {!browserCodeLoaded && browserCodeStatus.providers.length === 0 ? (
@@ -830,10 +836,12 @@ export function ConnectionsPane({
             ) : (
               <span className="conn-card__subtitle">
                 {browserCodeStatus.installed?.installed === false
-                  ? 'bcode CLI not installed'
+                  ? t('bcode CLI not installed')
                   : Object.keys(browserCodeStatus.keys).length === 0
-                  ? 'Connect a provider to use BrowserCode with your own API key'
-                  : `${Object.keys(browserCodeStatus.keys).length} provider${Object.keys(browserCodeStatus.keys).length === 1 ? '' : 's'} connected`}
+                  ? t('Connect a provider to use BrowserCode with your own API key')
+                  : Object.keys(browserCodeStatus.keys).length === 1
+                  ? t('1 provider connected')
+                  : t('$1 providers connected', { '1': Object.keys(browserCodeStatus.keys).length })}
               </span>
             )}
           </div>
@@ -844,7 +852,7 @@ export function ConnectionsPane({
                 onClick={() => handleInstallEngine('browsercode')}
                 disabled={installingEngine === 'browsercode'}
               >
-                {installingEngine === 'browsercode' ? 'Installing…' : 'Install BrowserCode'}
+                {installingEngine === 'browsercode' ? t('Installing…') : t('Install BrowserCode')}
               </button>
             )}
           </div>
@@ -883,10 +891,10 @@ export function ConnectionsPane({
                   </div>
                   <span className="conn-card__subtitle">
                     {isEditing
-                      ? 'Enter a new key — it will be tested before saving'
+                      ? t('Enter a new key — it will be tested before saving')
                       : connected
-                      ? `API key · ${entry.masked}`
-                      : 'No API key connected'}
+                      ? t('API key · $1', { '1': entry.masked })
+                      : t('No API key connected')}
                   </span>
                 </div>
                 <div className="conn-card__actions">
@@ -895,7 +903,7 @@ export function ConnectionsPane({
                       className="conn-card__btn conn-card__btn--primary"
                       onClick={() => handleStartEditBrowserCode(provider.id)}
                     >
-                      Connect
+                      {t('Connect')}
                     </button>
                   )}
                   {!isEditing && connected && (
@@ -904,7 +912,7 @@ export function ConnectionsPane({
                       onClick={() => handleTestBrowserCodeKey(provider.id)}
                       disabled={testingProviderId === provider.id}
                     >
-                      {testingProviderId === provider.id ? 'Testing...' : 'Test'}
+                      {testingProviderId === provider.id ? t('Testing...') : t('Test')}
                     </button>
                   )}
                   {!isEditing && connected && (
@@ -912,7 +920,7 @@ export function ConnectionsPane({
                       className="conn-card__btn conn-card__btn--primary"
                       onClick={() => handleStartEditBrowserCode(provider.id)}
                     >
-                      Update key
+                      {t('Update key')}
                     </button>
                   )}
                   {!isEditing && connected && (
@@ -920,7 +928,7 @@ export function ConnectionsPane({
                       className="conn-card__btn conn-card__btn--secondary"
                       onClick={() => handleRemoveBrowserCodeKey(provider.id)}
                     >
-                      Remove
+                      {t('Remove')}
                     </button>
                   )}
                   {isEditing && (
@@ -928,7 +936,7 @@ export function ConnectionsPane({
                       className="conn-card__btn conn-card__btn--secondary"
                       onClick={handleCancelEditBrowserCode}
                     >
-                      Cancel
+                      {t('Cancel')}
                     </button>
                   )}
                 </div>
@@ -956,7 +964,7 @@ export function ConnectionsPane({
                     onClick={() => handleSaveBrowserCode(provider.id)}
                     disabled={!browserCodeKeyDraft.trim() || browserCodeKeyStatus === 'testing'}
                   >
-                    {browserCodeKeyStatus === 'testing' ? 'Testing...' : 'Save'}
+                    {browserCodeKeyStatus === 'testing' ? t('Testing...') : t('Save')}
                   </button>
                   {browserCodeKeyStatus === 'error' && browserCodeError && browserCodeErrorProviderId === provider.id && (
                     <span className="conn-card__api-key-error">{browserCodeError}</span>
@@ -982,7 +990,7 @@ export function ConnectionsPane({
           />
           <div className="conn-card__info">
             <div className="conn-card__title-row">
-              <span className="conn-card__name">OpenAI</span>
+              <span className="conn-card__name">{t('OpenAI')}</span>
               <span className={`conn-card__dot ${openaiLoading ? 'conn-card__dot--connecting' : (codexStatus.authed || openaiStatus.present) && codexStatus.installed ? 'conn-card__dot--connected' : codexWaiting || installingEngine === 'codex' ? 'conn-card__dot--connecting' : 'conn-card__dot--disconnected'}`} />
             </div>
             {openaiLoading ? (
@@ -990,20 +998,22 @@ export function ConnectionsPane({
             ) : (
               <span className="conn-card__subtitle">
                 {openaiEditing
-                  ? 'Enter a new key — it will be tested before saving'
+                  ? t('Enter a new key — it will be tested before saving')
                   : !codexStatus.installed && openaiStatus.present
-                  ? 'API key saved · Codex CLI not installed'
+                  ? t('API key saved · Codex CLI not installed')
                   : !codexStatus.installed
-                  ? 'Codex CLI not installed'
+                  ? t('Codex CLI not installed')
                   : openaiStatus.present && openaiStatus.masked
-                  ? `API key · ${openaiStatus.masked}`
+                  ? t('API key · $1', { '1': openaiStatus.masked })
                   : codexStatus.authed
-                  ? `Signed in with ChatGPT subscription${codexStatus.version ? ` · Codex v${codexStatus.version}` : ''}`
+                  ? codexStatus.version
+                    ? t('Signed in with ChatGPT subscription · Codex v$1', { '1': codexStatus.version })
+                    : t('Signed in with ChatGPT subscription')
                   : codexWaiting && codexDeviceCode
-                  ? 'Enter the code shown below on the verification page.'
+                  ? t('Enter the code shown below on the verification page.')
                   : codexWaiting
-                  ? 'Finish the OAuth flow in your browser…'
-                  : 'Not connected'}
+                  ? t('Finish the OAuth flow in your browser…')
+                  : t('Not connected')}
               </span>
             )}
           </div>
@@ -1015,7 +1025,7 @@ export function ConnectionsPane({
                 onClick={() => handleInstallEngine('codex')}
                 disabled={installingEngine === 'codex'}
               >
-                {installingEngine === 'codex' ? 'Installing…' : 'Install Codex'}
+                {installingEngine === 'codex' ? t('Installing…') : t('Install Codex')}
               </button>
             )}
             {!openaiLoading && !openaiEditing && !openaiStatus.present && !codexStatus.authed && codexStatus.installed && (
@@ -1023,7 +1033,7 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--primary"
                 onClick={handleCodexLoginPlain}
               >
-                {codexWaiting ? 'Restart' : 'Sign in with Codex'}
+                {codexWaiting ? t('Restart') : t('Sign in with Codex')}
               </button>
             )}
             {!openaiLoading && !openaiEditing && codexStatus.installed && !openaiStatus.present && !codexStatus.authed && (
@@ -1031,7 +1041,7 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setOpenaiEditing(true); setOpenaiDraft(''); setOpenaiKeyStatus('idle'); setOpenaiError(null); }}
               >
-                Add API key
+                {t('Add API key')}
               </button>
             )}
             {!openaiLoading && !openaiEditing && codexStatus.installed && openaiStatus.present && (
@@ -1039,17 +1049,17 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setOpenaiEditing(true); setOpenaiDraft(''); setOpenaiKeyStatus('idle'); setOpenaiError(null); }}
               >
-                Change API key
+                {t('Change API key')}
               </button>
             )}
             {!openaiLoading && !openaiEditing && openaiStatus.present && !codexStatus.authed && (
               <button className="conn-card__btn conn-card__btn--secondary" onClick={handleDeleteOpenai}>
-                Sign out
+                {t('Sign out')}
               </button>
             )}
             {!openaiLoading && !openaiEditing && codexStatus.authed && (
               <button className="conn-card__btn conn-card__btn--secondary" onClick={handleCodexLogout}>
-                {openaiStatus.present ? 'Sign out of ChatGPT' : 'Sign out'}
+                {openaiStatus.present ? t('Sign out of ChatGPT') : t('Sign out')}
               </button>
             )}
             {!openaiLoading && openaiEditing && (
@@ -1057,21 +1067,21 @@ export function ConnectionsPane({
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { setOpenaiEditing(false); setOpenaiDraft(''); setOpenaiError(null); setOpenaiKeyStatus('idle'); }}
               >
-                Cancel
+                {t('Cancel')}
               </button>
             )}
           </div>
         </div>
         {codexDeviceCode && (
           <div className="codex-device-auth">
-            <div className="codex-device-auth__label">One-time code</div>
+            <div className="codex-device-auth__label">{t('One-time code')}</div>
             <div className="codex-device-auth__code">{codexDeviceCode}</div>
             {codexVerificationUrl && (
               <div className="codex-device-auth__hint">
-                Verification page should have opened automatically.{' '}
-                If not, navigate to{' '}
+                {t('Verification page should have opened automatically.')}{' '}
+                {t('If not, navigate to')}{' '}
                 <span className="codex-device-auth__url">{codexVerificationUrl}</span>{' '}
-                and enter the code above.
+                {t('and enter the code above.')}
               </div>
             )}
           </div>
@@ -1085,7 +1095,7 @@ export function ConnectionsPane({
             className="codex-device-auth__link codex-device-auth__link--secondary codex-device-auth__fallback"
             onClick={handleCodexLoginDeviceAuth}
           >
-            Having trouble? Use device code flow instead
+            {t('Having trouble? Use device code flow instead')}
           </button>
         )}
         {openaiEditing && (
@@ -1104,14 +1114,14 @@ export function ConnectionsPane({
               onClick={handleSaveOpenai}
               disabled={!openaiDraft.trim() || openaiKeyStatus === 'testing'}
             >
-              {openaiKeyStatus === 'testing' ? 'Testing...' : 'Save'}
+              {openaiKeyStatus === 'testing' ? t('Testing...') : t('Save')}
             </button>
             {openaiStatus.present && (
               <button
                 className="conn-card__btn conn-card__btn--secondary"
                 onClick={() => { void handleDeleteOpenai(); setOpenaiEditing(false); }}
               >
-                Remove API key
+                {t('Remove API key')}
               </button>
             )}
             {openaiKeyStatus === 'error' && openaiError && (
@@ -1132,7 +1142,7 @@ export function ConnectionsPane({
         className={embedded ? 'settings-page__section' : 'conn-pane__group'}
       >
       <div className="settings-section-header">
-        <h2 className="settings-section-header__title">Connections</h2>
+        <h2 className="settings-section-header__title">{t('Connections')}</h2>
       </div>
 
       <div className="conn-card">
@@ -1144,36 +1154,36 @@ export function ConnectionsPane({
           />
           <div className="conn-card__info">
             <div className="conn-card__title-row">
-              <span className="conn-card__name">WhatsApp</span>
+              <span className="conn-card__name">{t('WhatsApp')}</span>
               <span className={`conn-card__dot ${statusDotClass}`} />
             </div>
             <span className="conn-card__subtitle">
               {waStatus === 'connected' && waIdentity
-                ? `Connected as +${waIdentity.replace(/(\d{1})(\d{3})(\d{3})(\d{4})/, '$1 ($2) $3-$4')} — text yourself with @BU to start a session (e.g. "@BU find me a flight to NYC"). Messages without @BU are ignored, so the chat still works as a notes app.`
+                ? t('Connected as $1', { '1': '+' + waIdentity.replace(/(\d{1})(\d{3})(\d{3})(\d{4})/, '$1 ($2) $3-$4') })
                 : waStatus === 'disconnected'
-                ? 'Connect WhatsApp so you can text yourself @BU to launch sessions and get agent notifications back in the same chat.'
+                ? t('Connect WhatsApp so you can text yourself @BU to launch sessions and get agent notifications back in the same chat.')
                 : statusText}
             </span>
           </div>
           <div className="conn-card__actions">
             {waStatus === 'disconnected' && (
               <button className="conn-card__btn conn-card__btn--primary" onClick={handleConnect}>
-                Connect
+                {t('Connect')}
               </button>
             )}
             {(waStatus === 'qr_ready' || waStatus === 'connecting') && (
               <button className="conn-card__btn conn-card__btn--secondary" onClick={handleCancel}>
-                Cancel
+                {t('Cancel')}
               </button>
             )}
             {waStatus === 'connected' && (
               <button className="conn-card__btn conn-card__btn--secondary" onClick={handleDisconnect}>
-                Disconnect
+                {t('Disconnect')}
               </button>
             )}
             {waStatus === 'error' && (
               <button className="conn-card__btn conn-card__btn--primary" onClick={handleConnect}>
-                Reconnect
+                {t('Reconnect')}
               </button>
             )}
           </div>
@@ -1185,13 +1195,13 @@ export function ConnectionsPane({
               <img
                 className="conn-card__qr-img"
                 src={qrDataUrl}
-                alt="WhatsApp QR code"
+                alt={t('WhatsApp QR code')}
               />
             ) : (
-              <div className="conn-card__qr-loading">Generating QR...</div>
+              <div className="conn-card__qr-loading">{t('Generating QR...')}</div>
             )}
             <p className="conn-card__qr-hint">
-              Open WhatsApp on your phone, go to Linked Devices, and scan this code. After linking, text yourself with @BU followed by a task (e.g. "@BU summarize my Linear inbox") to start a session — plain notes without @BU are ignored.
+              {t('Open WhatsApp on your phone, go to Linked Devices, and scan this code. After linking, text yourself with @BU followed by a task (e.g. "@BU summarize my Linear inbox") to start a session — plain notes without @BU are ignored.')}
             </p>
           </div>
         )}
@@ -1213,7 +1223,7 @@ export function ConnectionsPane({
         className={embedded ? 'settings-page__section' : 'conn-pane__group'}
       >
       <div className="settings-section-header">
-        <h2 className="settings-section-header__title">Browser Sync</h2>
+        <h2 className="settings-section-header__title">{t('Browser Sync')}</h2>
       </div>
 
       {cookieBrowserApi ? (
@@ -1226,11 +1236,11 @@ export function ConnectionsPane({
             <div className="conn-card__icon conn-card__icon--letter">C</div>
             <div className="conn-card__info">
               <div className="conn-card__title-row">
-                <span className="conn-card__name">Browser cookies</span>
+                <span className="conn-card__name">{t('Browser cookies')}</span>
                 <span className="conn-card__dot conn-card__dot--disconnected" />
               </div>
               <span className="conn-card__subtitle">
-                Cookie sync is unavailable in this environment.
+                {t('Cookie sync is unavailable in this environment.')}
               </span>
             </div>
           </div>

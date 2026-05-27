@@ -5,8 +5,10 @@
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { I18nextProvider } from 'react-i18next';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { HubApp } from './HubApp';
+import i18n from '../i18n';
 import { queryClient } from './useSessionsQuery';
 import { ToastProvider } from '@/renderer/components/base/Toast';
 import { ErrorBoundary } from '../components/empty/ErrorBoundary';
@@ -48,12 +50,14 @@ if (!rootEl) throw new Error('[hub] #hub-root element not found');
 createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <OfflineBanner />
-          <HubApp />
-        </ToastProvider>
-      </QueryClientProvider>
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <OfflineBanner />
+            <HubApp />
+          </ToastProvider>
+        </QueryClientProvider>
+      </I18nextProvider>
     </ErrorBoundary>
   </React.StrictMode>,
 );

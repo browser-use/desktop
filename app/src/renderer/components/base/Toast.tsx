@@ -21,6 +21,7 @@ import React, {
   useRef,
   ReactNode,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ interface ToastEntryProps {
 }
 
 function ToastEntry({ item, onDismiss }: ToastEntryProps) {
+  const { t } = useTranslation();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleDismiss = useCallback(() => {
@@ -129,7 +131,7 @@ function ToastEntry({ item, onDismiss }: ToastEntryProps) {
       <button
         className={`${BLOCK}__dismiss`}
         onClick={() => onDismiss(item.id)}
-        aria-label="Dismiss notification"
+        aria-label={t('Dismiss notification')}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
           <path
@@ -149,6 +151,7 @@ function ToastEntry({ item, onDismiss }: ToastEntryProps) {
 // ---------------------------------------------------------------------------
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const show = useCallback((item: Omit<ToastItem, 'id'>): string => {
@@ -182,7 +185,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             className={`${BLOCK}__stack`}
             role="region"
-            aria-label="Notifications"
+            aria-label={t('Notifications')}
             aria-live="polite"
           >
             {toasts.map((item) => (

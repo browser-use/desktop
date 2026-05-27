@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from './domain-utils';
 import { BrowserLogoAvatar } from './BrowserLogoAvatar';
 import { userFacingIpcError } from './ipcErrors';
@@ -83,20 +85,21 @@ function normalizeDomain(domain: string): string {
 
 function relativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return 'just now';
+  if (ms < 0) return i18n.t('just now');
   const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return i18n.t('just now');
+  if (m < 60) return String(m) + i18n.t('m ago');
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return String(h) + i18n.t('h ago');
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
+  if (d < 30) return String(d) + i18n.t('d ago');
   const mo = Math.floor(d / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
+  if (mo < 12) return String(mo) + i18n.t('mo ago');
+  return String(Math.floor(mo / 12)) + i18n.t('y ago');
 }
 
 export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
+  const { t } = useTranslation();
   const toast = useToast();
   const [profiles, setProfiles] = useState<CookieBrowserProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -187,7 +190,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
       const domainCount = result.domains?.length ?? 0;
       toast.show({
         variant: 'success',
-        title: `Synced ${result.imported} cookies`,
+        title: t('Synced $1 cookies', { '1': result.imported }),
         message: `${result.browserName} · ${domainCount} ${domainCount === 1 ? 'site' : 'sites'}`,
       });
     } catch (err) {
@@ -225,23 +228,23 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
     <div className="cb-root">
       {!hideHeader && (
         <div className="cb-header">
-          <span className="cb-title">Browser cookies</span>
+          <span className="cb-title">{t('Browser cookies')}</span>
           <p className="cb-subtitle">
-            Sync cookies from a local Chromium browser profile so signed-in sites (Gmail, GitHub, internal tools) work in agent sessions without re-logging-in. Re-run anytime your local browser session changes.
+            {t('Sync cookies from a local Chromium browser profile so signed-in sites (Gmail, GitHub, internal tools) work in agent sessions without re-logging-in. Re-run anytime your local browser session changes.')}
           </p>
         </div>
       )}
 
       <div className="cb-section">
         <div className="cb-section-head">
-          <span className="cb-section-title">Browser profiles</span>
+          <span className="cb-section-title">{t('Browser profiles')}</span>
           <button
             type="button"
             className="cb-btn cb-btn--ghost"
             onClick={refreshProfiles}
             disabled={profilesLoading}
           >
-            {profilesLoading ? 'Detecting…' : hasLoadedProfiles ? 'Refresh' : 'Detect'}
+            {profilesLoading ? t('Detecting…') : hasLoadedProfiles ? t('Refresh') : t('Detect')}
           </button>
         </div>
 
@@ -266,9 +269,9 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
                     {subtitle && <span className="cb-profile-email">{subtitle}</span>}
                     {record && (
                       <span className="cb-profile-result" title={new Date(record.last_synced_at).toLocaleString()}>
-                        Synced {relativeTime(record.last_synced_at)} · {record.domain_count.toLocaleString()} domains
+                        {t('Synced $1 · $2 domains', { '1': relativeTime(record.last_synced_at), '2': record.domain_count.toLocaleString() })}
                         {typeof record.new_domain_count === 'number' && typeof record.updated_domain_count === 'number' && (
-                          <> ({record.new_domain_count.toLocaleString()} new, {record.updated_domain_count.toLocaleString()} re-synced)</>
+                          <> {t('($1 new, $2 re-synced)', { '1': record.new_domain_count.toLocaleString(), '2': record.updated_domain_count.toLocaleString() })}</>
                         )}
                       </span>
                     )}
@@ -279,7 +282,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
                     onClick={() => handleSync(profileId)}
                     disabled={isSyncing || syncingProfile !== null}
                   >
-                    {isSyncing ? 'Syncing…' : record ? 'Re-sync' : 'Sync'}
+                    {isSyncing ? t('Syncing…') : record ? t('Re-sync') : t('Sync')}
                   </button>
                 </li>
               );
@@ -292,14 +295,14 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
 
       <div className="cb-section">
         <div className="cb-section-head">
-          <span className="cb-section-title">Sites in agent jar</span>
+          <span className="cb-section-title">{t('Sites in agent jar')}</span>
           <button
             type="button"
             className="cb-btn cb-btn--ghost"
             onClick={refreshCookies}
             disabled={cookiesLoading}
           >
-            {cookiesLoading ? 'Reading…' : 'Refresh'}
+            {cookiesLoading ? t('Reading…') : t('Refresh')}
           </button>
         </div>
 
@@ -311,7 +314,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
           <input
             className="cb-search__input"
             type="text"
-            placeholder="Filter by domain (e.g. github)"
+            placeholder={t('Filter by domain (e.g. github)')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -320,7 +323,7 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
               type="button"
               className="cb-search__clear"
               onClick={() => setSearch('')}
-              aria-label="Clear search"
+              aria-label={t('Clear search')}
             >
               ×
             </button>
@@ -329,12 +332,12 @@ export function CookieBrowser({ api, hideHeader }: Props): React.ReactElement {
 
         <div className="cb-list" role="list">
           {cookiesLoading && cookies.length === 0 ? (
-            <div className="cb-empty">Reading cookie jar…</div>
+            <div className="cb-empty">{t('Reading cookie jar…')}</div>
           ) : visibleDomains.length === 0 ? (
             <div className="cb-empty">
               {cookies.length === 0
-                ? 'No cookies yet. Sync a browser profile to import them.'
-                : 'No domains match your filter.'}
+                ? t('No cookies yet. Sync a browser profile to import them.')
+                : t('No domains match your filter.')}
             </div>
           ) : (
             visibleDomains.map((d) => (

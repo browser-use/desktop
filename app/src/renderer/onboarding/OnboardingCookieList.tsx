@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   extractHostname,
   getFaviconUrl,
@@ -34,6 +35,7 @@ function normalizeDomain(domain: string): string {
 }
 
 export function OnboardingCookieList({ listCookies }: Props): React.ReactElement {
+  const { t } = useTranslation();
   const [cookies, setCookies] = useState<SessionCookie[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -89,7 +91,7 @@ export function OnboardingCookieList({ listCookies }: Props): React.ReactElement
         <input
           className="ob-cookies__search-input"
           type="text"
-          placeholder="Search domains (e.g. github)"
+          placeholder={t('Search domains (e.g. github)')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -98,7 +100,7 @@ export function OnboardingCookieList({ listCookies }: Props): React.ReactElement
             type="button"
             className="ob-cookies__search-clear"
             onClick={() => setSearch('')}
-            aria-label="Clear search"
+            aria-label={t('Clear search')}
           >
             ×
           </button>
@@ -107,10 +109,10 @@ export function OnboardingCookieList({ listCookies }: Props): React.ReactElement
 
       <div className="ob-cookies__list" role="list">
         {loading && cookies.length === 0 ? (
-          <div className="ob-cookies__empty">Reading cookies…</div>
+          <div className="ob-cookies__empty">{t('Reading cookies…')}</div>
         ) : visibleDomains.length === 0 ? (
           <div className="ob-cookies__empty">
-            {cookies.length === 0 ? 'No cookies imported.' : 'No domains match your filter.'}
+            {cookies.length === 0 ? t('No cookies imported.') : t('No domains match your filter.')}
           </div>
         ) : (
           visibleDomains.map((d) => (

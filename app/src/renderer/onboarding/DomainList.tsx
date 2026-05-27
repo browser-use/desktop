@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { extractHostname, getFaviconUrl, isDefaultFavicon, sortDomains } from '../shared/domain-utils';
 
 interface DomainListProps {
@@ -9,6 +10,7 @@ interface DomainListProps {
 }
 
 export function DomainList({ domains, collapsible = false, header }: DomainListProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
   const [domainsWithDefaultFavicons, setDomainsWithDefaultFavicons] = useState<Set<string>>(new Set());
 
@@ -31,7 +33,7 @@ export function DomainList({ domains, collapsible = false, header }: DomainListP
     return (
       <div className="dl-empty">
         <GlobeIcon />
-        <span>No cookie domains stored</span>
+        <span>{t('No cookie domains stored')}</span>
       </div>
     );
   }
@@ -49,7 +51,7 @@ export function DomainList({ domains, collapsible = false, header }: DomainListP
               <>
                 <GlobeIcon />
                 <span className="dl-header-label">
-                  Cookie Domains{processedDomains.length > 0 && ` (${processedDomains.length})`}
+                  {processedDomains.length > 0 ? t('Cookie Domains ($1)', { '1': processedDomains.length }) : t('Cookie Domains')}
                 </span>
               </>
             )}
@@ -94,7 +96,7 @@ export function DomainList({ domains, collapsible = false, header }: DomainListP
               type="button"
             >
               <span className="dl-chevron">{'\u25B4'}</span>
-              Show less
+              {t('Show less')}
             </button>
           )}
         </div>

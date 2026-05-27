@@ -7,14 +7,7 @@
  */
 
 import React, { Component, ErrorInfo } from 'react';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const HEADING_COPY   = 'Something broke'                                  as const;
-const BODY_COPY      = 'An unexpected error occurred. You can try reloading.' as const;
-const RELOAD_LABEL   = 'Reload'                                           as const;
+import i18n from '../../i18n';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,16 +65,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
 
     return (
-      <div className="empty-state" data-variant="error" role="alert" aria-label={HEADING_COPY}>
-        <p className="empty-state__heading">{HEADING_COPY}</p>
-        <p className="empty-state__body">{BODY_COPY}</p>
+      <div className="empty-state" data-variant="error" role="alert" aria-label={i18n.t('Something broke')}>
+        <p className="empty-state__heading">{i18n.t('Something broke')}</p>
+        <p className="empty-state__body">{i18n.t('An unexpected error occurred. You can try reloading.')}</p>
 
         <button
           type="button"
           className="empty-state__reload-btn"
           onClick={this.handleReload}
         >
-          {RELOAD_LABEL}
+          {i18n.t('Reload')}
         </button>
       </div>
     );

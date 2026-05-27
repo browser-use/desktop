@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const FRAME_MS = 80;
@@ -8,6 +9,7 @@ interface TerminalSpinnerProps {
 }
 
 export function TerminalSpinner({ size = 13 }: TerminalSpinnerProps): React.ReactElement {
+  const { t } = useTranslation();
   const [i, setI] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setI((v) => (v + 1) % FRAMES.length), FRAME_MS);
@@ -16,7 +18,7 @@ export function TerminalSpinner({ size = 13 }: TerminalSpinnerProps): React.Reac
   return (
     <span
       className="chat-spinner"
-      aria-label="working"
+      aria-label={t('working')}
       style={{ fontSize: size, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', lineHeight: 1 }}
     >
       {FRAMES[i]}

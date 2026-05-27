@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { clearSelection, type TextSelectionSnapshot } from './useTextSelection';
 
 interface QuoteSelectionButtonProps {
@@ -31,7 +32,9 @@ function QuoteIcon(): React.ReactElement {
  * Click prevents-default on mousedown so the browser doesn't drop the
  * selection before our handler runs.
  */
-export function QuoteSelectionButton({ selection, onQuote, label = 'Quote' }: QuoteSelectionButtonProps): React.ReactElement | null {
+export function QuoteSelectionButton({ selection, onQuote, label: _label }: QuoteSelectionButtonProps): React.ReactElement | null {
+  const { t } = useTranslation();
+  const label = _label ?? t('Quote');
   if (!selection) return null;
 
   const { rect, text } = selection;

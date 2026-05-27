@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { AskFormPayload, AskQuestion } from './htmlBlocks';
 import { getSubmissionRecord, recordSubmission, submissionKey } from './optionListStore';
 import './askForm.css';
@@ -60,12 +61,13 @@ function decodeAskSelection(value: string): { question: string; label: string } 
 }
 
 export function AskForm(props: Props): React.ReactElement {
+  const { t } = useTranslation();
   const { payload, complete, error, sessionId, nextUserText } = props;
   if (!payload) {
     if (complete && error) {
       return (
         <div className="chatv2-askform" data-testid="chatv2-askform" data-state="error">
-          <div className="chatv2-askform__error">ask block ignored: {error}</div>
+          <div className="chatv2-askform__error">{t('ask block ignored', { '1': error })}</div>
         </div>
       );
     }
@@ -97,6 +99,7 @@ interface ReadyProps {
 }
 
 function AskFormReady({ payload, sessionId, streaming, nextUserText }: ReadyProps): React.ReactElement {
+  const { t } = useTranslation();
   const { questions, prompt } = payload;
   const formRef = useRef<HTMLDivElement | null>(null);
 
@@ -214,24 +217,24 @@ function AskFormReady({ payload, sessionId, streaming, nextUserText }: ReadyProp
   }, [questions, selectedByQuestion, otherTextByQuestion]);
 
   const submitLabel = useMemo(() => {
-    if (submitted) return 'Sent to agent';
-    if (canSubmit) return 'Confirm answers';
+    if (submitted) return t('Sent to agent');
+    if (canSubmit) return t('Confirm answers');
     const unanswered = questions.reduce((n, _, i) => {
       const sel = selectedByQuestion[i];
       return n + (sel && sel.size > 0 ? 0 : 1);
     }, 0);
-    if (unanswered === questions.length) return 'Answer to continue';
-    if (unanswered > 0) return `${unanswered} question${unanswered === 1 ? '' : 's'} left`;
-    return 'Type your "Other" answer';
-  }, [submitted, canSubmit, questions, selectedByQuestion]);
+    if (unanswered === questions.length) return t('Answer to continue');
+    if (unanswered > 0) return unanswered === 1 ? t('1 question left') : t('$1 questions left', { '1': unanswered });
+    return t('Type your "Other" answer');
+  }, [t, submitted, canSubmit, questions, selectedByQuestion]);
 
   const submit = useCallback(async (): Promise<void> => {
     if (!canSubmit || locked) return;
     if (!sessionId) {
-      setSubmitError('no active session');
+      setSubmitError(t('no active session'));
       return;
     }
-    const message = formatAnswerMessage(questions, selectedByQuestion, otherTextByQuestion);
+    const message = formatAnswerMessage(questions, selectedByQuestion, otherTextByQuestion, t);
     setLocalSubmit(true);
     setSubmitted(true);
     setSubmitError(null);
@@ -258,7 +261,7 @@ function AskFormReady({ payload, sessionId, streaming, nextUserText }: ReadyProp
       setSubmitted(false);
       setLocalSubmit(false);
     }
-  }, [canSubmit, locked, sessionId, questions, selectedByQuestion, otherTextByQuestion, cacheKey]);
+  }, [t, canSubmit, locked, sessionId, questions, selectedByQuestion, otherTextByQuestion, cacheKey]);
 
   // Auto-focus the first question on mount so kbd flow starts there.
   useEffect(() => {
@@ -272,14 +275,14 @@ function AskFormReady({ payload, sessionId, streaming, nextUserText }: ReadyProp
     return (
       <div className="chatv2-askform chatv2-askform--answered" data-testid="chatv2-askform" data-state="answered">
         <div className="chatv2-askform__head">
-          <div className="chatv2-askform__prompt">Answered:</div>
+          <div className="chatv2-askform__prompt">{t('Answered:')}</div>
         </div>
         {questions.map((q, qi) => {
           const sel = selectedByQuestion[qi] ?? new Set<string>();
           if (sel.size === 0) return null;
           const labels: string[] = [];
           for (const label of sel) {
-            if (label === OTHER_TOKEN) labels.push(`Other: ${otherTextByQuestion[qi] ?? ''}`);
+            if (label === OTHER_TOKEN) labels.push(t('Other: $1', { '1': otherTextByQuestion[qi] ?? '' }));
             else labels.push(label);
           }
           return (
@@ -352,6 +355,7 @@ interface QuestionProps {
 }
 
 function QuestionCard({ question, selected, otherText, locked, onToggle, onOtherChange }: QuestionProps): React.ReactElement {
+  const { t } = useTranslation();
   const inputType = question.multiSelect ? 'checkbox' : 'radio';
   return (
     <div className="chatv2-askform__question">
@@ -384,11 +388,11 @@ function QuestionCard({ question, selected, otherText, locked, onToggle, onOther
                 disabled={locked}
                 onChange={() => onToggle(OTHER_TOKEN)}
               />
-              <span className="chatv2-askform__option-label">Other</span>
+              <span className="chatv2-askform__option-label">{t('Other')}</span>
               <input
                 type="text"
                 className="chatv2-askform__other-input"
-                placeholder="type your answer…"
+                placeholder={t('type your answer…')}
                 value={otherText}
                 disabled={locked || !selected.has(OTHER_TOKEN)}
                 onChange={(e) => onOtherChange(e.target.value)}
@@ -467,6 +471,7 @@ function formatAnswerMessage(
   questions: AskQuestion[],
   selectedByQuestion: Set<string>[],
   otherTextByQuestion: string[],
+  t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
   const lines: string[] = [];
   for (let qi = 0; qi < questions.length; qi++) {
@@ -478,12 +483,12 @@ function formatAnswerMessage(
     for (const label of sel) {
       if (label === OTHER_TOKEN) {
         const text = otherTextByQuestion[qi]?.trim() ?? '';
-        values.push(text ? `Other: ${text}` : 'Other');
+        values.push(text ? t('Other: $1', { '1': text }) : t('Other'));
       } else {
         values.push(label);
       }
     }
     lines.push(`- ${labelPrefix}: ${values.join(', ')}`);
   }
-  return `Answered:\n${lines.join('\n')}`;
+  return `${t('Answered:')}\n${lines.join('\n')}`;
 }

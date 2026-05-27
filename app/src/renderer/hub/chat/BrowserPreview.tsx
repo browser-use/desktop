@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionsStore } from '../state/sessionsStore';
 
@@ -34,6 +35,7 @@ function previewLog(event: string, payload: Record<string, unknown>): void {
 }
 
 export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): React.ReactElement | null {
+  const { t } = useTranslation();
   const sessionInfo = useSessionsStore(
     useShallow((s) => {
       const sess = s.byId[sessionId];
@@ -133,8 +135,8 @@ export function BrowserPreview({ sessionId, onExpand }: BrowserPreviewProps): Re
         type="button"
         className={`browser-preview${expanding ? ' browser-preview--expanding' : ''}`}
         onClick={onClick}
-        title="Open browser view"
-        aria-label="Open browser view"
+        title={t('Open browser view')}
+        aria-label={t('Open browser view')}
       >
         {showFrame ? (
           <img

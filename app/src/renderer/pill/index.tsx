@@ -5,8 +5,10 @@
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { I18nextProvider } from 'react-i18next';
 import { Pill } from './Pill';
 import { ErrorBoundary } from '../components/empty/ErrorBoundary';
+import i18n from '../i18n';
 import '../design/theme.global.css';
 import '../design/empty-states.css';
 import './pill.css';
@@ -31,7 +33,9 @@ if (!rootEl) throw new Error('[pill] #pill-root element not found');
 createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <Pill />
+      <I18nextProvider i18n={i18n}>
+        <Pill />
+      </I18nextProvider>
     </ErrorBoundary>
   </React.StrictMode>,
 );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   maxBytesForAttachmentMime,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -223,6 +224,7 @@ function statusLabel(status: string): string {
 }
 
 export function Pill(): React.ReactElement {
+  const { t } = useTranslation();
   const [value, setValue] = useState('');
   const [sessions, setSessions] = useState<SessionLite[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(-1);
@@ -477,17 +479,17 @@ export function Pill(): React.ReactElement {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search sessions or create new agent..."
+            placeholder={t('Search sessions or create new agent...')}
             rows={1}
-            aria-label="Search or create"
+            aria-label={t('Search or create')}
           />
           <div className="cmdbar__search-actions">
             <button
               type="button"
               className="cmdbar__attach has-tooltip"
               onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
-              data-tooltip="Attach files"
+              aria-label={t('Attach files')}
+              data-tooltip={t('Attach files')}
             >
               <PaperclipIcon />
             </button>
@@ -508,7 +510,7 @@ export function Pill(): React.ReactElement {
               className="cmdbar__send"
               onClick={submit}
               disabled={!value.trim() && attachments.length === 0}
-              aria-label="Submit"
+              aria-label={t('Submit')}
             >
               <ArrowUpIcon />
             </button>
@@ -558,7 +560,7 @@ export function Pill(): React.ReactElement {
 
             {hasRecents && (
               <>
-                <div className="cmdbar__section-header">Recent</div>
+                <div className="cmdbar__section-header">{t('Recent')}</div>
                 <div className="cmdbar__recents">
                   {recents.map((s, i) => {
                     const domain = cleanDomain(s.primarySite ?? extractDomain(s.prompt));

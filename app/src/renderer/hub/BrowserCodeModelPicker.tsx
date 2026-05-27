@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import kimiLogoDark from './kimi-color.svg';
 import kimiLogoLight from './kimi-light.svg';
 import minimaxLogo from './minimax-color.svg';
@@ -84,6 +85,7 @@ export function BrowserCodeModelPicker({
   compact = false,
   onOpenChange,
 }: BrowserCodeModelPickerProps): React.ReactElement | null {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<BrowserCodeStatus>({ keys: {}, active: null, providers: [] });
   const [loaded, setLoaded] = useState(false);
   const [popupId, setPopupId] = useState<string | null>(null);
@@ -176,7 +178,7 @@ export function BrowserCodeModelPicker({
         type="button"
         className="browsercode-model-picker__toggle"
         onClick={(e) => { e.stopPropagation(); void openMenu(); }}
-        title={loadingStatus ? 'Loading BrowserCode model' : hasAnyKey ? `BrowserCode model: ${currentModelLabel}` : 'Set up BrowserCode model'}
+        title={loadingStatus ? t('Loading BrowserCode model') : hasAnyKey ? `${t('BrowserCode model')}: ${currentModelLabel}` : t('Set up BrowserCode model')}
         aria-haspopup="menu"
         aria-expanded={Boolean(popupId)}
         aria-busy={loadingStatus}
@@ -207,6 +209,7 @@ export function BrowserCodeModelMenuContent({
   onChanged,
   onClose,
 }: BrowserCodeModelMenuContentProps): React.ReactElement {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<BrowserCodeStatus>({ keys: {}, active: null, providers: [] });
   const [loaded, setLoaded] = useState(false);
   const [drilledProviderId, setDrilledProviderId] = useState<string | null>(null);
@@ -265,7 +268,7 @@ export function BrowserCodeModelMenuContent({
   return (
     <div className="browsercode-model-picker__menu" role="menu">
       {loadingStatus ? (
-        <div className="browsercode-submenu browsercode-submenu--loading" aria-label="Loading BrowserCode providers">
+        <div className="browsercode-submenu browsercode-submenu--loading" aria-label={t('Loading BrowserCode providers')}>
           <BrowserCodeSkeletonRows />
         </div>
       ) : !canSwitchModels && (

@@ -1,5 +1,7 @@
 <img width="1456" height="484" alt="desktop-app-banner" src="https://github.com/user-attachments/assets/550ca16a-5a61-4ded-92f0-a30421870223" />
 
+[**English**](README.md) | [**简体中文**](README.zh.md)
+
 # Browser Use Desktop App
 
 > Run a team of browser agents on your desktop.
@@ -37,19 +39,9 @@ Inbound message channels can trigger agent sessions automatically.
 
 - **WhatsApp** — text yourself with `@BU` to send and receive agent messages
 
-## Development
+## Internationalization
 
-Requires [Task](https://taskfile.dev) (`brew install go-task`).
-
-```bash
-task up    # Install deps and start the app
-```
-
-Linux packages are built in Docker so local distro tools do not affect the output:
-
-```bash
-task linux:make:docker
-```
+This app supports English and 简体中文. Switch language in **Settings → Language**.
 
 ## License
 

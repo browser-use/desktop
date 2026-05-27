@@ -12,6 +12,8 @@ import {
   MAX_CYCLE_MS,
   type SpinnerPresetId,
 } from './chat/spinnerVerbs';
+import { useTranslation } from 'react-i18next';
+import { getStoredLanguage, setStoredLanguage } from '../i18n';
 
 /**
  * Generic settings primitives. Add a new option type and every section that
@@ -70,36 +72,48 @@ function SegmentedControl<T extends string>({ value, options, onChange, ariaLabe
   );
 }
 
-const APPEARANCE_OPTIONS: ReadonlyArray<SegmentedOption<ThemeMode>> = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'system', label: 'System', hint: 'Follow your operating system' },
-];
-
 function AppearanceSection(): React.ReactElement {
+  const { t, i18n } = useTranslation();
   const { mode, setMode, resolved } = useThemeMode();
+  const appearanceOptions: ReadonlyArray<SegmentedOption<ThemeMode>> = [
+    { value: 'light', label: t('Light') },
+    { value: 'dark', label: t('Dark') },
+    { value: 'system', label: t('System'), hint: t('Follow your operating system') },
+  ];
   return (
     <div className="settings-card">
       <SettingsRow
-        label="Theme"
+        label={t('Theme')}
         sublabel={
           mode === 'system'
-            ? `Following your system (${resolved}).`
-            : 'Choose how Browser Use looks across windows.'
+            ? t('Following your system ($1).', { 1: resolved })
+            : t('Choose how Browser Use looks across windows.')
         }
       >
         <SegmentedControl
           value={mode}
-          options={APPEARANCE_OPTIONS}
+          options={appearanceOptions}
           onChange={setMode}
-          ariaLabel="Theme"
+          ariaLabel={t('Theme')}
         />
+      </SettingsRow>
+      <SettingsRow label={t('Language')}>
+        <select
+          className="settings-pane__select"
+          value={i18n.language}
+          onChange={(e) => { setStoredLanguage(e.target.value); i18n.changeLanguage(e.target.value); }}
+          style={{ minWidth: 140 }}
+        >
+          <option value="en">{t('English')}</option>
+          <option value="zh">{t('简体中文')}</option>
+        </select>
       </SettingsRow>
     </div>
   );
 }
 
 function SpinnerVerbsSection(): React.ReactElement {
+  const { t } = useTranslation();
   const presetId = useSpinnerVerbsStore((s) => s.presetId);
   const customVerbs = useSpinnerVerbsStore((s) => s.customVerbs);
   const cycleMs = useSpinnerVerbsStore((s) => s.cycleMs);
@@ -108,8 +122,6 @@ function SpinnerVerbsSection(): React.ReactElement {
   const setCycleMs = useSpinnerVerbsStore((s) => s.setCycleMs);
 
   const [draft, setDraft] = useState(customVerbs.join('\n'));
-  // Keep the local textarea in sync when something else mutates the store
-  // (e.g. preset reset), but don't fight the user mid-edit.
   const lastSyncedRef = useRef(customVerbs.join('\n'));
   useEffect(() => {
     const next = customVerbs.join('\n');
@@ -124,7 +136,7 @@ function SpinnerVerbsSection(): React.ReactElement {
   ];
 
   const activePreview = presetId === 'custom'
-    ? (customVerbs.length > 0 ? customVerbs : ['Working'])
+    ? (customVerbs.length > 0 ? customVerbs : [t('Working')])
     : SPINNER_VERB_PRESETS[presetId].verbs;
 
   const commitDraft = (): void => {
@@ -136,27 +148,27 @@ function SpinnerVerbsSection(): React.ReactElement {
   return (
     <div className="settings-card">
       <SettingsRow
-        label="Spinner verb"
-        sublabel="The word shown next to the busy spinner. Cycles through the list while the agent runs."
+        label={t('Spinner verb')}
+        sublabel={t('The word shown next to the busy spinner. Cycles through the list while the agent runs.')}
       >
         <select
           className="settings-pane__select"
           value={presetId}
           onChange={(e) => setPreset(e.target.value as SpinnerPresetId)}
-          aria-label="Spinner verb preset"
+          aria-label={t('Spinner verb preset')}
         >
           {presetOptions.map(([id, preset]) => (
-            <option key={id} value={id}>{preset.label}</option>
+            <option key={id} value={id}>{t(preset.label)}</option>
           ))}
-          <option value="custom">Custom</option>
+          <option value="custom">{t('Custom')}</option>
         </select>
       </SettingsRow>
 
       <SettingsRow
-        label="Preview"
+        label={t('Preview')}
         sublabel={presetId === 'custom'
-          ? `${activePreview.length} custom verb${activePreview.length === 1 ? '' : 's'}.`
-          : SPINNER_VERB_PRESETS[presetId].description}
+          ? t('$1 custom verb$2.', { 1: activePreview.length, 2: activePreview.length === 1 ? '' : 's' })
+          : t(SPINNER_VERB_PRESETS[presetId].description)}
       >
         <div className="settings-pane__value" style={{ maxWidth: 320, textAlign: 'right' }}>
           {activePreview.slice(0, 6).join(' / ')}{activePreview.length > 6 ? ' ...' : ''}
@@ -165,15 +177,15 @@ function SpinnerVerbsSection(): React.ReactElement {
 
       {presetId === 'custom' && (
         <SettingsRow
-          label="Custom verbs"
-          sublabel={'One verb per line. Blank lines are ignored. Falls back to "Working" if empty.'}
+          label={t('Custom verbs')}
+          sublabel={t('One verb per line. Blank lines are ignored. Falls back to "Working" if empty.')}
         >
           <textarea
             className="settings-pane__textarea"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitDraft}
-            placeholder={'Brewing\nCooking\nThinking'}
+            placeholder={t('Brewing\nCooking\nThinking')}
             rows={6}
             spellCheck={false}
             style={{ minWidth: 260, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}
@@ -182,8 +194,8 @@ function SpinnerVerbsSection(): React.ReactElement {
       )}
 
       <SettingsRow
-        label="Cycle interval"
-        sublabel={`How long each verb stays visible (${(cycleMs / 1000).toFixed(1)}s).`}
+        label={t('Cycle interval')}
+        sublabel={t('How long each verb stays visible ($1s).', { 1: (cycleMs / 1000).toFixed(1) })}
       >
         <input
           type="range"
@@ -192,7 +204,7 @@ function SpinnerVerbsSection(): React.ReactElement {
           step={100}
           value={cycleMs}
           onChange={(e) => setCycleMs(Number(e.target.value))}
-          aria-label="Spinner verb cycle interval"
+          aria-label={t('Spinner verb cycle interval')}
           style={{ width: 200 }}
         />
       </SettingsRow>
@@ -245,6 +257,7 @@ type UpdateStatusEvent = {
 };
 
 function AppSection(): React.ReactElement {
+  const { t } = useTranslation();
   const [info, setInfo] = useState<Awaited<ReturnType<ElectronAppAPI['getInfo']>> | null>(null);
   const [updateStatusEvent, setUpdateStatusEvent] = useState<UpdateStatusEvent>({ status: 'idle' });
   const [checking, setChecking] = useState(false);
@@ -265,30 +278,30 @@ function AppSection(): React.ReactElement {
       : '0%';
   const updateStatus = updateStatusEvent.message ?? (
     !info
-      ? 'Checking latest version...'
+      ? t('Checking latest version...')
       : updateReady
-        ? 'Update is ready to install.'
+        ? t('Update is ready to install.')
         : updateBusy
-          ? 'Checking for updates...'
+          ? t('Checking for updates...')
           : onLatest
-            ? 'You are on the latest version.'
+            ? t('You are on the latest version.')
             : info.latestVersion
-              ? `Latest version is ${info.latestVersion}.`
+              ? t('Latest version is $1.', { 1: info.latestVersion })
               : canDownloadUpdate
-                ? 'Checks on startup and every hour.'
-                : 'In-app updates are available in packaged release builds.'
+                ? t('Checks on startup and every hour.')
+                : t('In-app updates are available in packaged release builds.')
   );
   const buttonLabel = !info || checking
-    ? 'Checking...'
+    ? t('Checking...')
     : installing
-      ? 'Restarting...'
+      ? t('Restarting...')
       : updateReady
-        ? 'Restart to install'
+        ? t('Restart to install')
         : onLatest
-          ? 'On latest'
+          ? t('On latest')
           : canDownloadUpdate
-            ? 'Download update'
-            : 'Unavailable';
+            ? t('Download update')
+            : t('Unavailable');
 
   useEffect(() => {
     let cancelled = false;
@@ -304,7 +317,7 @@ function AppSection(): React.ReactElement {
       .catch(() => {
         if (cancelled) return;
         setInfo(null);
-        setUpdateStatusEvent({ status: 'error', message: 'Could not read update status.' });
+        setUpdateStatusEvent({ status: 'error', message: t('Could not read update status.') });
       });
 
     const unsubscribe = api?.onUpdateStatus((nextStatus) => {
@@ -321,7 +334,7 @@ function AppSection(): React.ReactElement {
   const handleDownloadLatest = useCallback(async () => {
     if (!api || checking || installing || onLatest || updateBusy || updateReady || !canDownloadUpdate) return;
     setChecking(true);
-    setUpdateStatusEvent({ status: 'checking', message: 'Checking for updates...' });
+    setUpdateStatusEvent({ status: 'checking', message: t('Checking for updates...') });
     try {
       const result = await api.downloadLatest();
       setUpdateStatusEvent((current) => (
@@ -330,7 +343,7 @@ function AppSection(): React.ReactElement {
       const next = await api.getInfo();
       setInfo(next);
     } catch {
-      setUpdateStatusEvent({ status: 'error', message: 'Could not start the in-app update check. Please try again later.' });
+      setUpdateStatusEvent({ status: 'error', message: t('Could not start the in-app update check. Please try again later.') });
     } finally {
       setChecking(false);
     }
@@ -347,7 +360,7 @@ function AppSection(): React.ReactElement {
       }));
       if (!result.ok) setInstalling(false);
     } catch {
-      setUpdateStatusEvent({ status: 'error', message: 'Could not restart to install the update.' });
+      setUpdateStatusEvent({ status: 'error', message: t('Could not restart to install the update.') });
       setInstalling(false);
     }
   }, [api, installing, updateReady]);
@@ -358,16 +371,16 @@ function AppSection(): React.ReactElement {
     <div className="settings-card">
       <div className="settings-pane__row">
         <div>
-          <div className="settings-pane__label">Version</div>
+          <div className="settings-pane__label">{t('Version')}</div>
           <div className="settings-pane__sublabel">
-            {info ? `Browser Use ${info.version}` : 'Detecting version...'}
+            {info ? `${t('Browser Use')} ${info.version}` : t('Detecting version...')}
           </div>
         </div>
         {info && <span className="settings-pane__value">v{info.version}</span>}
       </div>
       <div className="settings-pane__row">
         <div>
-          <div className="settings-pane__label">Updates</div>
+          <div className="settings-pane__label">{t('Updates')}</div>
           <div className="settings-pane__sublabel">
             {updateStatus}
           </div>
@@ -403,25 +416,24 @@ function readTabsPosition(): TabsPosition {
 }
 
 function LayoutSection(): React.ReactElement {
+  const { t } = useTranslation();
   const [position, setPosition] = useState<TabsPosition>(readTabsPosition);
 
   const choose = useCallback((next: TabsPosition) => {
     setPosition(next);
     try { window.localStorage.setItem('hub-tabs-position', next); } catch { /* ignore */ }
-    // HubApp listens for this and dispatches pane:layout-change AFTER React
-    // commits the new DOM, so AgentPane re-measures the correct bounds.
     window.dispatchEvent(new CustomEvent('hub:tabs-position-change', { detail: { position: next } }));
   }, []);
 
   return (
     <div className="settings-card layout-section">
       <div className="layout-section__header">
-        <div className="settings-pane__label">Tab layout</div>
+        <div className="settings-pane__label">{t('Tab layout')}</div>
         <div className="settings-pane__sublabel">
-          Pick where the agent session tabs live. Top reclaims sidebar width for the browser viewport.
+          {t('Pick where the agent session tabs live. Top reclaims sidebar width for the browser viewport.')}
         </div>
       </div>
-      <div className="layout-picker" role="radiogroup" aria-label="Tab layout">
+      <div className="layout-picker" role="radiogroup" aria-label={t('Tab layout')}>
         <button
           type="button"
           role="radio"
@@ -439,8 +451,8 @@ function LayoutSection(): React.ReactElement {
             </div>
             <div className="layout-picker__mockup-viewport" />
           </div>
-          <div className="layout-picker__label">Side</div>
-          <div className="layout-picker__desc">Vertical sidebar on the left. Roomy session labels.</div>
+          <div className="layout-picker__label">{t('Side')}</div>
+          <div className="layout-picker__desc">{t('Vertical sidebar on the left. Roomy session labels.')}</div>
         </button>
         <button
           type="button"
@@ -459,8 +471,8 @@ function LayoutSection(): React.ReactElement {
             </div>
             <div className="layout-picker__mockup-viewport" />
           </div>
-          <div className="layout-picker__label">Top</div>
-          <div className="layout-picker__desc">Horizontal terminal-style strip. Wider browser viewport.</div>
+          <div className="layout-picker__label">{t('Top')}</div>
+          <div className="layout-picker__desc">{t('Horizontal terminal-style strip. Wider browser viewport.')}</div>
         </button>
       </div>
     </div>
@@ -468,6 +480,7 @@ function LayoutSection(): React.ReactElement {
 }
 
 function PrivacySection(): React.ReactElement {
+  const { t } = useTranslation();
   const [telemetry, setTelemetry] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const api = (window as unknown as { electronAPI: { settings: { privacy: ElectronPrivacyAPI } } }).electronAPI.settings.privacy;
@@ -485,20 +498,20 @@ function PrivacySection(): React.ReactElement {
     if (telemetry === null || saving) return;
     const next = !telemetry;
     setSaving(true);
-    setTelemetry(next); // optimistic
+    setTelemetry(next);
     try {
       const res = await api.setTelemetry(next);
       setTelemetry(res.telemetry);
       toast.show({
         variant: 'success',
-        title: res.telemetry ? 'Telemetry enabled' : 'Telemetry disabled',
+        title: res.telemetry ? t('Telemetry enabled') : t('Telemetry disabled'),
       });
     } catch {
-      setTelemetry(!next); // revert
+      setTelemetry(!next);
       toast.show({
         variant: 'error',
-        title: 'Could not save setting',
-        message: 'Telemetry change could not be saved. Please try again.',
+        title: t('Could not save setting'),
+        message: t('Telemetry change could not be saved. Please try again.'),
       });
     } finally {
       setSaving(false);
@@ -509,8 +522,8 @@ function PrivacySection(): React.ReactElement {
     <div className="settings-card">
       <div className="settings-pane__row">
         <div>
-          <div className="settings-pane__label">Allow telemetry to help us make this app better</div>
-          <div className="settings-pane__sublabel">Anonymous only — app version, OS, feature usage, and crash reports.</div>
+          <div className="settings-pane__label">{t('Allow telemetry to help us make this app better')}</div>
+          <div className="settings-pane__sublabel">{t('Anonymous only — app version, OS, feature usage, and crash reports.')}</div>
         </div>
         <button
           className="settings-pane__toggle"
@@ -526,14 +539,14 @@ function PrivacySection(): React.ReactElement {
 
       <div className="settings-pane__row">
         <div>
-          <div className="settings-pane__label">System notifications</div>
-          <div className="settings-pane__sublabel">Managed by your operating system.</div>
+          <div className="settings-pane__label">{t('System notifications')}</div>
+          <div className="settings-pane__sublabel">{t('Managed by your operating system.')}</div>
         </div>
         <button
           className="conn-card__btn conn-card__btn--secondary"
           onClick={() => { void api.openSystemNotifications(); }}
         >
-          Open system settings
+          {t('Open system settings')}
         </button>
       </div>
     </div>
@@ -585,6 +598,7 @@ interface KeybindRowProps {
 }
 
 function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShortcut }: KeybindRowProps): React.ReactElement {
+  const { t } = useTranslation();
   const [recording, setRecording] = useState(false);
   const [firstKey, setFirstKey] = useState<string | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
@@ -595,8 +609,8 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
     setFirstKey(null);
     (document.activeElement as HTMLElement | null)?.blur?.();
     const ok = await onUpdate(kb.id, keys);
-    setRecordingError(ok ? null : 'That shortcut is unavailable. Choose another one.');
-  }, [kb.id, onUpdate]);
+    setRecordingError(ok ? null : t('That shortcut is unavailable. Choose another one.'));
+  }, [kb.id, onUpdate, t]);
 
   useEffect(() => {
     if (!recording) return;
@@ -605,7 +619,7 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
         void finishRecording([firstKey]);
       } else {
         setRecording(false);
-        setRecordingError('No shortcut was detected. Choose another combination.');
+        setRecordingError(t('No shortcut was detected. Choose another combination.'));
       }
     }, firstKey ? 700 : 8000);
 
@@ -624,7 +638,7 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
         clearTimeout(timer);
         setRecording(false);
         setFirstKey(null);
-        setRecordingError('That shortcut is unavailable. Choose another one.');
+        setRecordingError(t('That shortcut is unavailable. Choose another one.'));
         return;
       }
 
@@ -639,7 +653,6 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
         return;
       }
 
-      // If modifier present, commit immediately. Else wait briefly for possible chord.
       if (e.metaKey || e.ctrlKey || e.altKey) {
         clearTimeout(timer);
         await finishRecording([combo]);
@@ -654,7 +667,7 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
       clearTimeout(timer);
       window.removeEventListener('keydown', handler, true);
     };
-  }, [finishRecording, firstKey, isGlobalShortcut, platform, recording]);
+  }, [finishRecording, firstKey, isGlobalShortcut, platform, recording, t]);
 
   return (
     <div className={`settings-pane__row${isOverridden ? ' settings-pane__row--modified' : ''}`}>
@@ -673,7 +686,7 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
         >
           {recording ? (
             <span className="settings-pane__recording">
-              {firstKey ? `${formatShortcut(firstKey)} + ...` : 'Press key...'}
+              {firstKey ? `${formatShortcut(firstKey)} + ...` : t('Press key...')}
             </span>
           ) : (
             kb.keys.map((k, i) => (
@@ -684,7 +697,7 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
         <button
           className="settings-pane__reset-btn"
           onClick={() => onReset(kb.id)}
-          title="Reset to default"
+          title={t('Reset to default')}
           style={{ visibility: isOverridden && !recording ? 'visible' : 'hidden' }}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -699,6 +712,7 @@ function KeybindRow({ kb, isOverridden, onUpdate, onReset, platform, formatShort
 }
 
 export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, onResetBinding, onResetAll, formatShortcut }: SettingsPaneProps): React.ReactElement {
+  const { t } = useTranslation();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('settings-application');
   const platform = window.electronAPI?.shell?.platform ?? fallbackShortcutPlatform();
@@ -750,12 +764,12 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
         <div className="settings-page__content">
           <header className="settings-page__header">
             <div>
-              <span className="settings-page__eyebrow">Browser Use</span>
-              <h1 className="settings-page__title">Settings</h1>
+              <span className="settings-page__eyebrow">{t('Browser Use')}</span>
+              <h1 className="settings-page__title">{t('Settings')}</h1>
             </div>
           </header>
 
-          <nav className="settings-page__tabs" aria-label="Settings sections">
+          <nav className="settings-page__tabs" aria-label={t('Settings sections')}>
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -764,14 +778,14 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
                 onClick={() => scrollToSection(tab.id)}
                 data-settings-tab={tab.id}
               >
-                {tab.label}
+                {t(tab.label)}
               </button>
             ))}
           </nav>
 
           <section id="settings-application" className="settings-page__section">
             <div className="settings-section-header">
-              <h2 className="settings-section-header__title">Application</h2>
+              <h2 className="settings-section-header__title">{t('Application')}</h2>
             </div>
             <AppSection />
             <LayoutSection />
@@ -779,7 +793,7 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
 
           <section id="settings-appearance" className="settings-page__section">
             <div className="settings-section-header">
-              <h2 className="settings-section-header__title">Appearance</h2>
+              <h2 className="settings-section-header__title">{t('Appearance')}</h2>
             </div>
             <AppearanceSection />
             <SpinnerVerbsSection />
@@ -795,9 +809,9 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
 
           <section id="settings-shortcuts" className="settings-page__section">
             <div className="settings-section-header">
-              <h2 className="settings-section-header__title">Shortcuts</h2>
+              <h2 className="settings-section-header__title">{t('Shortcuts')}</h2>
               {Object.keys(overrides).length > 0 && (
-                <button className="settings-pane__reset-all" onClick={onResetAll}>Reset all</button>
+                <button className="settings-pane__reset-all" onClick={onResetAll}>{t('Reset all')}</button>
               )}
             </div>
             <div className="settings-card settings-card--shortcuts">
@@ -817,7 +831,7 @@ export function SettingsPane({ intent, keybindings, overrides, onUpdateBinding, 
 
           <section id="settings-privacy" className="settings-page__section settings-page__section--last">
             <div className="settings-section-header">
-              <h2 className="settings-section-header__title">Privacy</h2>
+              <h2 className="settings-section-header__title">{t('Privacy')}</h2>
             </div>
             <PrivacySection />
           </section>

@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionsStore } from '../state/sessionsStore';
 import { adaptSession } from '../types';
@@ -63,6 +64,7 @@ function smoothScrollTo(el: HTMLElement, top: number, durationMs: number): void 
 }
 
 export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(function ChatTranscript({ sessionId, onEditMessage, onShare }, fwdRef): React.ReactElement | null {
+  const { t } = useTranslation();
   // Subscribe only to this session's output + createdAt. Other sessions'
   // updates do not re-render this component.
   const sessionSlice = useSessionsStore(
@@ -271,7 +273,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, ChatTranscriptProps>(fu
   if (turns.length === 0) {
     return (
       <div className="chat-transcript" ref={containerRef}>
-        {showThinking ? <ThinkingIndicator since={since} /> : <div className="chat-empty">No messages yet.</div>}
+        {showThinking ? <ThinkingIndicator since={since} /> : <div className="chat-empty">{t('No messages yet.')}</div>}
       </div>
     );
   }

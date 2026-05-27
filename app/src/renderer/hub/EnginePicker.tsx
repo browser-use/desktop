@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import claudeLogoSrc from './claude-logo.svg?raw';
 import openaiLogoDarkSrc from './openai-logo.svg?raw';
 import openaiLogoLightSrc from './openai-logo-light.svg?raw';
@@ -65,6 +66,7 @@ async function fetchEngines(): Promise<EngineInfo[]> {
 }
 
 export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProps): React.ReactElement {
+  const { t } = useTranslation();
   const [engines, setEngines] = useState<EngineInfo[]>([]);
   const [statuses, setStatuses] = useState<Record<string, EngineStatus>>({});
   const [popupId, setPopupId] = useState<string | null>(null);
@@ -150,11 +152,11 @@ export function EnginePicker({ value, onChange, onOpenChange }: EnginePickerProp
         onClick={(e) => { e.stopPropagation(); void openMenu(); }}
         aria-haspopup="menu"
         aria-expanded={Boolean(popupId)}
-        title={currentEngine ? `Engine: ${currentEngine.displayName}${!currentAuthed ? ' — not logged in' : ''}` : 'Pick engine'}
+        title={currentEngine ? `${t('Engine')}: ${currentEngine.displayName}${!currentAuthed ? ` — ${t('not logged in')}` : ''}` : t('Pick engine')}
       >
         {currentEngine && <EngineLogo id={currentEngine.id} />}
         <span className="engine-picker__name">{currentEngine?.displayName ?? '…'}</span>
-        {(!currentInstalled || !currentAuthed) && <span className="engine-picker__dot" aria-label="Needs setup" />}
+        {(!currentInstalled || !currentAuthed) && <span className="engine-picker__dot" aria-label={t('Needs setup')} />}
         <ChevronIcon />
       </button>
     </div>
@@ -172,6 +174,7 @@ export function EnginePickerMenuContent({
   onChange,
   onClose,
 }: EnginePickerMenuContentProps): React.ReactElement {
+  const { t } = useTranslation();
   const [engines, setEngines] = useState<EngineInfo[]>([]);
   const [statuses, setStatuses] = useState<Record<string, EngineStatus>>({});
   const [loggingIn, setLoggingIn] = useState<string | null>(null);
@@ -376,8 +379,8 @@ export function EnginePickerMenuContent({
         const authed = st?.authed?.authed ?? true;
         const needsSetup = !installed || !authed;
         const actionPending = installing === e.id || loggingIn === e.id;
-        const setupLabel = e.id === 'browsercode' ? 'Set up' : 'Log in';
-        const installLabel = installing === e.id ? 'Installing…' : 'Install';
+        const setupLabel = e.id === 'browsercode' ? t('Set up') : t('Log in');
+        const installLabel = installing === e.id ? t('Installing…') : t('Install');
         const isBrowserCode = e.id === 'browsercode';
         return (
           <button
@@ -386,7 +389,7 @@ export function EnginePickerMenuContent({
             className={`engine-picker__item${e.id === value ? ' engine-picker__item--active' : ''}${actionPending ? ' engine-picker__item--disabled' : ''}`}
             onClick={() => onItemClick(e.id, installed, authed)}
             disabled={actionPending}
-            title={!installed ? st?.installed?.error ?? `Install ${e.displayName}` : !authed ? st?.authed?.error ?? 'Start setup' : `Use ${e.displayName}`}
+            title={!installed ? st?.installed?.error ?? `${t('Install')} ${e.displayName}` : !authed ? st?.authed?.error ?? t('Start setup') : `${t('Use')} ${e.displayName}`}
             role="menuitem"
           >
             <EngineLogo id={e.id} />
@@ -394,7 +397,7 @@ export function EnginePickerMenuContent({
             {e.id === value && !isBrowserCode && <span className="engine-picker__check">✓</span>}
             {needsSetup && installed && (
               <span className="engine-picker__item-login">
-                {loggingIn === e.id ? 'Waiting…' : setupLabel}
+                {loggingIn === e.id ? t('Waiting…') : setupLabel}
               </span>
             )}
             {!installed && (

@@ -1,4 +1,6 @@
 import React, { useCallback, useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import { STATUS_LABEL } from './constants';
 import { ContentRenderer, getPreview } from './ContentRenderer';
 import { Markdown, linkifyOutputPaths } from './Markdown';
@@ -36,15 +38,15 @@ function isApiKeyError(raw: string): boolean {
 function friendlyError(raw: string): string {
   const lower = raw.toLowerCase();
   if (lower.includes('browsercode') || lower.includes('moonshot') || lower.includes('minimax') || lower.includes('qwen') || lower.includes('alibaba')) {
-    if (isApiKeyError(raw)) return 'BrowserCode provider API key is missing or invalid. Update it in Settings.';
+    if (isApiKeyError(raw)) return i18n.t('BrowserCode provider API key is missing or invalid. Update it in Settings.');
   }
-  if (lower.includes('credit balance is too low') || lower.includes('insufficient_quota')) return 'API credits exhausted. Please add credits to your Anthropic account.';
-  if (isApiKeyError(raw)) return 'Anthropic API key is missing or invalid. Update it in Settings.';
-  if (lower.includes('rate_limit') || lower.includes('rate limit')) return 'Rate limited. Too many requests — try again in a moment.';
-  if (lower.includes('overloaded') || lower.includes('529')) return 'API is overloaded. Try again shortly.';
-  if (lower.includes('cancelled')) return 'Task was cancelled.';
-  if (lower.includes('app exited unexpectedly')) return 'App exited unexpectedly during this task.';
-  if (lower.includes('cdp') || lower.includes('browser session expired')) return 'Browser session expired. Start a new task.';
+  if (lower.includes('credit balance is too low') || lower.includes('insufficient_quota')) return i18n.t('API credits exhausted. Please add credits to your Anthropic account.');
+  if (isApiKeyError(raw)) return i18n.t('Anthropic API key is missing or invalid. Update it in Settings.');
+  if (lower.includes('rate_limit') || lower.includes('rate limit')) return i18n.t('Rate limited. Too many requests — try again in a moment.');
+  if (lower.includes('overloaded') || lower.includes('529')) return i18n.t('API is overloaded. Try again shortly.');
+  if (lower.includes('cancelled')) return i18n.t('Task was cancelled.');
+  if (lower.includes('app exited unexpectedly')) return i18n.t('App exited unexpectedly during this task.');
+  if (lower.includes('cdp') || lower.includes('browser session expired')) return i18n.t('Browser session expired. Start a new task.');
   return raw.length > 120 ? raw.slice(0, 120) + '...' : raw;
 }
 
@@ -657,15 +659,15 @@ function FollowUpInput({ sessionId, onUserInput, autoFocus }: { sessionId: strin
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="Follow up..."
+          placeholder={i18n.t('Follow up...')}
           rows={1}
         />
         <button
           type="button"
           className="followup__attach-btn"
           onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-          aria-label="Attach files"
-          title="Attach files"
+          aria-label={i18n.t('Attach files')}
+          title={i18n.t('Attach files')}
         >+</button>
         <input
           ref={fileInputRef}
@@ -706,6 +708,7 @@ interface AgentPaneProps {
 }
 
 export function AgentPane({ session, focused, onRerun, onResume, onPause, onFollowUp, onDismiss, onCancel, onSelect, onOpenFollowUp, onOpenSettings, onOpenChat, shouldDetachBrowserOnUnmount, followUpShortcut, cycleShortcut }: AgentPaneProps): React.ReactElement {
+  const { t } = useTranslation();
   const openaiLogo = useThemedAsset(openaiLogoDark, openaiLogoLight);
   const opencodeLogo = useThemedAsset(opencodeLogoDark, opencodeLogoLight);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -1015,16 +1018,16 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
         <div className="pane__title-group">
           <span className="pane__prompt">{session.prompt}</span>
           {session.engine === 'codex' && (
-            <img className="pane__engine-icon" src={openaiLogo} alt="Codex" title="Codex" />
+            <img className="pane__engine-icon" src={openaiLogo} alt={t('Codex')} title={t('Codex')} />
           )}
           {session.engine === 'browsercode' && (
-            <img className="pane__engine-icon" src={opencodeLogo} alt="BrowserCode" title="BrowserCode" />
+            <img className="pane__engine-icon" src={opencodeLogo} alt={t('BrowserCode')} title={t('BrowserCode')} />
           )}
           {session.engine === 'claude-code' && (
-            <img className="pane__engine-icon" src={claudeCodeLogo} alt="Claude Code" title="Claude Code" />
+            <img className="pane__engine-icon" src={claudeCodeLogo} alt={t('Claude Code')} title={t('Claude Code')} />
           )}
           {session.model && session.engine === 'browsercode' && (
-            <span className="pane__model-badge" title={`Model: ${session.model}`}>
+            <span className="pane__model-badge" title={t('Model: $1').replace('$1', session.model ?? '')}>
               {session.model.includes('/') ? session.model.split('/').pop() : session.model}
             </span>
           )}
@@ -1033,11 +1036,11 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
               className={`pane__auth-badge pane__auth-badge--${session.authMode}`}
               title={
                 session.authMode === 'subscription'
-                  ? `Ran under ${session.subscriptionType ?? 'subscription'} OAuth`
-                  : 'Ran under saved API key'
+                  ? t('Ran under $1 OAuth').replace('$1', session.subscriptionType ?? 'subscription')
+                  : t('Ran under saved API key')
               }
             >
-              {session.authMode === 'subscription' ? 'SUBSCRIPTION' : 'KEY'}
+              {session.authMode === 'subscription' ? t('SUBSCRIPTION') : t('KEY')}
             </span>
           )}
           {/* Cost chip is hidden under subscription auth (Claude Code / Codex
@@ -1049,8 +1052,8 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
               className="pane__cost"
               title={
                 session.costSource === 'estimated'
-                  ? `Estimated from token count × local price table · ${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
-                  : `${session.inputTokens ?? 0} in / ${session.outputTokens ?? 0} out`
+                  ? t('Estimated from token count × local price table · $1 in / $2 out').replace('$1', String(session.inputTokens ?? 0)).replace('$2', String(session.outputTokens ?? 0))
+                  : t('$1 in / $2 out').replace('$1', String(session.inputTokens ?? 0)).replace('$2', String(session.outputTokens ?? 0))
               }
             >
               {session.costSource === 'estimated' ? '~' : ''}
@@ -1062,37 +1065,37 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
           {browserDead && (
             <span className="pane__action-btn pane__action-btn--disabled">
               <BrowserIcon />
-              <span>Browser ended</span>
+              <span>{t('Browser ended')}</span>
             </span>
           )}
           {onOpenChat && (
             <button
               className="pane__action-btn"
               onClick={(e) => { e.stopPropagation(); onOpenChat(session.id); }}
-              aria-label="Back to chat view"
-              data-tip="Back to chat view"
+              aria-label={t('Back to chat view')}
+              data-tip={t('Back to chat view')}
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path d="M7 3L4 6l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>Back to chat</span>
+              <span>{t('Back to chat')}</span>
             </button>
           )}
           <button
             className={`pane__action-btn${logsOpen ? ' pane__action-btn--active' : ''}`}
             onClick={(e) => { e.stopPropagation(); handleToggleLogs(); }}
-            aria-label="Toggle logs overlay"
-            data-tip="Toggle logs overlay"
+            aria-label={t('Toggle logs overlay')}
+            data-tip={t('Toggle logs overlay')}
           >
             <SplitIcon />
-            <span>Logs</span>
+            <span>{t('Logs')}</span>
           </button>
           {onRerun && (
             <button
               className="pane__action-btn pane__action-btn--icon"
               onClick={(e) => { e.stopPropagation(); onRerun(session.id); }}
-              aria-label="Rerun"
-              data-tip="Rerun"
+              aria-label={t('Rerun')}
+              data-tip={t('Rerun')}
             >
               <RerunIcon />
             </button>
@@ -1101,8 +1104,8 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--primary"
               onClick={(e) => { e.stopPropagation(); onResume?.(session.id); }}
-              aria-label="Resume"
-              data-tip="Resume"
+              aria-label={t('Resume')}
+              data-tip={t('Resume')}
             >
               <ResumeIcon />
             </button>
@@ -1111,8 +1114,8 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
             <button
               className="pane__action-btn pane__action-btn--icon"
               onClick={(e) => { e.stopPropagation(); onPause(session.id); }}
-              aria-label="Pause"
-              data-tip="Pause"
+              aria-label={t('Pause')}
+              data-tip={t('Pause')}
             >
               <PauseIcon />
             </button>
@@ -1121,8 +1124,8 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
               onClick={(e) => { e.stopPropagation(); onCancel(session.id); }}
-              aria-label="Stop"
-              data-tip="Stop"
+              aria-label={t('Stop')}
+              data-tip={t('Stop')}
             >
               <CloseIcon />
             </button>
@@ -1131,8 +1134,8 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
             <button
               className="pane__action-btn pane__action-btn--icon pane__action-btn--danger"
               onClick={(e) => { e.stopPropagation(); onDismiss(session.id); }}
-              aria-label="Close"
-              data-tip="Close"
+              aria-label={t('Close')}
+              data-tip={t('Close')}
             >
               <CloseIcon />
             </button>
@@ -1158,14 +1161,14 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
       {frameRect && (showErrorUi || browserDead || browserMissing || session.status === 'draft' || endedWithoutBrowser) && (() => {
         const isStarting = !showErrorUi && !browserDead && !browserMissing && session.status === 'draft';
         const browserLine = browserDead
-          ? 'Browser ended'
+          ? i18n.t('Browser ended')
           : browserMissing
-            ? (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? 'Browser stopped' : 'No browser started yet')
-            : (endedWithoutBrowser ? 'Browser ended' : null);
+            ? (session.status === 'stopped' || session.status === 'idle' || session.status === 'stuck' ? i18n.t('Browser stopped') : i18n.t('No browser started yet'))
+            : (endedWithoutBrowser ? i18n.t('Browser ended') : null);
         const primaryLine = showErrorUi
           ? friendlyError(session.error!)
           : isCancellation
-            ? 'Task was cancelled.'
+            ? i18n.t('Task was cancelled.')
             : browserLine;
         const subLine = (showErrorUi || isCancellation) ? browserLine : null;
         const showActions = !isStarting && (onRerun || canResume || (showErrorUi && isApiKeyError(session.error) && onOpenSettings));
@@ -1189,7 +1192,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
                 {isStarting ? (
                   <>
                     <span className="pane__spinner" />
-                    <span>Browser starting…</span>
+                    <span>{i18n.t('Browser starting…')}</span>
                   </>
                 ) : (
                   <span>{primaryLine}</span>
@@ -1206,12 +1209,12 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
                       onClick={() => onResume?.(session.id)}
                     >
                       <ResumeIcon />
-                      <span>Resume</span>
+                      <span>{t('Resume')}</span>
                     </button>
                   )}
                   {showErrorUi && isApiKeyError(session.error) && onOpenSettings && (
                     <button className="pane__rerun-btn" onClick={onOpenSettings}>
-                      <span>Open Settings</span>
+                      <span>{t('Open Settings')}</span>
                     </button>
                   )}
                   {onRerun && (
@@ -1220,7 +1223,7 @@ export function AgentPane({ session, focused, onRerun, onResume, onPause, onFoll
                       onClick={() => onRerun(session.id)}
                     >
                       <RerunIcon />
-                      <span>Rerun task</span>
+                      <span>{t('Rerun task')}</span>
                     </button>
                   )}
                 </div>

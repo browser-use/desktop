@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { TerminalPane } from '../hub/TerminalPane';
 import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
 
@@ -163,6 +164,7 @@ function FileRow({ entry }: { entry: FileOutputEntry }): React.ReactElement {
 }
 
 export function LogsApp(): React.ReactElement {
+  const { t } = useTranslation();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [mode, setModeState] = useState<'dot' | 'normal' | 'full'>('normal');
   const [files, setFiles] = useState<FileOutputEntry[]>([]);
@@ -361,8 +363,8 @@ export function LogsApp(): React.ReactElement {
         onClick={onExpandFromDot}
         onMouseDown={preventButtonFocus}
         tabIndex={-1}
-        aria-label="Expand logs"
-        title="Expand logs"
+        aria-label={t('Expand logs')}
+        title={t('Expand logs')}
       >
         <span className="logs-dot__pulse" />
       </button>
@@ -372,7 +374,7 @@ export function LogsApp(): React.ReactElement {
   return (
     <div className={`logs-root${mode === 'full' ? ' logs-root--full' : ''}`}>
       <header className="logs-header">
-        <span className="logs-header__title">Logs</span>
+        <span className="logs-header__title">{t('Logs')}</span>
         <div className="logs-header__actions">
           <button
             type="button"
@@ -380,8 +382,8 @@ export function LogsApp(): React.ReactElement {
             onClick={onMinimize}
             onMouseDown={preventButtonFocus}
             tabIndex={-1}
-            aria-label="Minimize to dot"
-            title="Minimize"
+            aria-label={t('Minimize to dot')}
+            title={t('Minimize')}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
               <path d="M2 7h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -393,8 +395,8 @@ export function LogsApp(): React.ReactElement {
             onClick={onToggleFull}
             onMouseDown={preventButtonFocus}
             tabIndex={-1}
-            aria-label={mode === 'full' ? 'Restore size' : 'Expand to full pane'}
-            title={mode === 'full' ? 'Restore' : 'Expand'}
+            aria-label={mode === 'full' ? t('Restore size') : t('Expand to full pane')}
+            title={mode === 'full' ? t('Restore') : t('Expand')}
           >
             {mode === 'full' ? (
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -412,8 +414,8 @@ export function LogsApp(): React.ReactElement {
             onClick={() => window.logsAPI.close()}
             onMouseDown={preventButtonFocus}
             tabIndex={-1}
-            aria-label="Close"
-            title="Close"
+            aria-label={t('Close')}
+            title={t('Close')}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
               <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -430,17 +432,17 @@ export function LogsApp(): React.ReactElement {
             isActive={sessionStatus === 'running'}
           />
         ) : (
-          <div className="logs-empty">waiting for session…</div>
+          <div className="logs-empty">{t('waiting for session…')}</div>
         )}
       </div>
       {hasFiles && (
-        <div className="logs-files" aria-label="Produced files">
+        <div className="logs-files" aria-label={t('Produced files')}>
           {cappedFiles.map((f, i) => <FileRow key={`${f.path}-${i}`} entry={f} />)}
         </div>
       )}
       {sessionStatus === 'stopped' ? (
         <div className="logs-followup logs-followup--ended" aria-live="polite">
-          <span className="logs-followup__ended-label">Session ended</span>
+          <span className="logs-followup__ended-label">{t('Session ended')}</span>
         </div>
       ) : (
         <form
@@ -452,7 +454,7 @@ export function LogsApp(): React.ReactElement {
             ref={inputRef}
             className="logs-followup__input"
             value={input}
-            placeholder={sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck') ? 'Queue follow-up…' : sessionId ? 'Follow up…' : 'No session'}
+            placeholder={sessionId && (sessionStatus === 'running' || sessionStatus === 'stuck') ? t('Queue follow-up…') : sessionId ? t('Follow up…') : t('No session')}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onInputKeyDown}
             rows={1}

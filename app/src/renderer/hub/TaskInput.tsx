@@ -8,6 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { INPUT_PLACEHOLDER } from './constants';
 import { EnginePicker, EngineLogo } from './EnginePicker';
 import { AttachmentList, type AttachmentItem } from './chat-v2/Attachments';
@@ -91,6 +92,7 @@ async function readFileBytes(file: File): Promise<Uint8Array> {
 }
 
 export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({ onSubmit, topSlot, lockedEngine }, ref) {
+  const { t } = useTranslation();
   const [value, setValue] = useState('');
   const [focused, setFocused] = useState(false);
   const [attachments, setAttachments] = useState<TaskInputAttachment[]>([]);
@@ -281,17 +283,17 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
           onKeyDown={onKeyDown}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          placeholder={INPUT_PLACEHOLDER}
+          placeholder={t(INPUT_PLACEHOLDER)}
           rows={1}
-          aria-label="New agent task"
+          aria-label={t('New agent task')}
         />
         <div className="task-input__actions" onClick={focusTextareaOnBoxClick}>
           <button
             type="button"
             className="task-input__attach has-tooltip"
             onClick={() => fileInputRef.current?.click()}
-            aria-label="Attach files"
-            data-tooltip="Attach files"
+            aria-label={t('Attach files')}
+            data-tooltip={t('Attach files')}
           >
             <PaperclipIcon />
           </button>
@@ -323,8 +325,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             className="task-input__send"
             onClick={submit}
             disabled={!canSubmit}
-            aria-label="Start agent"
-            title="Start agent (Enter)"
+            aria-label={t('Start agent')}
+            title={t('Start agent (Enter)')}
           >
             <ArrowUpIcon />
           </button>

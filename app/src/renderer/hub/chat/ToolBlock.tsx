@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { OutputEntry } from '../types';
 import { CodeBlock } from './CodeBlock';
 import { TerminalSpinner } from './TerminalSpinner';
@@ -143,6 +144,7 @@ function detectOutputRender(raw: string): OutputRender {
 }
 
 export function ToolBlock({ entry }: ToolBlockProps): React.ReactElement {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const inFlight = !entry.result;
   const status = inFlight ? 'running' : 'completed';
@@ -178,15 +180,15 @@ export function ToolBlock({ entry }: ToolBlockProps): React.ReactElement {
       const output = bash && bash.output ? detectOutputRender(bash.output) : null;
       return (
         <>
-          <CodeBlock label="Command" code={command} language="bash" />
+          <CodeBlock label={t('Command')} code={command} language="bash" />
           {output && output.code && (
             output.mode === 'markdown'
-              ? <CodeBlock label="Output" code={output.code} asMarkdown isError={bash?.isError} />
+              ? <CodeBlock label={t('Output')} code={output.code} asMarkdown isError={bash?.isError} />
               : output.mode === 'json'
-                ? <CodeBlock label="Output" code={output.code} language="json" isError={bash?.isError} />
+                ? <CodeBlock label={t('Output')} code={output.code} language="json" isError={bash?.isError} />
                 : output.mode === 'yaml'
-                  ? <CodeBlock label="Output" code={output.code} language="yaml" isError={bash?.isError} />
-                  : <CodeBlock label="Output" code={output.code} isError={bash?.isError} />
+                  ? <CodeBlock label={t('Output')} code={output.code} language="yaml" isError={bash?.isError} />
+                  : <CodeBlock label={t('Output')} code={output.code} isError={bash?.isError} />
           )}
         </>
       );
@@ -197,8 +199,8 @@ export function ToolBlock({ entry }: ToolBlockProps): React.ReactElement {
     const result = entry.result ? formatGenericResult(entry.result.content) : '';
     return (
       <>
-        <CodeBlock label="Parameters" code={args} language="json" />
-        {result && <CodeBlock label="Result" code={result} language="json" />}
+        <CodeBlock label={t('Parameters')} code={args} language="json" />
+        {result && <CodeBlock label={t('Result')} code={result} language="json" />}
       </>
     );
   })();

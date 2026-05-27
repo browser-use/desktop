@@ -32,6 +32,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { OptionItem, OptionListPayload, OptionListSection } from './htmlBlocks';
 import { getSubmission, getSubmissionRecord, recordSubmission, submissionKey } from './optionListStore';
 import './optionList.css';
@@ -55,6 +56,7 @@ interface Props {
 const SKELETON_COUNT = 3;
 
 export function OptionList(props: Props): React.ReactElement {
+  const { t } = useTranslation();
   const { payload, complete, error, sessionId, cancelled, nextUserText } = props;
 
   // Streaming with no options parsed yet — show a full skeleton screen.
@@ -62,7 +64,7 @@ export function OptionList(props: Props): React.ReactElement {
     if (complete && error) {
       return (
         <div className="chatv2-optlist" data-testid="chatv2-optlist" data-state="error">
-          <div className="chatv2-optlist__error">options block ignored: {error}</div>
+          <div className="chatv2-optlist__error">{t('options block ignored: $1', { '1': error })}</div>
         </div>
       );
     }
@@ -140,18 +142,19 @@ function canSubmitSelection(
 /** Subtitle rendered under the section's source line when multi-select is
  *  enabled. Tells the user upfront how many they can pick + tracks the
  *  running count as they Add cards. */
-function multiSelectHint(sec: OptionListSection, picked: number): string {
+function multiSelectHint(sec: OptionListSection, picked: number, t: (key: string, options?: Record<string, unknown>) => string): string {
   const total = sec.options.length;
   let prefix: string;
-  if (sec.min === sec.max && sec.min > 0) prefix = `Pick exactly ${sec.min}`;
-  else if (sec.min > 0 && sec.max < total) prefix = `Pick ${sec.min}–${sec.max}`;
-  else if (sec.min > 0) prefix = `Pick at least ${sec.min}`;
-  else prefix = `Pick any`;
-  const count = picked > 0 ? ` · ${picked} added` : '';
+  if (sec.min === sec.max && sec.min > 0) prefix = t('Pick exactly $1', { '1': sec.min });
+  else if (sec.min > 0 && sec.max < total) prefix = t('Pick $1–$2', { '1': sec.min, '2': sec.max });
+  else if (sec.min > 0) prefix = t('Pick at least $1', { '1': sec.min });
+  else prefix = t('Pick any');
+  const count = picked > 0 ? ` · ${t('$1 added', { '1': picked })}` : '';
   return `${prefix}${count}`;
 }
 
 function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserText }: ReadyProps): React.ReactElement {
+  const { t } = useTranslation();
   const { sections, prompt } = payload;
   const multi = sections.length > 1;
 
@@ -271,7 +274,7 @@ function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserTex
     const selected = selectionOverride ?? selectedBySection;
     if (!canSubmitSelection(sections, selected, otherTextBySection) || locked) return;
     if (!sessionId) {
-      setSubmitError('no active session');
+      setSubmitError(t('no active session'));
       return;
     }
     const pickedAcross: { section: OptionListSection; picked: OptionItem[]; otherText: string }[] = sections.map((sec, i) => {
@@ -279,7 +282,7 @@ function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserTex
       const otherText = ids.has(OTHER_TOKEN) ? (otherTextBySection[i] ?? '').trim() : '';
       return { section: sec, picked: sec.options.filter((o) => ids.has(o.id)), otherText };
     });
-    const message = formatSelectionMessage(pickedAcross);
+    const message = formatSelectionMessage(pickedAcross, t);
     setLocalSubmit(true);
     setSubmitted(true);
     setSubmitError(null);
@@ -401,7 +404,7 @@ function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserTex
                   </div>
                   <div className="chatv2-optlist__chosen-text">
                     <div className="chatv2-optlist__chosen-label">
-                      <span className="chatv2-optlist__chosen-title">Other</span>
+                      <span className="chatv2-optlist__chosen-title">{t('Other')}</span>
                     </div>
                     {(otherTextBySection[sIdx] ?? '').trim() && (
                       <div className="chatv2-optlist__chosen-meta">{otherTextBySection[sIdx]}</div>
@@ -451,27 +454,27 @@ function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserTex
             </div>
           </div>
         ))}
-        <div className="chatv2-optlist__cancelled-banner">Session ended — no choice made.</div>
+        <div className="chatv2-optlist__cancelled-banner">{t('Session ended — no choice made.')}</div>
       </div>
     );
   }
 
   // Live state.
   const submitLabel = (() => {
-    if (canSubmit) return `Confirm ${totalSelected} pick${totalSelected === 1 ? '' : 's'}`;
+    if (canSubmit) return t('Confirm $1 pick$2', { '1': totalSelected, '2': totalSelected === 1 ? '' : 's' });
     const missingOther = sections.findIndex((_, i) => {
       const sel = selectedBySection[i] ?? new Set<string>();
       return sel.has(OTHER_TOKEN) && (otherTextBySection[i] ?? '').trim().length === 0;
     });
-    if (missingOther >= 0) return 'Type your "Other" answer';
+    if (missingOther >= 0) return t('Type your "Other" answer');
     const idx = sections.findIndex((sec, i) => {
       const n = selectedBySection[i]?.size ?? 0;
       return sec.multiSelect ? (n < sec.min || n > sec.max) : (n !== 1);
     });
-    if (idx < 0) return 'Pick options to continue';
+    if (idx < 0) return t('Pick options to continue');
     const sec = sections[idx];
-    const label = sec?.label || `section ${idx + 1}`;
-    return `Pick from "${label}" to continue`;
+    const label = sec?.label ?? t('section $1', { '1': idx + 1 });
+    return t('Pick from "$1" to continue', { '1': label });
   })();
 
   return (
@@ -510,17 +513,17 @@ function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserTex
                       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                     />
                   )}
-                  <span className="chatv2-optlist__source-label">Results from <b className="chatv2-optlist__source-name">{sharedSite}</b></span>
+                  <span className="chatv2-optlist__source-label">{t('Results from')} <b className="chatv2-optlist__source-name">{sharedSite}</b></span>
                 </div>
               )}
               {sec.multiSelect && (
                 <div className="chatv2-optlist__multi-hint">
-                  {multiSelectHint(sec, sel.size)}
+                  {multiSelectHint(sec, sel.size, t)}
                 </div>
               )}
               {streaming && (
                 <div className="chatv2-optlist__streaming-hint">
-                  scraping {sharedSite ?? 'results'}…
+                  {t('scraping $1…', { '1': sharedSite ?? t('results') })}
                 </div>
               )}
             </div>
@@ -673,6 +676,7 @@ function OptionCard({
   opt, fieldSchema, selected, focused, disabled, isConfirmed, multiSelect,
   showPerCardFavicon, onClick, onHover, onChoose,
 }: CardProps): React.ReactElement {
+  const { t } = useTranslation();
   const [broken, setBroken] = useState<boolean>(false);
   const [faviconBroken, setFaviconBroken] = useState<boolean>(false);
 
@@ -731,7 +735,7 @@ function OptionCard({
                 not a competing action button. Click opens the listing in
                 the user's default browser. */}
             <div className="chatv2-optlist__field">
-              <dt className="chatv2-optlist__field-label">Source</dt>
+              <dt className="chatv2-optlist__field-label">{t('Source')}</dt>
               <dd className="chatv2-optlist__field-value">
                 <a
                   className="chatv2-optlist__source-link"
@@ -752,7 +756,7 @@ function OptionCard({
                       onError={() => setFaviconBroken(true)}
                     />
                   )}
-                  View on {opt.site}
+                  {t('View on $1', { '1': opt.site })}
                   <svg
                     className="chatv2-optlist__source-link-arrow"
                     viewBox="0 0 24 24"
@@ -785,7 +789,7 @@ function OptionCard({
             }}
             aria-pressed={isConfirmed}
           >
-            <span className="chatv2-optlist__choose-label">{multiSelect ? 'Add' : 'Choose'}</span>
+            <span className="chatv2-optlist__choose-label">{multiSelect ? t('Add') : t('Choose')}</span>
             <span className="chatv2-optlist__choose-confirm">
               <svg
                 className="chatv2-optlist__choose-check"
@@ -794,7 +798,7 @@ function OptionCard({
               >
                 <path d="M5 12 L10 17 L19 7" />
               </svg>
-              <span>{multiSelect ? 'Added' : 'Chosen'}</span>
+              <span>{multiSelect ? t('Added') : t('Chosen')}</span>
             </span>
           </button>
         </div>
@@ -804,6 +808,7 @@ function OptionCard({
 }
 
 function OtherLink({ disabled, onClick }: { disabled: boolean; onClick: () => void }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -811,7 +816,7 @@ function OtherLink({ disabled, onClick }: { disabled: boolean; onClick: () => vo
       disabled={disabled}
       onClick={onClick}
     >
-      none of these? describe what you want
+      {t('none of these? describe what you want')}
     </button>
   );
 }
@@ -878,29 +883,32 @@ export function deriveSubmissionFromTranscript(
   return { selection, otherText };
 }
 
-function formatSelectionMessage(pickedAcross: { section: OptionListSection; picked: OptionItem[]; otherText: string }[]): string {
+function formatSelectionMessage(
+  pickedAcross: { section: OptionListSection; picked: OptionItem[]; otherText: string }[],
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
   const totalCount = pickedAcross.reduce((n, { picked, otherText }) => n + picked.length + (otherText ? 1 : 0), 0);
-  if (totalCount === 0) return 'Selected: (none)';
+  if (totalCount === 0) return t('Selected: (none)');
 
   const totalSections = pickedAcross.length;
   if (totalSections === 1 && totalCount === 1) {
     const sec = pickedAcross[0];
     if (sec.picked.length === 1) {
       const p = sec.picked[0];
-      return `Selected from options: ${p.title} (id: ${p.id})`;
+      return t('Selected from options: $1 (id: $2)', { '1': p.title, '2': p.id });
     }
-    return `Selected from options: Other: ${sec.otherText}`;
+    return t('Selected from options: Other: $1', { '1': sec.otherText });
   }
 
   const lines: string[] = [];
   for (const { section, picked, otherText } of pickedAcross) {
     const prefix = totalSections > 1 && section.label ? `${section.label}: ` : '';
     for (const p of picked) {
-      lines.push(`- ${prefix}${p.title} (id: ${p.id})`);
+      lines.push(t('- $1$2 (id: $3)', { '1': prefix, '2': p.title, '3': p.id }));
     }
     if (otherText) {
-      lines.push(`- ${prefix}Other: ${otherText}`);
+      lines.push(t('- $1Other: $2', { '1': prefix, '2': otherText }));
     }
   }
-  return `Selected from options:\n${lines.join('\n')}`;
+  return `${t('Selected from options:')}\n${lines.join('\n')}`;
 }

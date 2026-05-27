@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { OnboardingCookieList } from './OnboardingCookieList';
 import introImage from './intro.png';
 import claudeCodeLogo from './claude-code-logo.svg';
@@ -148,6 +149,7 @@ function PreferencesStep({
   onContinue: () => void;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const [requested, setRequested] = useState(false);
   const [supported, setSupported] = useState(true);
   const [telemetryOptIn, setTelemetryOptIn] = useState(true);
@@ -184,25 +186,25 @@ function PreferencesStep({
 
   return (
     <div className="step-panel">
-      <h1 className="step-title">Preferences</h1>
+      <h1 className="step-title">{t('Preferences')}</h1>
       <p className="step-subtitle">
-        A couple of defaults you can change anytime in Settings.
+        {t('A couple of defaults you can change anytime in Settings.')}
       </p>
 
       <div className="pref-row">
         <div className="pref-row-body">
-          <div className="pref-row-title">Notifications</div>
+          <div className="pref-row-title">{t('Notifications')}</div>
           <div className="pref-row-desc">
-            Get alerts when agents finish tasks, get stuck, or need your input.
+            {t('Get alerts when agents finish tasks, get stuck, or need your input.')}
           </div>
           {requested && supported && (
             <p className="notif-status">
-              Check the system dialog to allow notifications.
+              {t('Check the system dialog to allow notifications.')}
             </p>
           )}
           {requested && !supported && (
             <p className="notif-status notif-status-error">
-              Notifications aren&rsquo;t supported in this environment.
+              {t("Notifications aren't supported in this environment.")}
             </p>
           )}
         </div>
@@ -211,7 +213,7 @@ function PreferencesStep({
           onClick={handleEnable}
           disabled={requested}
         >
-          {requested ? 'Requested' : 'Enable'}
+          {requested ? t('Requested') : t('Enable')}
         </button>
       </div>
 
@@ -222,14 +224,14 @@ function PreferencesStep({
           onChange={(e) => setTelemetryOptIn(e.target.checked)}
         />
         <div className="pref-row-body">
-          <div className="pref-row-title">Allow telemetry to help us make this app better</div>
+          <div className="pref-row-title">{t('Allow telemetry to help us make this app better')}</div>
           <div className="pref-row-desc">
-            Anonymous usage only — no prompts, credentials, or file contents.{' '}
+            {t('Anonymous usage only — no prompts, credentials, or file contents.')}{' '}
             <a
               href="#"
               onClick={(e) => { e.preventDefault(); handlePrivacyLink(); }}
             >
-              Learn more
+              {t('Learn more')}
             </a>
           </div>
         </div>
@@ -237,13 +239,13 @@ function PreferencesStep({
 
       <div className="apikey-actions">
         <button className="btn btn-primary" onClick={handleContinue} disabled={saving}>
-          {saving ? 'Saving…' : 'Continue'}
+          {saving ? t('Saving…') : t('Continue')}
         </button>
       </div>
 
       <div className="step-subactions">
         <button className="back-btn" onClick={onBack}>
-          Back
+          {t('Back')}
         </button>
       </div>
     </div>
@@ -275,6 +277,7 @@ const ENGINE_INSTALL_COMMANDS: Record<InstallableOnboardingEngine, string> = {
 };
 
 export function OnboardingApp() {
+  const { t } = useTranslation();
   const [step, setStep] = useState<Step>('intro');
   const [hydrated, setHydrated] = useState(false);
 
@@ -793,7 +796,7 @@ export function OnboardingApp() {
     if (step !== 'shortcut') return;
     window.onboardingAPI.listenShortcut().then((res) => {
       if (res.accelerator) setAccelerator(res.accelerator);
-      setShortcutError(res.ok ? null : 'That shortcut is unavailable. Choose another one.');
+      setShortcutError(res.ok ? null : t('That shortcut is unavailable. Choose another one.'));
     });
     const unsubActivated = window.onboardingAPI.onShortcutActivated(() => {
       setRecording(false);
@@ -831,7 +834,7 @@ export function OnboardingApp() {
     if (!recording) return;
     const timeout = window.setTimeout(() => {
       setRecording(false);
-      setShortcutError('No shortcut was detected. Choose another combination.');
+      setShortcutError(t('No shortcut was detected. Choose another combination.'));
     }, 8000);
     const handler = async (e: KeyboardEvent) => {
       e.preventDefault();
@@ -839,7 +842,7 @@ export function OnboardingApp() {
       if (e.key === 'Unidentified') {
         window.clearTimeout(timeout);
         setRecording(false);
-        setShortcutError('That shortcut is unavailable. Choose another one.');
+        setShortcutError(t('That shortcut is unavailable. Choose another one.'));
         return;
       }
       const accel = buildAccelerator(e, platform);
@@ -851,11 +854,11 @@ export function OnboardingApp() {
       try {
         const res = await window.onboardingAPI.setShortcut(accel);
         setAccelerator(res.accelerator);
-        setShortcutError(res.ok ? null : 'That shortcut is unavailable. Choose another one.');
+        setShortcutError(res.ok ? null : t('That shortcut is unavailable. Choose another one.'));
         (document.activeElement as HTMLElement | null)?.blur?.();
       } catch (err) {
         console.error('[onboarding] setShortcut failed', err);
-        setShortcutError('Shortcut setup failed. Choose another one.');
+        setShortcutError(t('Shortcut setup failed. Choose another one.'));
       }
     };
     window.addEventListener('keydown', handler, true);
@@ -905,19 +908,19 @@ export function OnboardingApp() {
           <div className="step-panel intro-panel">
             <div className="intro-content">
               <div className="intro-text">
-                <h1 className="intro-title">Browser Use Desktop</h1>
+                <h1 className="intro-title">{t('Browser Use Desktop')}</h1>
                 <p className="intro-subtitle">
-                  Run AI agents that browse the web, complete tasks, and report back — all from your desktop.
+                  {t('Run AI agents that browse the web, complete tasks, and report back — all from your desktop.')}
                 </p>
                 <button
                   className="btn btn-primary intro-cta"
                   onClick={() => setStep(COOKIE_SYNC_SUPPORTED ? 'profile' : 'apikey')}
                 >
-                  Get started
+                  {t('Get started')}
                 </button>
               </div>
               <div className="intro-image-wrap">
-                <img className="intro-image" src={introImage} alt="Browser Use Desktop" />
+                <img className="intro-image" src={introImage} alt={t('Browser Use Desktop')} />
               </div>
             </div>
           </div>
@@ -926,21 +929,21 @@ export function OnboardingApp() {
         {step === 'profile' && (
           <div className="step-panel">
             <div className="step-title-row">
-              <h1 className="step-title">Import Browser Profile</h1>
+              <h1 className="step-title">{t('Import Browser Profile')}</h1>
             </div>
             <p className="step-subtitle">
-              Import your cookies so agents can browse as you, or start fresh.
+              {t('Import your cookies so agents can browse as you, or start fresh.')}
             </p>
 
             {loadingProfiles && (
-              <div className="profile-loading">Detecting browser profiles...</div>
+              <div className="profile-loading">{t('Detecting browser profiles...')}</div>
             )}
 
             {!loadingProfiles && profiles.length === 0 && (
               <div className="profile-empty">
-                <p>No Chromium browser profiles found.</p>
+                <p>{t('No Chromium browser profiles found.')}</p>
                 <button className="btn btn-primary" onClick={handleSkipProfile}>
-                  Continue without import
+                  {t('Continue without import')}
                 </button>
               </div>
             )}
@@ -984,8 +987,8 @@ export function OnboardingApp() {
                   >
                     <div className="profile-avatar profile-avatar-skip">+</div>
                     <div className="profile-info">
-                      <div className="profile-name">Start fresh</div>
-                      <div className="profile-email">No cookie import</div>
+                      <div className="profile-name">{t('Start fresh')}</div>
+                      <div className="profile-email">{t('No cookie import')}</div>
                     </div>
                   </button>
                 )}
@@ -999,7 +1002,7 @@ export function OnboardingApp() {
                     <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   <span>
-                    Imported {importResult.imported.toLocaleString()} cookies from {importResult.domains.length} domains
+                    {t('Imported $1 cookies from $2 domains', { '1': importResult.imported.toLocaleString(), '2': importResult.domains.length })}
                   </span>
                 </span>
 
@@ -1033,7 +1036,7 @@ export function OnboardingApp() {
                     className="btn btn-primary"
                     onClick={() => setStep('apikey')}
                   >
-                    Continue
+                    {t('Continue')}
                   </button>
                 </div>
 
@@ -1046,7 +1049,7 @@ export function OnboardingApp() {
                     setStep('intro');
                   }}
                 >
-                  Back
+                  {t('Back')}
                 </button>
               </div>
             )}
@@ -1059,7 +1062,7 @@ export function OnboardingApp() {
 
             {!importResult && (
               <button className="back-btn" onClick={() => setStep('intro')}>
-                Back
+                {t('Back')}
               </button>
             )}
           </div>
@@ -1067,9 +1070,9 @@ export function OnboardingApp() {
 
         {step === 'apikey' && (
           <div className="step-panel">
-            <h1 className="step-title">Vendor setup</h1>
+            <h1 className="step-title">{t('Vendor setup')}</h1>
             <p className="step-subtitle">
-              Install each provider CLI once, then sign in or add that provider&rsquo;s API key. Credentials are stored locally in the system keychain.
+              {t("Install each provider CLI once, then sign in or add that provider's API key. Credentials are stored locally in the system keychain.")}
             </p>
 
             {/* Installed + authed → selectable card. Click flips to configured state. */}
@@ -1079,12 +1082,14 @@ export function OnboardingApp() {
                   <img src={claudeCodeLogo} alt="" />
                 </div>
                 <div className="claude-code-card__text">
-                  <div className="claude-code-card__title">Claude successfully configured</div>
+                  <div className="claude-code-card__title">{t('Claude successfully configured')}</div>
                   <div className="claude-code-card__sub">
-                    {`Signed in via Claude Code${claudeCode.version ? ` (v${claudeCode.version})` : ''}. No API key needed.`}
+                    {claudeCode.version
+                      ? t('Signed in via Claude Code (v$1). No API key needed.', { '1': claudeCode.version })
+                      : t('Signed in via Claude Code. No API key needed.')}
                   </div>
                 </div>
-                <div className="claude-code-card__check">✓</div>
+                <div className="claude-code-card__check">{'\u2713'}</div>
               </div>
             )}
 
@@ -1101,7 +1106,7 @@ export function OnboardingApp() {
                       className={`provider-card__tab${!showAnthropicInput ? ' is-active' : ''}`}
                       onClick={() => setShowAnthropicInput(false)}
                     >
-                      Connect subscription
+                      {t('Connect subscription')}
                     </button>
                     <button
                       type="button"
@@ -1110,7 +1115,7 @@ export function OnboardingApp() {
                       className={`provider-card__tab${showAnthropicInput ? ' is-active' : ''}`}
                       onClick={() => setShowAnthropicInput(true)}
                     >
-                      Use API key
+                      {t('Use API key')}
                     </button>
                   </div>
                 )}
@@ -1128,12 +1133,12 @@ export function OnboardingApp() {
                       </div>
                       <div className="claude-code-card__text">
                         <div className="claude-code-card__title">
-                          {waitingForLogin ? 'Waiting for login…' : 'Click to log in'}
+                          {waitingForLogin ? t('Waiting for login…') : t('Click to log in')}
                         </div>
                         <div className="claude-code-card__sub">
                           {waitingForLogin
-                            ? 'Finish the browser sign-in. We’ll detect it automatically.'
-                            : 'Opens the Claude sign-in flow in your browser. Sign in once and we’ll detect it.'}
+                            ? t("Finish the browser sign-in. We'll detect it automatically.")
+                            : t("Opens the Claude sign-in flow in your browser. Sign in once and we'll detect it.")}
                         </div>
                       </div>
                       <div className="claude-code-card__chevron">{waitingForLogin ? '\u2026' : '\u203A'}</div>
@@ -1153,15 +1158,15 @@ export function OnboardingApp() {
                       <div className="claude-code-card__text">
                         <div className="claude-code-card__title">
                           {installingClaudeCode
-                            ? (IS_WINDOWS ? 'Waiting for Claude Code…' : 'Installing Claude Code…')
-                            : (IS_WINDOWS ? 'Copy install command' : 'Install Claude Code')}
+                            ? (IS_WINDOWS ? t('Waiting for Claude Code…') : t('Installing Claude Code…'))
+                            : (IS_WINDOWS ? t('Copy install command') : t('Install Claude Code'))}
                         </div>
                         <div className="claude-code-card__sub">
                           {IS_WINDOWS
                             ? (installingClaudeCode
-                              ? `Run ${ENGINE_INSTALL_COMMANDS['claude-code']} in your terminal — we’ll detect it when it finishes.`
-                              : `Click to copy ${ENGINE_INSTALL_COMMANDS['claude-code']}. Paste it into PowerShell, and we’ll detect when it finishes.`)
-                            : 'Runs the installer in the background. We’ll detect it when it finishes.'}
+                              ? t("Run $1 in your terminal — we'll detect it when it finishes.", { '1': ENGINE_INSTALL_COMMANDS['claude-code'] })
+                              : t("Click to copy $1. Paste it into PowerShell, and we'll detect when it finishes.", { '1': ENGINE_INSTALL_COMMANDS['claude-code'] }))
+                            : t("Runs the installer in the background. We'll detect it when it finishes.")}
                         </div>
                       </div>
                       <div className="claude-code-card__chevron">{installingClaudeCode ? '\u2026' : '\u203A'}</div>
@@ -1180,12 +1185,12 @@ export function OnboardingApp() {
                           spellCheck={false}
                         />
                         <button className="apikey-toggle" onClick={() => setShowKey(!showKey)} tabIndex={-1}>
-                          {showKey ? 'Hide' : 'Show'}
+                          {showKey ? t('Hide') : t('Show')}
                         </button>
                       </div>
                       <div className="apikey-actions">
                         <button className="btn btn-secondary" onClick={handleTestKey} disabled={!apiKey.trim() || testing}>
-                          {testing ? 'Testing...' : 'Test Key'}
+                          {testing ? t('Testing...') : t('Test Key')}
                         </button>
                       </div>
                     </div>
@@ -1201,12 +1206,14 @@ export function OnboardingApp() {
                   <img src={codexLogo} alt="" />
                 </div>
                 <div className="claude-code-card__text">
-                  <div className="claude-code-card__title">Codex successfully configured</div>
+                  <div className="claude-code-card__title">{t('Codex successfully configured')}</div>
                   <div className="claude-code-card__sub">
-                    {`Signed in via Codex CLI${codex.version ? ` (v${codex.version})` : ''}. No API key needed.`}
+                    {codex.version
+                      ? t('Signed in via Codex CLI (v$1). No API key needed.', { '1': codex.version })
+                      : t('Signed in via Codex CLI. No API key needed.')}
                   </div>
                 </div>
-                <div className="claude-code-card__check">✓</div>
+                <div className="claude-code-card__check">{'\u2713'}</div>
               </div>
             )}
 
@@ -1222,7 +1229,7 @@ export function OnboardingApp() {
                       className={`provider-card__tab${!showOpenaiInput ? ' is-active' : ''}`}
                       onClick={() => setShowOpenaiInput(false)}
                     >
-                      Connect subscription
+                      {t('Connect subscription')}
                     </button>
                     <button
                       type="button"
@@ -1231,7 +1238,7 @@ export function OnboardingApp() {
                       className={`provider-card__tab${showOpenaiInput ? ' is-active' : ''}`}
                       onClick={() => setShowOpenaiInput(true)}
                     >
-                      Use API key
+                      {t('Use API key')}
                     </button>
                   </div>
                 )}
@@ -1250,15 +1257,15 @@ export function OnboardingApp() {
                       <div className="claude-code-card__text">
                         <div className="claude-code-card__title">
                           {installingCodex
-                            ? (IS_WINDOWS ? 'Waiting for Codex…' : 'Installing Codex…')
-                            : (IS_WINDOWS ? 'Copy install command' : 'Install Codex CLI')}
+                            ? (IS_WINDOWS ? t('Waiting for Codex…') : t('Installing Codex…'))
+                            : (IS_WINDOWS ? t('Copy install command') : t('Install Codex CLI'))}
                         </div>
                         <div className="claude-code-card__sub">
                           {IS_WINDOWS
                             ? (installingCodex
-                              ? `Run ${ENGINE_INSTALL_COMMANDS.codex} in your terminal — we’ll detect it when it finishes.`
-                              : `Click to copy ${ENGINE_INSTALL_COMMANDS.codex}. Paste it into PowerShell, and we’ll detect when it finishes.`)
-                            : 'Runs the installer in the background. We’ll detect it when it finishes.'}
+                              ? t("Run $1 in your terminal — we'll detect it when it finishes.", { '1': ENGINE_INSTALL_COMMANDS.codex })
+                              : t("Click to copy $1. Paste it into PowerShell, and we'll detect when it finishes.", { '1': ENGINE_INSTALL_COMMANDS.codex }))
+                            : t("Runs the installer in the background. We'll detect it when it finishes.")}
                         </div>
                       </div>
                       <div className="claude-code-card__chevron">{installingCodex ? '\u2026' : '\u203A'}</div>
@@ -1277,21 +1284,21 @@ export function OnboardingApp() {
                         </div>
                         <div className="claude-code-card__text">
                           <div className="claude-code-card__title">
-                            {waitingForCodexLogin ? 'Waiting for login…' : 'Log in to Codex'}
+                            {waitingForCodexLogin ? t('Waiting for login…') : t('Log in to Codex')}
                           </div>
                           <div className="claude-code-card__sub">
                             {waitingForCodexLogin && codexDeviceCode
-                              ? 'Enter the code shown below, or click to restart.'
+                              ? t('Enter the code shown below, or click to restart.')
                               : waitingForCodexLogin
-                                ? 'Finish the OAuth flow in your browser. Click to restart.'
-                                : 'Starts the Codex CLI login flow in your browser. Sign in once and we’ll detect it.'}
+                                ? t('Finish the OAuth flow in your browser. Click to restart.')
+                                : t("Starts the Codex CLI login flow in your browser. Sign in once and we'll detect it.")}
                           </div>
                         </div>
-                        <div className="claude-code-card__chevron">{waitingForCodexLogin ? '↻' : '›'}</div>
+                        <div className="claude-code-card__chevron">{waitingForCodexLogin ? '\u21BB' : '\u203A'}</div>
                       </button>
                       {codexDeviceCode && (
                         <div className="codex-device-auth">
-                          <div className="codex-device-auth__label">One-time code</div>
+                          <div className="codex-device-auth__label">{t('One-time code')}</div>
                           <div className="codex-device-auth__code">{codexDeviceCode}</div>
                           {codexVerificationUrl && (
                             <button
@@ -1299,7 +1306,7 @@ export function OnboardingApp() {
                               className="codex-device-auth__link"
                               onClick={() => window.onboardingAPI.openExternal?.(codexVerificationUrl)}
                             >
-                              Open verification page ↗
+                              {t('Open verification page')} {'\u2197'}
                             </button>
                           )}
                         </div>
@@ -1310,7 +1317,7 @@ export function OnboardingApp() {
                           className="codex-device-auth__link codex-device-auth__link--secondary codex-device-auth__fallback"
                           onClick={handleStartCodexLoginDeviceAuth}
                         >
-                          Having trouble? Use device code flow instead
+                          {t('Having trouble? Use device code flow instead')}
                         </button>
                       )}
                     </>
@@ -1328,12 +1335,12 @@ export function OnboardingApp() {
                           spellCheck={false}
                         />
                         <button className="apikey-toggle" onClick={() => setShowOpenaiKey(!showOpenaiKey)} tabIndex={-1}>
-                          {showOpenaiKey ? 'Hide' : 'Show'}
+                          {showOpenaiKey ? t('Hide') : t('Show')}
                         </button>
                       </div>
                       <div className="apikey-actions">
                         <button className="btn btn-secondary" onClick={handleTestOpenaiKey} disabled={!openaiKey.trim() || openaiTesting}>
-                          {openaiTesting ? 'Testing...' : 'Test Key'}
+                          {openaiTesting ? t('Testing...') : t('Test Key')}
                         </button>
                       </div>
                     </div>
@@ -1349,7 +1356,7 @@ export function OnboardingApp() {
                 onClick={handleStepSaveAndContinue}
                 disabled={!canContinueProviderSetup || stepSaving}
               >
-                {stepSaving ? 'Saving...' : 'Save & Continue'}
+                {stepSaving ? t('Saving...') : t('Save & Continue')}
               </button>
             </div>
 
@@ -1357,7 +1364,7 @@ export function OnboardingApp() {
               className="back-btn"
               onClick={() => setStep(COOKIE_SYNC_SUPPORTED ? 'profile' : 'intro')}
             >
-              Back
+              {t('Back')}
             </button>
           </div>
         )}
@@ -1366,19 +1373,21 @@ export function OnboardingApp() {
         {step === 'shortcut' && pillOpen && (
           <div className="step-panel pill-takeover">
             <div className="pill-takeover-dot" />
-            <h1 className="pill-takeover-title">Pill is open</h1>
+            <h1 className="pill-takeover-title">{t('Pill is open')}</h1>
             <p className="pill-takeover-subtitle">
-              Type a task and press Enter to finish setup.<br/>
-              Press Escape to go back.
+              {t('Type a task and press Enter to finish setup.')}<br/>
+              {t('Press Escape to go back.')}
             </p>
           </div>
         )}
 
         {step === 'shortcut' && !pillOpen && (
           <div className="step-panel">
-            <h1 className="step-title">Set up your global shortcut</h1>
+            <h1 className="step-title">{t('Set up your global shortcut')}</h1>
             <p className="step-subtitle">
-              Press this shortcut from <strong>any app on your computer</strong> to open the command pill and send a task to an agent.
+              <Trans i18nKey="shortcutDesc">
+  Press this shortcut from <strong>any app on your computer</strong> to open the command pill and send a task to an agent.
+</Trans>
             </p>
 
             <div className="shortcut-demo">
@@ -1390,10 +1399,10 @@ export function OnboardingApp() {
                     if (shouldIgnoreRecordingClick(e)) return;
                     setRecording(false);
                   }}
-                  title="Click to cancel"
+                  title={t('Click to cancel')}
                 >
                   <div className="shortcut-recording-dot" />
-                  <span>Press keys...</span>
+                  <span>{t('Press keys...')}</span>
                 </button>
               ) : (
                 <button
@@ -1403,7 +1412,7 @@ export function OnboardingApp() {
                     if (shouldIgnoreRecordingClick(e)) return;
                     startRecording();
                   }}
-                  title="Click to change shortcut"
+                  title={t('Click to change shortcut')}
                 >
                   {acceleratorToDisplayParts(accelerator, platform).map((key, i, arr) => (
                     <React.Fragment key={i}>
@@ -1416,7 +1425,7 @@ export function OnboardingApp() {
             </div>
 
             <p className={`shortcut-hint ${shortcutError ? 'shortcut-hint-error' : ''}`}>
-              {shortcutError ?? 'Press the shortcut to try it.'}
+              {shortcutError ?? t('Press the shortcut to try it.')}
             </p>
 
             <div className="apikey-actions">
@@ -1431,15 +1440,15 @@ export function OnboardingApp() {
                   }
                 }}
               >
-                {recording ? 'Cancel' : 'Change shortcut'}
+                {recording ? t('Cancel') : t('Change shortcut')}
               </button>
               <button className="btn btn-primary" onClick={handleFinish}>
-                Skip
+                {t('Skip')}
               </button>
             </div>
 
             <button className="back-btn" onClick={() => setStep('notifications')}>
-              Back
+              {t('Back')}
             </button>
           </div>
         )}
@@ -1463,7 +1472,7 @@ export function OnboardingApp() {
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
-          <span>{testResult.success ? 'API key is valid' : testResult.error || 'Invalid key'}</span>
+          <span>{testResult.success ? t('API key is valid') : testResult.error || t('Invalid key')}</span>
         </div>
       )}
     </div>

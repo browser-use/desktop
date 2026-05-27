@@ -7,19 +7,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const OFFLINE_MESSAGE  = "You're offline. Some features may not work." as const;
-const DISMISS_LABEL    = 'Dismiss offline banner'                       as const;
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function OfflineBanner(): React.ReactElement | null {
+  const { t } = useTranslation();
   const [isOffline, setIsOffline]   = useState<boolean>(!navigator.onLine);
   const [dismissed, setDismissed]   = useState<boolean>(false);
 
@@ -42,7 +37,7 @@ export function OfflineBanner(): React.ReactElement | null {
       className="offline-banner"
       role="status"
       aria-live="polite"
-      aria-label={OFFLINE_MESSAGE}
+      aria-label={t("You're offline. Some features may not work.")}
     >
       {/* Warning icon */}
       <svg
@@ -69,13 +64,13 @@ export function OfflineBanner(): React.ReactElement | null {
         <circle cx="7" cy="10.5" r="0.6" fill="currentColor" />
       </svg>
 
-      <span className="offline-banner__message">{OFFLINE_MESSAGE}</span>
+      <span className="offline-banner__message">{t("You're offline. Some features may not work.")}</span>
 
       <button
         type="button"
         className="offline-banner__dismiss"
         onClick={() => setDismissed(true)}
-        aria-label={DISMISS_LABEL}
+        aria-label={t('Dismiss offline banner')}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
           <path

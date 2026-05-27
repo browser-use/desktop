@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
 
 interface ProcessInfo {
@@ -53,6 +54,7 @@ interface MemoryIndicatorProps {
 }
 
 export function MemoryIndicator({ onOpenSettings, settingsShortcut }: MemoryIndicatorProps): React.ReactElement | null {
+  const { t } = useTranslation();
   const [popupId, setPopupId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -120,13 +122,13 @@ export function MemoryIndicator({ onOpenSettings, settingsShortcut }: MemoryIndi
       <button
         className="mem-indicator__settings-btn"
         onClick={onOpenSettings}
-        title={settingsShortcut ? `Settings (${settingsShortcut})` : 'Settings'}
+        title={settingsShortcut ? `${t('Settings')} (${settingsShortcut})` : t('Settings')}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M5.73 1.68a1.25 1.25 0 0 1 2.54 0l.1.44a1.25 1.25 0 0 0 1.63.8l.42-.16a1.25 1.25 0 0 1 1.58 1.73l-.2.4a1.25 1.25 0 0 0 .37 1.55l.35.27a1.25 1.25 0 0 1-.44 2.2l-.43.13a1.25 1.25 0 0 0-.86 1.46l.08.44a1.25 1.25 0 0 1-1.97 1.27l-.33-.3a1.25 1.25 0 0 0-1.6-.06l-.36.27a1.25 1.25 0 0 1-2.03-1.17l.05-.44a1.25 1.25 0 0 0-.92-1.42l-.43-.12a1.25 1.25 0 0 1-.33-2.22l.37-.26a1.25 1.25 0 0 0 .44-1.53l-.18-.41A1.25 1.25 0 0 1 4.7 2.93l.42.17a1.25 1.25 0 0 0 1.6-.86l.11-.44Z" stroke="currentColor" strokeWidth="1.1" />
           <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
         </svg>
-        <span>Settings</span>
+        <span>{t('Settings')}</span>
       </button>
       {appInfo?.version && (
         <span className="mem-indicator__version" title={`Browser Use v${appInfo.version}`}>
@@ -138,6 +140,7 @@ export function MemoryIndicator({ onOpenSettings, settingsShortcut }: MemoryIndi
 }
 
 export function MemoryIndicatorContent(): React.ReactElement {
+  const { t } = useTranslation();
   const [data, setData] = useState<MemoryData | null>(null);
 
   useEffect(() => {
@@ -158,13 +161,13 @@ export function MemoryIndicatorContent(): React.ReactElement {
   }, []);
 
   if (!data) {
-    return <div className="mem-popup mem-popup--loading">Loading…</div>;
+    return <div className="mem-popup mem-popup--loading">{t('Loading…')}</div>;
   }
 
   return (
     <div className="mem-popup">
       <div className="mem__header">
-        <span className="mem__title">Resource usage</span>
+        <span className="mem__title">{t('Resource usage')}</span>
         <span className="mem__total">{formatGb(data.totalMb)} / {formatCpu(data.totalCpuPercent)}</span>
       </div>
       <div className="mem__processes">
@@ -187,7 +190,7 @@ export function MemoryIndicatorContent(): React.ReactElement {
                     if (!api || !p.sessionId) return;
                     api.sessions.cancel(p.sessionId).catch(() => {});
                   }}
-                  aria-label="Stop session"
+                  aria-label={t('Stop session')}
                 >
                   <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
                     <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import type { AgentSession, SessionStatus } from './types';
 import { orderSessionsForSidebar } from './sessionOrdering';
 import { closeAppPopup, openAnchoredAppPopup } from '../shared/appPopup';
+import { useTranslation } from 'react-i18next';
 
 interface SidebarSession extends AgentSession {
   primarySite?: string | null;
@@ -81,14 +82,26 @@ const MOCK_SIDEBAR_SESSIONS: SidebarSession[] = [
   },
 ];
 
-const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
-  running: { color: '#3fb950', label: 'Running' },
-  idle:    { color: '#d29922', label: 'Waiting for input' },
-  stuck:   { color: '#f85149', label: 'Stuck' },
-  paused:  { color: '#58a6ff', label: 'Paused' },
-  stopped: { color: '#6e7681', label: 'Stopped' },
-  draft:   { color: '#6e7681', label: 'Draft' },
+const STATUS_DOT: Record<SessionStatus, { color: string }> = {
+  running: { color: '#3fb950' },
+  idle:    { color: '#d29922' },
+  stuck:   { color: '#f85149' },
+  paused:  { color: '#58a6ff' },
+  stopped: { color: '#6e7681' },
+  draft:   { color: '#6e7681' },
 };
+
+function statusLabel(status: SessionStatus): string {
+  const labels: Record<SessionStatus, string> = {
+    running: 'Running',
+    idle: 'Waiting for input',
+    stuck: 'Stuck',
+    paused: 'Paused',
+    stopped: 'Stopped',
+    draft: 'Draft',
+  };
+  return labels[status];
+}
 
 function preventMouseFocus(e: React.MouseEvent<HTMLElement>): void {
   e.preventDefault();
@@ -177,6 +190,7 @@ function SessionRow({
   const last = s.lastActivityAt ?? s.createdAt;
   const [popupId, setPopupId] = useState<string | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const { t } = useTranslation();
 
   const isRunning = s.status === 'running' || s.status === 'stuck';
   const isPaused = s.status === 'paused';
@@ -197,10 +211,10 @@ function SessionRow({
         placement: 'bottom-end',
         width: 148,
         items: [
-          { id: 'rerun', label: 'Re-run' },
-          ...(isPaused ? [{ id: 'resume', label: 'Resume' }] : []),
-          ...(isRunning ? [{ id: 'pause', label: 'Pause' }] : []),
-          ...((isRunning || isPaused) ? [{ id: 'stop', label: 'Stop', tone: 'danger' as const }] : []),
+          { id: 'rerun', label: t('Re-run') },
+          ...(isPaused ? [{ id: 'resume', label: t('Resume') }] : []),
+          ...(isRunning ? [{ id: 'pause', label: t('Pause') }] : []),
+          ...((isRunning || isPaused) ? [{ id: 'stop', label: t('Stop'), tone: 'danger' as const }] : []),
         ],
       },
       {
@@ -229,11 +243,11 @@ function SessionRow({
           {favicon ? (
             <img src={favicon} alt="" width={18} height={18} />
           ) : (
-            <span className="sidebar__row-icon-fallback" aria-label="No site">
+            <span className="sidebar__row-icon-fallback" aria-label={t('No site')}>
               <TerminalFallbackIcon />
             </span>
           )}
-          <span className="sidebar__row-dot" style={{ background: dot.color }} aria-label={dot.label} />
+          <span className="sidebar__row-dot" style={{ background: dot.color }} aria-label={t(statusLabel(s.status))} />
         </span>
         <span className="sidebar__row-title">{s.prompt}</span>
         <span className="sidebar__row-time">{formatRelative(last)}</span>
@@ -250,7 +264,7 @@ function SessionRow({
             void toggleMenu();
           }}
           tabIndex={-1}
-          aria-label="Session actions"
+          aria-label={t('Session actions')}
           aria-haspopup="menu"
           aria-expanded={Boolean(popupId)}
         >
@@ -280,6 +294,7 @@ function TabChip({
 }): React.ReactElement {
   const dot = STATUS_DOT[s.status];
   const favicon = faviconUrl(s.primarySite);
+  const { t } = useTranslation();
   const isRunning = s.status === 'running';
   const bucket = bucketFor(s.status);
   return (
@@ -302,7 +317,7 @@ function TabChip({
             <TerminalFallbackIcon />
           </span>
         )}
-        <span className="tabstrip__chip-dot" style={{ background: dot.color }} aria-label={dot.label} />
+        <span className="tabstrip__chip-dot" style={{ background: dot.color }} aria-label={t(statusLabel(s.status))} />
       </span>
       <span className="tabstrip__chip-title">{s.prompt}</span>
     </button>
@@ -310,13 +325,14 @@ function TabChip({
 }
 
 export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat, onSearch, onRowAction, mode = 'side' }: SidebarProps): React.ReactElement {
+  const { t } = useTranslation();
   const data = sessions ?? MOCK_SIDEBAR_SESSIONS;
 
   const orderedSessions = useMemo(() => orderSessionsForSidebar(data), [data]);
 
   if (mode === 'top') {
     return (
-      <nav className="tabstrip" aria-label="Agent sessions">
+      <nav className="tabstrip" aria-label={t('Agent sessions')}>
         <div className="tabstrip__chips">
           {orderedSessions.map((s) => (
             <TabChip key={s.id} s={s} selected={s.id === selectedId} onSelect={onSelect} />
@@ -328,8 +344,8 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat,
           onClick={onNewAgent}
           onMouseDown={preventMouseFocus}
           tabIndex={-1}
-          aria-label="New agent"
-          data-tooltip="New agent"
+          aria-label={t('New agent')}
+          data-tooltip={t('New agent')}
         >
           <PlusIcon />
         </button>
@@ -338,7 +354,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat,
   }
 
   return (
-    <aside className="sidebar" aria-label="Agent sessions">
+    <aside className="sidebar" aria-label={t('Agent sessions')}>
       <div className="sidebar__quick">
         {onNewChat && (
           <button
@@ -349,7 +365,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat,
             tabIndex={-1}
           >
             <span className="sidebar__quick-icon"><ChatIcon /></span>
-            <span className="sidebar__quick-label">New chat</span>
+            <span className="sidebar__quick-label">{t('New chat')}</span>
           </button>
         )}
         {onSearch && (
@@ -361,7 +377,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat,
             tabIndex={-1}
           >
             <span className="sidebar__quick-icon"><SearchIcon /></span>
-            <span className="sidebar__quick-label">Search</span>
+            <span className="sidebar__quick-label">{t('Search')}</span>
           </button>
         )}
       </div>
@@ -369,7 +385,7 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat,
       <div className="sidebar__groups">
         <div className="sidebar__group">
           <div className="sidebar__group-header sidebar__group-header--static">
-            <span className="sidebar__group-label">Agents</span>
+            <span className="sidebar__group-label">{t('Agents')}</span>
             {onNewAgent && (
               <button
                 type="button"
@@ -377,8 +393,8 @@ export function Sidebar({ sessions, selectedId, onSelect, onNewAgent, onNewChat,
                 onClick={onNewAgent}
                 onMouseDown={preventMouseFocus}
                 tabIndex={-1}
-                aria-label="New agent"
-                data-tooltip="New agent"
+                aria-label={t('New agent')}
+                data-tooltip={t('New agent')}
               >
                 <PlusIcon />
               </button>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Highlight, themes, type Language } from 'prism-react-renderer';
 import { Markdown } from '../Markdown';
 import { useThemeMode } from '../../design/useThemeMode';
@@ -35,6 +36,7 @@ function CheckIcon(): React.ReactElement {
  * The header is sticky-feeling: matches the cloud's bash-code-block pattern.
  */
 export function CodeBlock({ label, code, language, asMarkdown, isError }: CodeBlockProps): React.ReactElement {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const { resolved } = useThemeMode();
   const isDark = resolved === 'dark';
@@ -54,9 +56,9 @@ export function CodeBlock({ label, code, language, asMarkdown, isError }: CodeBl
     <div className="chat-code">
       <div className="chat-code__head">
         <span className="chat-code__label">{label}</span>
-        <button type="button" className="chat-code__copy" onClick={onCopy} aria-label={`Copy ${label.toLowerCase()}`}>
+        <button type="button" className="chat-code__copy" onClick={onCopy} aria-label={t('Copy {{label}}', { label: label.toLowerCase() })}>
           {copied ? <CheckIcon /> : <CopyIcon />}
-          <span>{copied ? 'Copied' : 'Copy'}</span>
+          <span>{copied ? t('Copied') : t('Copy')}</span>
         </button>
       </div>
       <div className={`chat-code__body${isError ? ' chat-code__body--error' : ''}`}>
