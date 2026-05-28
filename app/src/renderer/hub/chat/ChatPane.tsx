@@ -45,6 +45,14 @@ export function ChatPane({ sessionId, onSwitchToBrowser, onExit }: ChatPaneProps
     return () => { cancelled = true; };
   }, [sessionId]);
 
+  // Listen for in-renderer requests to switch to the browser view (emitted
+  // by structured blocks like LoginForm's "log in myself" escape hatch).
+  useEffect(() => {
+    const handler = (): void => { onSwitchToBrowser(); };
+    window.addEventListener('chatv2:open-browser', handler);
+    return () => window.removeEventListener('chatv2:open-browser', handler);
+  }, [onSwitchToBrowser]);
+
   const header = useSessionsStore(
     useShallow((s): {
       prompt: string;

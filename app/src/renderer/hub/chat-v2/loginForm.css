@@ -1,0 +1,255 @@
+/* LoginForm — credential entry surface. See LoginForm.tsx.
+ * Uses the same design-system tokens as OptionList / AskForm so theme
+ * flips (light/dark) come for free. */
+
+.chatv2-login {
+  clear: both;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 18px 20px 16px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg, 10px);
+  max-width: 440px;
+}
+
+.chatv2-login__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.chatv2-login__prompt {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+}
+
+.chatv2-login__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chatv2-login__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chatv2-login__field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.01em;
+}
+
+.chatv2-login__input {
+  width: 100%;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm, 5px);
+  padding: 9px 11px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--color-fg-primary);
+  transition: border-color var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-login__input:focus {
+  outline: none;
+  border-color: var(--color-border-strong);
+}
+.chatv2-login__input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chatv2-login__password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.chatv2-login__password-wrap .chatv2-login__input {
+  padding-right: 52px;
+}
+.chatv2-login__reveal {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-tertiary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-xs, 3px);
+}
+.chatv2-login__reveal:hover {
+  color: var(--color-fg-primary);
+  background: color-mix(in srgb, var(--color-fg-primary) 6%, transparent);
+}
+
+.chatv2-login__foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 6px;
+  flex-wrap: wrap;
+}
+.chatv2-login__submit {
+  background: var(--color-fg-primary);
+  color: var(--color-bg-base);
+  border: 0;
+  padding: 11px 22px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-login__submit:hover:not(:disabled) { filter: brightness(0.93); }
+.chatv2-login__submit:disabled {
+  background: transparent;
+  color: var(--color-fg-tertiary);
+  border: 1px solid var(--color-border-subtle);
+  cursor: not-allowed;
+}
+
+.chatv2-login__manual-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  color: var(--color-fg-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.chatv2-login__manual-link > span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chatv2-login__manual-link:hover {
+  color: var(--color-fg-primary);
+}
+.chatv2-login__manual-link-icon {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.chatv2-login__manual-link-arrow {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0;
+  transform: translate(-2px, 2px);
+  transition:
+    opacity var(--duration-fast, 100ms) var(--ease-out, ease),
+    transform var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-login__manual-link:hover .chatv2-login__manual-link-arrow,
+.chatv2-login__manual-link:focus-visible .chatv2-login__manual-link-arrow {
+  opacity: 0.8;
+  transform: translate(0, 0);
+}
+
+/* Site attribution row: favicon + bold brand · hostname.
+ * Same credibility cue OptionList uses ("Results from <site>"). */
+.chatv2-login__attribution {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-fg-secondary);
+}
+.chatv2-login__attribution-icon {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.chatv2-login__attribution-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.chatv2-login__attribution-site {
+  color: var(--color-fg-primary);
+  font-weight: 600;
+}
+.chatv2-login__attribution-sep {
+  color: var(--color-fg-quaternary, var(--color-fg-tertiary));
+}
+.chatv2-login__attribution-host {
+  font-size: 11.5px;
+  color: var(--color-fg-tertiary);
+}
+
+.chatv2-login__submit-error {
+  font-size: 12px;
+  color: var(--color-status-danger, #ff7a7a);
+  margin-top: 4px;
+}
+
+/* Post-submit collapsed view — dashed border receipt, no password echo. */
+.chatv2-login--submitted {
+  background: transparent;
+  border-style: dashed;
+  padding: 12px 16px;
+}
+.chatv2-login__receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.chatv2-login__receipt-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+.chatv2-login__receipt-meta {
+  font-size: 12px;
+  color: var(--color-fg-tertiary);
+}
+
+/* Skeleton state */
+.chatv2-login__skel-line,
+.chatv2-login__skel-input {
+  border-radius: var(--radius-xs, 3px);
+  background: linear-gradient(110deg,
+    color-mix(in srgb, var(--color-fg-primary) 6%, transparent) 30%,
+    color-mix(in srgb, var(--color-fg-primary) 16%, transparent) 50%,
+    color-mix(in srgb, var(--color-fg-primary) 6%, transparent) 70%);
+  background-size: 200% 100%;
+  animation: chatv2-login-sk 1.4s infinite linear;
+}
+.chatv2-login__skel-line { height: 14px; width: 60%; }
+.chatv2-login__skel-input { height: 36px; width: 100%; border-radius: var(--radius-sm, 5px); }
+@keyframes chatv2-login-sk {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.chatv2-login__error {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: var(--color-fg-tertiary);
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: var(--radius-md, 6px);
+}

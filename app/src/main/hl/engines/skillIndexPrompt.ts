@@ -98,6 +98,23 @@ export function askBlockGuidanceLines(): string[] {
   ];
 }
 
+/**
+ * Provider-neutral nudge for the `login` fenced block — the renderer
+ * surfaces it as a username/password form with a "log in manually in the
+ * browser" escape hatch. The agent reads the credentials from the next
+ * user turn and types them into the live browser view. See the
+ * `login-block` interaction skill for the full schema and the
+ * manual-login fallback contract.
+ */
+export function loginBlockGuidanceLines(): string[] {
+  return [
+    'When the live browser hits a login wall and you need the user to provide credentials, emit a ```login fenced block carrying JSON: { site, url, prompt?, usernameLabel?, passwordLabel? }. `site` is the brand token (e.g. "Amazon", not "amazon.com"); `url` is the absolute http(s) login URL.',
+    'The `login` block ENDS YOUR TURN. After emitting it, do not call any more tools — stop and wait for the user. Their reply arrives as "Login for <site>:\\nusername: <u>\\npassword: <p>" — type these verbatim into the username/password fields of the live tab, then submit. Do NOT echo the password back in your own response.',
+    'The form also offers the user a "log in on <site> myself" affordance that opens the in-app browser view directly; if they take that path you will not get a structured reply, just whatever they type next (e.g. "done"). Treat any plain follow-up message as the signal to resume.',
+    'Use `login` only for real credential walls. For multiple-choice disambiguation, use `ask`; for picking among visible options, use `options`. See the `login-block` interaction skill for the full schema and worked examples.',
+  ];
+}
+
 function normalizeSlash(value: string): string {
   return value.split(path.sep).join('/');
 }

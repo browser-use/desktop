@@ -1,0 +1,142 @@
+/* IframeBlock — sandboxed live frame inside a chat turn.
+ *
+ * Mirrors the bordered shell used by OptionList / CaptureBlock so the
+ * three pickers feel like one family on the chat surface. Theme tokens
+ * come from theme.shell.css and flip with [data-mode="light"]; this
+ * file has no hardcoded mode-specific colors.
+ */
+
+.chatv2-iframe {
+  clear: both;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  width: fit-content;
+  max-width: min(100%, 1200px);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-strong, var(--color-border, rgba(0, 0, 0, 0.22)));
+  border-radius: var(--radius-lg, 10px);
+  padding: 14px;
+}
+
+.chatv2-iframe__prompt {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-fg-primary);
+  line-height: 1.4;
+  letter-spacing: -0.003em;
+}
+
+.chatv2-iframe__frame-wrap {
+  position: relative;
+  background: var(--color-surface-1, #111);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+}
+
+.chatv2-iframe__frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: var(--color-bg-base);
+}
+
+.chatv2-iframe__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--color-fg-tertiary, #888);
+  background: var(--color-surface-1, #111);
+  padding: 16px;
+  text-align: center;
+}
+.chatv2-iframe__overlay--err {
+  color: var(--color-fg-secondary, #ccc);
+}
+.chatv2-iframe__url {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.chatv2-iframe__skel {
+  width: 400px;
+  height: 500px;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-1, #111) 0%,
+    var(--color-surface-2, #1a1a1a) 50%,
+    var(--color-surface-1, #111) 100%
+  );
+  background-size: 200% 100%;
+  animation: chatv2-iframe-shimmer 1.4s linear infinite;
+  border-radius: var(--radius-md, 8px);
+}
+@keyframes chatv2-iframe-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.chatv2-iframe__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.chatv2-iframe__submit {
+  appearance: none;
+  background: var(--color-fg-primary);
+  color: var(--color-bg-base);
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font: 600 13.5px var(--font-ui, system-ui, sans-serif);
+  cursor: pointer;
+  transition: filter var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-iframe__submit:hover:not(:disabled) {
+  filter: brightness(0.93);
+}
+.chatv2-iframe__submit:disabled {
+  background: transparent;
+  color: var(--color-fg-tertiary);
+  border: 1px solid var(--color-border-subtle);
+  cursor: not-allowed;
+}
+
+.chatv2-iframe__skip {
+  appearance: none;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font: 500 13px var(--font-ui, system-ui, sans-serif);
+  cursor: pointer;
+  transition: filter var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-iframe__skip:hover {
+  filter: brightness(1.1);
+  border-color: var(--color-border, rgba(255, 255, 255, 0.22));
+}
+
+.chatv2-iframe__hint {
+  font-size: 12.5px;
+  color: var(--color-fg-tertiary, #888);
+}
+.chatv2-iframe__hint--err {
+  color: #ff7a7a;
+}
+
+.chatv2-iframe__error {
+  font-size: 12.5px;
+  color: #ff7a7a;
+  padding: 6px 0;
+}

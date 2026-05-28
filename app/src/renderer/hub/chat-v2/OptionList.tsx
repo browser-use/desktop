@@ -555,6 +555,15 @@ function OptionListReady({ payload, sessionId, streaming, cancelled, nextUserTex
                   />
                 );
               })}
+              {streaming && Array.from({ length: 2 }).map((_, i) => (
+                <div key={`skel-${i}`} className="chatv2-optlist__skel-card" aria-hidden="true">
+                  <div className="chatv2-optlist__skel-panel" />
+                  <div className="chatv2-optlist__skel-body">
+                    <div className="chatv2-optlist__skel-line chatv2-optlist__skel-line--med" />
+                    <div className="chatv2-optlist__skel-line chatv2-optlist__skel-line--short" />
+                  </div>
+                </div>
+              ))}
             </div>
 
             {sec.allowOther && (

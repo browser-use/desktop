@@ -13,7 +13,7 @@
 import { mainLogger } from '../../../logger';
 import { register } from '../registry';
 import { applyBrowserHarnessEnv } from '../browserHarnessEnv';
-import { buildSkillIndexPrompt, SKILL_DISCOVERY_AND_LIFECYCLE_LINES, htmlBlockGuidanceLines, optionsBlockGuidanceLines, askBlockGuidanceLines } from '../skillIndexPrompt';
+import { buildSkillIndexPrompt, SKILL_DISCOVERY_AND_LIFECYCLE_LINES, htmlBlockGuidanceLines, optionsBlockGuidanceLines, askBlockGuidanceLines, loginBlockGuidanceLines } from '../skillIndexPrompt';
 import { resolveThemeMode } from '../../../themeMode';
 import { enrichedEnv } from '../pathEnrich';
 import { runCliCapture, spawnCli } from '../cliSpawn';
@@ -126,6 +126,7 @@ const claudeCodeAdapter: EngineAdapter = {
       ...htmlBlockGuidanceLines(resolveThemeMode()),
       ...optionsBlockGuidanceLines(),
       ...askBlockGuidanceLines(),
+      ...loginBlockGuidanceLines(),
       "Use the `browser-harness-js` CLI for browser actions. Start with `browser-harness-js 'await connectToAssignedTarget()'`.",
       'Do not use old helpers.js convenience APIs for browser control.',
       'Do not edit harness files unless the user asks or a confirmed Browser Harness JS defect blocks the task.',

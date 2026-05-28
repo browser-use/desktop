@@ -14,14 +14,25 @@
   flex-direction: column;
   gap: 14px;
   margin-top: 18px;
-  padding: 4px 0;
+  padding: 18px 20px 16px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg, 10px);
 }
 
-/* Post-submit chosen view — collapsed receipt. The product cards below
- * still carry their own border/background so the picker reads as a
- * receipt-row in the chat flow, not a boxed container. */
+/* Post-submit chosen view — collapsed receipt with the same solid border
+ * vocabulary as the picker, so the "Chose" card reads as a sibling of
+ * the cards above it rather than a disabled ghost state. */
 .chatv2-optlist--chosen {
-  padding: 4px 0;
+  background: var(--color-bg-elevated);
+  padding: 12px 14px;
+}
+
+/* Cancelled state — drop fill, keep the border but switch to dashed so the
+ * "session ended" reading is unambiguous. */
+.chatv2-optlist--cancelled {
+  background: transparent;
+  border-style: dashed;
 }
 
 /* Cancelled state — session ended before pick. */

@@ -113,13 +113,72 @@ export interface AskFormPayload {
   questions: AskQuestion[];
 }
 
-export type FenceTag = 'html' | 'htmlview' | 'options' | 'ask';
+/**
+ * Payload for a ```login fence — credential collection during browsing.
+ * `site` is the brand token (e.g. "Amazon", not "amazon.com"). `url` is
+ * required so the manual-login escape hatch knows where to deep-link.
+ */
+export interface LoginPayload {
+  site: string;
+  url: string;
+  prompt?: string;
+  usernameLabel?: string;
+  passwordLabel?: string;
+}
+
+/**
+ * Payload for a ```capture fence — recaptcha 3×3 (or NxM) tile picker.
+ * `image` is an absolute path under the harness outputs dir; the renderer
+ * loads it via `chatfile://files<image>`. The renderer slices that single
+ * image visually into rows×cols tiles via CSS `background-position`; no
+ * pre-cropping happens server-side. Selection is returned to the agent as
+ * a list of tile indices (0-based, left-to-right, top-to-bottom).
+ */
+export interface CapturePayload {
+  image: string;
+  prompt?: string;
+  /** Bold subject for the reCAPTCHA-style header banner ("cars",
+   *  "motorcycles", etc.). Rendered emphasized; the renderer matches
+   *  Google's blue prompt bar. */
+  target?: string;
+  /** Optional example thumbnail shown on the right of the header
+   *  (matches the reCAPTCHA "find more like this" candidate image). */
+  targetImage?: string;
+  rows: number;
+  cols: number;
+}
+
+/**
+ * Payload for an ```iframe fence — embeds an arbitrary http(s) URL in a
+ * sandboxed <iframe> directly inside the chat turn. The agent uses this
+ * to surface a piece of the page it's already navigating (a captcha
+ * bframe, a checkout step, an OAuth consent screen) so the user can
+ * interact with the real thing rather than a screenshot+proxy. The
+ * agent's browser session is unrelated to whatever cookies/state the
+ * embedded frame establishes inside the renderer — see iframe-block.md
+ * for the (sometimes severe) limitations.
+ */
+export interface IframePayload {
+  url: string;
+  prompt?: string;
+  /** Pixel width of the embedded frame. Clamped to [200, 1200]. */
+  width: number;
+  /** Pixel height of the embedded frame. Clamped to [200, 900]. */
+  height: number;
+  /** Submit-button label shown below the frame. Default "I'm done". */
+  submitLabel?: string;
+}
+
+export type FenceTag = 'html' | 'htmlview' | 'options' | 'ask' | 'login' | 'capture' | 'iframe';
 
 export type ExtractEvent =
   | { kind: 'text'; text: string }
   | { kind: 'html_block'; content: string; tag: 'html' | 'htmlview'; complete: boolean }
   | { kind: 'option_list'; complete: boolean; raw: string; parsed: OptionListPayload | null; error?: string }
-  | { kind: 'ask_form'; complete: boolean; raw: string; parsed: AskFormPayload | null; error?: string };
+  | { kind: 'ask_form'; complete: boolean; raw: string; parsed: AskFormPayload | null; error?: string }
+  | { kind: 'login_form'; complete: boolean; raw: string; parsed: LoginPayload | null; error?: string }
+  | { kind: 'capture_block'; complete: boolean; raw: string; parsed: CapturePayload | null; error?: string }
+  | { kind: 'iframe_block'; complete: boolean; raw: string; parsed: IframePayload | null; error?: string };
 
 /**
  * Stateful, chunk-fed extractor. Safe to call `feed` once per streamed
@@ -244,8 +303,8 @@ export function extractAll(chunks: string[]): ExtractEvent[] {
  * newline arrives in the next chunk); LAX also accepts end-of-input
  * (used only during the final `end()` flush).
  */
-const OPENER_STRICT = /(^|\n)```(html|htmlview|options|ask)[ \t]*\r?\n/;
-const OPENER_LAX = /(^|\n)```(html|htmlview|options|ask)[ \t]*(\r?\n|$)/;
+const OPENER_STRICT = /(^|\n)```(html|htmlview|options|ask|login|capture|iframe)[ \t]*\r?\n/;
+const OPENER_LAX = /(^|\n)```(html|htmlview|options|ask|login|capture|iframe)[ \t]*(\r?\n|$)/;
 
 function findOpener(buf: string, flush: boolean): { start: number; end: number; tag: FenceTag } | null {
   const re = flush ? OPENER_LAX : OPENER_STRICT;
@@ -321,7 +380,126 @@ function emitBlock(tag: FenceTag, content: string, complete: boolean): ExtractEv
     const { parsed, error } = parseAskForm(content, { partial: !complete });
     return { kind: 'ask_form', complete, raw: content, parsed, error };
   }
+  if (tag === 'login') {
+    const { parsed, error } = parseLoginBlock(content);
+    return { kind: 'login_form', complete, raw: content, parsed, error };
+  }
+  if (tag === 'capture') {
+    const { parsed, error } = parseCaptureBlock(content);
+    return { kind: 'capture_block', complete, raw: content, parsed, error };
+  }
+  if (tag === 'iframe') {
+    const { parsed, error } = parseIframeBlock(content);
+    return { kind: 'iframe_block', complete, raw: content, parsed, error };
+  }
   return { kind: 'html_block', content, tag: tag as 'html' | 'htmlview', complete };
+}
+
+/**
+ * Parse + validate an iframe block body. Tiny flat JSON; the renderer
+ * has nothing useful to show until the URL is in hand, so no streaming
+ * partial path.
+ */
+export function parseIframeBlock(raw: string): { parsed: IframePayload | null; error?: string } {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { parsed: null, error: 'invalid json' };
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { parsed: null, error: 'expected json object at top level' };
+  }
+  const obj = data as Record<string, unknown>;
+  const url = typeof obj.url === 'string' ? obj.url.trim() : '';
+  if (!url) return { parsed: null, error: 'missing required field "url"' };
+  if (!isAbsoluteHttpUrl(url)) return { parsed: null, error: 'url must be an absolute http(s) URL' };
+  const widthRaw = typeof obj.width === 'number' && Number.isFinite(obj.width) ? Math.floor(obj.width) : 400;
+  const heightRaw = typeof obj.height === 'number' && Number.isFinite(obj.height) ? Math.floor(obj.height) : 500;
+  return {
+    parsed: {
+      url,
+      prompt: typeof obj.prompt === 'string' && obj.prompt.trim().length > 0 ? obj.prompt.trim() : undefined,
+      width: Math.min(1200, Math.max(200, widthRaw)),
+      height: Math.min(900, Math.max(200, heightRaw)),
+      submitLabel:
+        typeof obj.submitLabel === 'string' && obj.submitLabel.trim().length > 0
+          ? obj.submitLabel.trim()
+          : undefined,
+    },
+  };
+}
+
+/**
+ * Parse + validate a login block body. The payload is a small flat object;
+ * there's no partial-streaming path because the body is tiny and the form
+ * has nothing useful to render until the closing fence resolves the JSON.
+ */
+/**
+ * Parse + validate a capture block body. Small flat JSON; no streaming
+ * partial path since the body is tiny and the picker can't render
+ * meaningfully until the image path is in hand.
+ */
+export function parseCaptureBlock(raw: string): { parsed: CapturePayload | null; error?: string } {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { parsed: null, error: 'invalid json' };
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { parsed: null, error: 'expected json object at top level' };
+  }
+  const obj = data as Record<string, unknown>;
+  const image = typeof obj.image === 'string' ? obj.image.trim() : '';
+  if (!image) return { parsed: null, error: 'missing required field "image"' };
+  const rowsRaw = typeof obj.rows === 'number' && Number.isFinite(obj.rows) ? Math.floor(obj.rows) : 3;
+  const colsRaw = typeof obj.cols === 'number' && Number.isFinite(obj.cols) ? Math.floor(obj.cols) : 3;
+  const rows = Math.min(8, Math.max(1, rowsRaw));
+  const cols = Math.min(8, Math.max(1, colsRaw));
+  const target = typeof obj.target === 'string' && obj.target.trim().length > 0 ? obj.target.trim() : undefined;
+  const targetImageRaw = typeof obj.targetImage === 'string' ? obj.targetImage.trim() : '';
+  // Only accept absolute http(s) URLs for targetImage (it goes straight
+  // into an <img src>). Drop anything else silently — the header still
+  // renders without the thumbnail.
+  const targetImage = targetImageRaw && isAbsoluteHttpUrl(targetImageRaw) ? targetImageRaw : undefined;
+  return {
+    parsed: {
+      image,
+      prompt: typeof obj.prompt === 'string' && obj.prompt.trim().length > 0 ? obj.prompt.trim() : undefined,
+      target,
+      targetImage,
+      rows,
+      cols,
+    },
+  };
+}
+
+export function parseLoginBlock(raw: string): { parsed: LoginPayload | null; error?: string } {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { parsed: null, error: 'invalid json' };
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { parsed: null, error: 'expected json object at top level' };
+  }
+  const obj = data as Record<string, unknown>;
+  const site = typeof obj.site === 'string' ? obj.site.trim() : '';
+  const url = typeof obj.url === 'string' ? obj.url.trim() : '';
+  if (!site) return { parsed: null, error: 'missing required field "site"' };
+  if (!url) return { parsed: null, error: 'missing required field "url"' };
+  if (!isAbsoluteHttpUrl(url)) return { parsed: null, error: 'url must be an absolute http(s) URL' };
+  return {
+    parsed: {
+      site,
+      url,
+      prompt: typeof obj.prompt === 'string' && obj.prompt.trim().length > 0 ? obj.prompt.trim() : undefined,
+      usernameLabel: typeof obj.usernameLabel === 'string' && obj.usernameLabel.trim().length > 0 ? obj.usernameLabel.trim() : undefined,
+      passwordLabel: typeof obj.passwordLabel === 'string' && obj.passwordLabel.trim().length > 0 ? obj.passwordLabel.trim() : undefined,
+    },
+  };
 }
 
 /**

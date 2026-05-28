@@ -1,0 +1,304 @@
+/* CaptureBlock — recaptcha-style NxM tile picker.
+ *
+ * Uses design-system semantic tokens from theme.shell.css; auto-flips
+ * with [data-mode="light"] so no light-mode block is needed here.
+ *
+ * The grid is one <img> sliced into rows×cols tiles entirely via CSS
+ * background-position. See CaptureBlock.tsx for the math.
+ */
+
+.chatv2-capture {
+  clear: both;
+  display: flex;
+  flex-direction: column;
+  gap: 0; /* banner + grid are flush; the rounded container handles edges */
+  margin-top: 18px;
+  /* Hug the grid width rather than stretching across the chat surface.
+   * The grid itself maxes at 360px (see __grid below); the container
+   * inherits that so the bordered shell isn't oversized. */
+  width: fit-content;
+  max-width: min(360px, 100%);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-strong, var(--color-border, rgba(0, 0, 0, 0.22)));
+  border-radius: var(--radius-lg, 10px);
+  overflow: hidden;
+}
+
+.chatv2-capture__prompt {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+}
+
+/* reCAPTCHA-style header — the blue banner that sits flush on top of the
+ * grid in Google's actual challenge UI. Two-column layout: prompt+target
+ * on the left, optional example thumbnail on the right. The header
+ * shares the grid's max-width and border-radius (top corners) so it
+ * reads as one continuous card with the tiles below. */
+.chatv2-capture__header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: #4285f4; /* reCAPTCHA prompt-bar blue */
+  color: #fff;
+}
+.chatv2-capture__header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.chatv2-capture__header-prompt {
+  font-size: 13px;
+  line-height: 1.25;
+  letter-spacing: 0.002em;
+  opacity: 0.92;
+}
+.chatv2-capture__header-target {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-transform: lowercase;
+}
+.chatv2-capture__header-trailer {
+  font-size: 13px;
+  line-height: 1.25;
+  letter-spacing: 0.002em;
+  opacity: 0.92;
+  margin-top: 2px;
+}
+.chatv2-capture__header-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 2px solid #fff;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  display: block;
+}
+
+/* Foot pads inside the bordered shell, like reCAPTCHA's toolbar area. */
+.chatv2-capture__foot {
+  padding: 12px 14px 14px;
+}
+
+.chatv2-capture__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), 1fr);
+  grid-auto-rows: 1fr;
+  gap: 4px;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: var(--cols, 3) / var(--rows, 3);
+  /* Grout lines between tiles. Uses bg-base so it flips with theme
+   * (white in light mode, near-black in dark) — matches Google's
+   * reCAPTCHA where the gutters read as the page background. */
+  background: var(--color-bg-base);
+  outline: none;
+}
+
+.chatv2-capture__tile {
+  position: relative;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background-color: var(--color-surface-1, #111);
+  background-repeat: no-repeat;
+  cursor: pointer;
+  overflow: hidden;
+  outline: none;
+  /* Snap to integer pixels so adjacent tiles share an exact edge — no
+   * sub-pixel seams that show the slicing. */
+  transform: translateZ(0);
+  transition: transform 120ms cubic-bezier(0.2, 0.7, 0.2, 1),
+              filter 140ms ease-out,
+              box-shadow 140ms ease-out;
+  animation: chatv2-capture-tile-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--tile-index, 0) * 28ms);
+  will-change: transform;
+}
+
+@keyframes chatv2-capture-tile-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.chatv2-capture__tile:hover:not(:disabled) {
+  filter: brightness(1.08);
+  z-index: 1;
+}
+
+.chatv2-capture__tile:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-fg-primary);
+  z-index: 2;
+}
+
+/* Pointer-down: snap down 4% with a fast curve. Pointer-up returns
+ * through the transform transition above for a tactile bounce-back. */
+.chatv2-capture__tile[data-pressing="true"]:not(:disabled) {
+  transform: scale(0.94);
+  transition-duration: 70ms;
+  filter: brightness(0.95);
+}
+
+/* Selected state — neutral b/w treatment that matches OptionList /
+ * AskForm. Ring uses the foreground color (mode-inverted: white on dark,
+ * black on light), the wash is a soft neutral dim, and the check chip
+ * pill is fg-on-bg so it reads the same way in both modes. */
+.chatv2-capture__tile[data-selected="true"] {
+  box-shadow: inset 0 0 0 3px var(--color-fg-primary);
+}
+.chatv2-capture__tile[data-selected="true"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+  animation: chatv2-capture-wash-in 160ms ease-out both;
+}
+@keyframes chatv2-capture-wash-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.chatv2-capture__check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--color-fg-primary);
+  color: var(--color-bg-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(0);
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 2;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.chatv2-capture__tile[data-selected="true"] .chatv2-capture__check {
+  transform: scale(1);
+}
+
+.chatv2-capture__tile:disabled {
+  cursor: default;
+  filter: none;
+}
+
+/* Skeleton variant — placeholder grid while the fence is still streaming
+ * (no image yet). */
+.chatv2-capture__grid--skel .chatv2-capture__tile--skel {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-1, #111) 0%,
+    var(--color-surface-2, #1a1a1a) 50%,
+    var(--color-surface-1, #111) 100%
+  );
+  background-size: 200% 100%;
+  animation: chatv2-capture-shimmer 1.4s linear infinite;
+  cursor: default;
+}
+@keyframes chatv2-capture-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Footer — Confirm + error hint. Mirrors the option-list / ask-form foot
+ * so the chat surface stays visually consistent. */
+.chatv2-capture__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* Mirrors OptionList: fg-on-bg solid pill when live, transparent
+ * outline-only pill when locked. No color accents — keeps the simple
+ * b/w aesthetic consistent across all chat-v2 pickers. */
+.chatv2-capture__submit {
+  appearance: none;
+  background: var(--color-fg-primary);
+  color: var(--color-bg-base);
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 24px;
+  font: 600 13.5px var(--font-ui, system-ui, sans-serif);
+  cursor: pointer;
+  transition: filter var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+.chatv2-capture__submit:hover:not(:disabled) {
+  filter: brightness(0.93);
+}
+.chatv2-capture__submit:disabled {
+  background: transparent;
+  color: var(--color-fg-tertiary);
+  border: 1px solid var(--color-border-subtle);
+  cursor: not-allowed;
+}
+
+.chatv2-capture__hint {
+  font-size: 12.5px;
+  color: var(--color-fg-tertiary, #888);
+}
+.chatv2-capture__hint--err {
+  color: #ff7a7a;
+}
+
+/* Submitted state — the user has confirmed, agent is processing.
+ *
+ * No color shift (keep the b/w treatment consistent with options /
+ * askform). The distinction comes from two unambiguous signals:
+ *   1) unselected tiles are heavily desaturated and dimmed, so the
+ *      surviving "selected" tiles read as the only live content.
+ *   2) the foot button switches to the OptionList disabled pill —
+ *      transparent body, tertiary outline, "Sent to agent" text. */
+.chatv2-capture--submitted .chatv2-capture__tile[data-selected="false"] {
+  filter: grayscale(1) brightness(0.42);
+  opacity: 0.5;
+}
+/* Selected tiles flip to a success-green ring + chip on submit so the
+ * "you finalized these" reading is unambiguous. The foot button stays
+ * b/w (matches OptionList) — only the tile state carries the success
+ * color, not the surrounding chrome. */
+.chatv2-capture--submitted .chatv2-capture__tile[data-selected="true"] {
+  box-shadow: inset 0 0 0 3px #3ecf8e;
+}
+.chatv2-capture--submitted .chatv2-capture__tile[data-selected="true"]::after {
+  background: linear-gradient(180deg, rgba(20, 110, 70, 0.30), rgba(20, 110, 70, 0.45));
+}
+.chatv2-capture--submitted .chatv2-capture__tile[data-selected="true"] .chatv2-capture__check {
+  background: #3ecf8e;
+  color: #062213;
+}
+
+.chatv2-capture__error {
+  font-size: 12.5px;
+  color: #ff7a7a;
+  padding: 6px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatv2-capture__tile {
+    animation: none;
+    transition: none;
+  }
+  .chatv2-capture__tile[data-selected="true"]::after {
+    animation: none;
+  }
+  .chatv2-capture__check {
+    transition: none;
+  }
+  .chatv2-capture__grid--skel .chatv2-capture__tile--skel {
+    animation: none;
+  }
+}
