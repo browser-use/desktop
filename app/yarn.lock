@@ -1781,10 +1781,10 @@
   resolved "https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.3.tgz"
   integrity sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==
 
-"@types/react@*", "@types/react@^19.2.14":
-  version "19.2.14"
-  resolved "https://registry.npmjs.org/@types/react/-/react-19.2.14.tgz"
-  integrity sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==
+"@types/react@*", "@types/react@^19.2.16":
+  version "19.2.16"
+  resolved "https://registry.yarnpkg.com/@types/react/-/react-19.2.16.tgz#9868b153fd9e34e0117afcd5d7e372b8179337e1"
+  integrity sha512-esJiCAnl0kfpNdE69f3So4WJUXy95dLZydX0KwK46riIHDzHM7O9Vtf9xCHW0PXIqvgqNrswl522kA/5yx+F4w==
   dependencies:
     csstype "^3.2.2"
 
@@ -6291,10 +6291,10 @@ rc@^1.2.7:
     minimist "^1.2.0"
     strip-json-comments "~2.0.1"
 
-react-dom@^19.2.5:
-  version "19.2.5"
-  resolved "https://registry.npmjs.org/react-dom/-/react-dom-19.2.5.tgz"
-  integrity sha512-J5bAZz+DXMMwW/wV3xzKke59Af6CHY7G4uYLN1OvBcKEsWOs4pQExj86BBKamxl/Ik5bx9whOrvBlSDfWzgSag==
+react-dom@^19.2.7:
+  version "19.2.7"
+  resolved "https://registry.yarnpkg.com/react-dom/-/react-dom-19.2.7.tgz#0450dc9ae9ddbff76ef196401cd8b8c7fb466ccc"
+  integrity sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ==
   dependencies:
     scheduler "^0.27.0"
 
@@ -6325,10 +6325,10 @@ react-refresh@^0.18.0:
   resolved "https://registry.npmjs.org/react-refresh/-/react-refresh-0.18.0.tgz"
   integrity sha512-QgT5//D3jfjJb6Gsjxv0Slpj23ip+HtOpnNgnb2S5zU3CB26G/IDPGoy4RJB42wzFE46DRsstbW6tKHoKbhAxw==
 
-react@^19.2.5:
-  version "19.2.5"
-  resolved "https://registry.npmjs.org/react/-/react-19.2.5.tgz"
-  integrity sha512-llUJLzz1zTUBrskt2pwZgLq59AemifIftw4aB7JxOqf1HY2FDaGDxgwpAPVzHU1kdWabH7FauP4i1oEeer2WCA==
+react@^19.2.7:
+  version "19.2.7"
+  resolved "https://registry.yarnpkg.com/react/-/react-19.2.7.tgz#1f47a1bfc06f8ec885752c6f4af14369a9f8260b"
+  integrity sha512-HNe9WslTbXmFK8o8cmwgAeJFSBvt1bPdHCVKtaaV+WlAN36mpT4hcRpwbf3fY56ar2oIXzsBpOAiIRHAdY0OlQ==
 
 read-binary-file-arch@^1.0.6:
   version "1.0.6"
