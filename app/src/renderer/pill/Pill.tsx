@@ -423,7 +423,7 @@ export function Pill(): React.ReactElement {
           setAttachments([]);
           setAttachError(null);
         }
-      } else if (e.key === 'Enter' && !e.shiftKey) {
+      } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
         e.preventDefault();
         submit();
       }

@@ -203,7 +203,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
         e.preventDefault();
         submit();
       } else if (e.key === 'Escape') {
