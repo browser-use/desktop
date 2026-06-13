@@ -578,7 +578,7 @@ function FollowUpInput({ sessionId, onUserInput, autoFocus }: { sessionId: strin
     if (e.key === 'Escape') {
       e.preventDefault();
       textareaRef.current?.blur();
-    } else if (e.key === 'Enter' && !e.shiftKey) {
+    } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       handleSubmit();
     }
